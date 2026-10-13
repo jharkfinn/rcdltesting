@@ -325,7 +325,7 @@ def fig_facts(facts, out):
 
 def main():
   p = argparse.ArgumentParser()
-  p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/cpu_overfit'])
+  p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/cpu_overfit', 'results/colab_a2'])
   p.add_argument('--recovered', default='docs/data/singlepass_recovered.json')
   p.add_argument('--out', default='docs/figures')
   args = p.parse_args()

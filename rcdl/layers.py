@@ -230,8 +230,8 @@ class RCDLLayer(nn.Module):
 
   def forward(self, q: torch.Tensor) -> torch.Tensor:
     cfg = self.cfg
-    if self.kind == 'parametric_softmax':
-      return weighted_attention(q, self.keys, self.values, self.weights, self.T)
+    if self.kind == 'parametric_softmax':   # cached mask: random keys never become all-zero rows, so every row stays
+      return weighted_attention(q, self.keys, self.values, self.weights, self.T, valid=self.valid_rows)  # valid
     if self.kind == 'hybrid':
       m = self.size
       s = weighted_attention(q, self.keys[:m], self.values[:m], self.weights[:m], self.T)

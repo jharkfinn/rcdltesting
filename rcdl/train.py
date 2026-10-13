@@ -118,7 +118,9 @@ def create_rcdl_optimizer(model: CifarRCDLClassifier, cfg: RCDLConfig):
     return torch.optim.SGD(params, lr=lr, momentum=cfg.model_momentum)
   if opt_name == 'rmsprop':         # decay 0.9, eps 1e-8
     return torch.optim.RMSprop(params, lr=lr, alpha=0.9, eps=1e-8)
-  return torch.optim.Adam(params, lr=lr)
+  # RCDL_FUSED_ADAM=1: one fused CUDA kernel per step (same update; floating-point order differs slightly). Default off.
+  fused = os.environ.get('RCDL_FUSED_ADAM') == '1' and all(p.is_cuda for p in params)
+  return torch.optim.Adam(params, lr=lr, fused=fused or None)
 
 
 def rcdl_train_step(model: CifarRCDLClassifier, opt, images: torch.Tensor, labels: torch.Tensor,
@@ -228,6 +230,8 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
   aug_pool = ThreadPoolExecutor(max_workers=1) if cfg.augment else None
   next_aug = aug_pool.submit(augment) if cfg.augment else None
   for epoch in range(cfg.num_epochs):
+    if step >= total_steps:                 # max_steps reached: skip the remaining epochs (and their augmentation)
+      break
     perm = torch.randperm(n, generator=order_gen).to(train_x.device)
     epoch_x = train_x
     if cfg.augment:
