@@ -79,32 +79,34 @@ class TSConfig:
   mlp_momentum: float = 0.9
 
 
-def run_teacher_student(cfg: TSConfig, out_dir: Optional[str] = None, eval_every: int = 250) -> Dict[str, Any]:
+def run_teacher_student(cfg: TSConfig, out_dir: Optional[str] = None, eval_every: int = 250,
+                        device: str = 'cpu') -> Dict[str, Any]:
   tgen = torch.Generator().manual_seed(cfg.teacher_seed)
-  teacher = ResidualReLUMLP(cfg.d_in, cfg.teacher_width, cfg.teacher_blocks, 1, tgen).requires_grad_(False)
-  test_x = sample_inputs(cfg.n_test, cfg.d_in, tgen)
+  teacher = ResidualReLUMLP(cfg.d_in, cfg.teacher_width, cfg.teacher_blocks, 1, tgen).requires_grad_(False).to(device)
+  test_x = sample_inputs(cfg.n_test, cfg.d_in, tgen).to(device)
   test_y = teacher(test_x)
   var_y = test_y.var().item()
   gen = torch.Generator().manual_seed(cfg.seed)
   torch.manual_seed(cfg.seed)
 
   B = cfg.batch_size
+  rows = lambda: 1                    # number of stored rows / table entries (sets the eval chunk size)
   if cfg.student == 'gws':
     rc = RCDLConfig(kernel_type='gws', hidden_dim=cfg.d_in, num_layers=0, temperature=cfg.temperature, eta=cfg.eta,
                     beta=cfg.beta, model_momentum=cfg.momentum, db_size=B * (cfg.steps + 1), batch_size=B,
                     num_classes=1, global_init_seed=cfg.seed)
-    layer = RCDLLayer(rc, cfg.d_in, 1, 0, gen)
+    layer = RCDLLayer(rc, cfg.d_in, 1, 0, gen).to(device)
     model = lambda x: layer(rms_norm(x))
-    params, modules = [], [layer]
+    params, modules, rows = [], [layer], lambda: layer.size
   elif cfg.student == 'psm':
     n = cfg.psm_size or B * (cfg.steps + 1)
-    keys = nn.Parameter(torch.randn(n, cfg.d_in, generator=gen) / math.sqrt(cfg.d_in))
-    vals = nn.Parameter(torch.randn(n, 1, generator=gen) * 0.02)
+    keys = nn.Parameter((torch.randn(n, cfg.d_in, generator=gen) / math.sqrt(cfg.d_in)).to(device))
+    vals = nn.Parameter((torch.randn(n, 1, generator=gen) * 0.02).to(device))
     scale = 1.0 / (cfg.temperature * math.sqrt(cfg.d_in))
     model = lambda x: torch.softmax(rms_norm(x) @ keys.T * scale, -1) @ vals
-    params, modules = [keys, vals], []
+    params, modules, rows = [keys, vals], [], lambda: n
   else:
-    mlp = ResidualReLUMLP(cfg.d_in, cfg.mlp_width, cfg.teacher_blocks, 1, gen)
+    mlp = ResidualReLUMLP(cfg.d_in, cfg.mlp_width, cfg.teacher_blocks, 1, gen).to(device)
     model, params, modules = mlp, list(mlp.parameters()), [mlp]
   opt = None
   if cfg.student == 'psm':
@@ -115,9 +117,10 @@ def run_teacher_student(cfg: TSConfig, out_dir: Optional[str] = None, eval_every
   def evaluate():
     for m in modules:
       m.eval()
+    chunk = max(16, min(2000, int(2.5e8 // max(1, rows()))))   # keeps the chunk x rows logit matrix near 1 GB
     with torch.no_grad():
-      mse = sum(F.mse_loss(model(test_x[i:i + 2000]), test_y[i:i + 2000], reduction='sum').item()
-                for i in range(0, cfg.n_test, 2000)) / cfg.n_test
+      mse = sum(F.mse_loss(model(test_x[i:i + chunk]), test_y[i:i + chunk], reduction='sum').item()
+                for i in range(0, cfg.n_test, chunk)) / cfg.n_test
     for m in modules:
       m.train()
     return mse
@@ -125,7 +128,7 @@ def run_teacher_student(cfg: TSConfig, out_dir: Optional[str] = None, eval_every
   log, t0 = [], time.time()
   log.append({'step': 0, 'test_mse': evaluate(), 'wall_sec': 0.0})
   for step in range(1, cfg.steps + 1):
-    x = sample_inputs(B, cfg.d_in, gen)
+    x = sample_inputs(B, cfg.d_in, gen).to(device)
     y = teacher(x)
     pred = model(x)
     loss = F.mse_loss(pred, y)
