@@ -149,7 +149,19 @@ Consequences:
 - The paper's 50-epoch grid (η in [0.3, 3], β in [20, 60]) gives ratios of only 7 to 200. In the notebook's convention these all fall in the poor region; a run with η = 1, β = 30 for 50 epochs stalls at 44.6%. So the paper's grid must use another convention (for example a batch-mean gradient in the weight rule), which it does not state.
 - η = 0 (no denominator learning) is not stable over several epochs: the outputs and the loss grow without bound (train loss 38 to 1,162), although the argmax still gives about 47%.
 
-### 7.2 PENDING: 50-epoch L = 0 temperature sweep, linearization, depth at 10 epochs, MLP baselines, parametric softmax, CIFAR-100
+### 7.2 50 epochs at L = 0 (no hidden layer), linearization
+
+Setup: one GWS readout layer over RMSNorm'd pixels (d = 3072), batch 64, augmentation (App. E.1.1), 50 epochs, so 2,499,264 stored rows (30 GB of keys in fp32). η = 0.003 and β = 10 (best ratio of section 7.1). Colab A100, 22.6 min.
+
+| T | Test acc (10,000 images) | Train acc (2,000-image subset) | Test acc with exp(z) → 1 + z after training | Paper (Fig. 4, read off plot) |
+|---|---|---|---|---|
+| 10 | **61.86** | 82.3 | **15.91** | ~64 (L = 0); large drop when linearized |
+| 3 | PENDING | | | ~59 |
+| 30 | PENDING | | | ~61 |
+
+Test accuracy on the 2,000-image subset over training: 56.1 (epoch 5), 60.2 (epoch 20), 62.1 (epoch 35), 61.7 (epoch 45). The test loss falls the whole time (1.276 to 1.123), so the 20-point train-test gap does not come with a rising test loss.
+
+Linearization: the paper's Fig. 4 (right) replaces exp(z) by its first-order expansion 1 + z after training. The accuracy falls from 61.86% to 15.91%, near chance. This reproduces the claim that the nonlinearity of the kernel carries the model. With z = <q, k>/(T√d) and T = 10, |z| is at most √d/T ≈ 5.5, far outside the range where 1 + z approximates e^z.
 
 ### 7.3 Teacher-student regression (paper Fig. 3, App. E.1.2)
 
