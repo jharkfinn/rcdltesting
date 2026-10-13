@@ -10,7 +10,7 @@ Status: final. Numbers come from `results/` (not committed) and `experiments/sum
 
 ## 0. Claims and verdicts
 
-Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours were used, then 2.50 more A100-hours at the user's request to rerun work lost with the first A100 session (total 14.37, section 10). "Reproduced" means the same number within the stated spread, or the same qualitative result where the paper gives only a plot.
+Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours were used, then 2.50 more A100-hours at the user's request to rerun work lost with the first A100 session (total 14.37). A third round, at the user's go-ahead to exceed the target, used 3.30 Colab G4 hours and a free marimo molab GPU for the claims still open (11, 15, 17, 18, 19); section 10 has the ledger. "Reproduced" means the same number within the stated spread, or the same qualitative result where the paper gives only a plot.
 
 | # | Claim (source) | Verdict | Evidence |
 |---|---|---|---|
@@ -554,11 +554,23 @@ Each direction states what it tests, the evidence from this reproduction that mo
 | a100 | A100-40GB | 03:40 | about 07:25, reclaimed (end time estimated from the compute-unit balance) | 3.75 | baselines, β/η sweep, 50-epoch L = 0, teacher-student grids, depth, hybrid, 50-epoch MLPs |
 | l4b | L4 | 04:11 | 11:29, stopped | 7.30 | optimizer grids, ViT, ablations, single-pass rest, teacher-student long runs, facts, temperature sweep |
 | a2 | A100-40GB | 12:34 | 15:04, stopped | 2.50 | rerun of the lost A100 work (at the user's request, beyond the 12-hour target): GWS-ViT, 200k-step teacher-student, CIFAR-100, 50-epoch Mesa and parametric softmax, 10-epoch MLPs, hybrid seed 2 |
-| Total | | | | 14.37 | |
+| Subtotal, first two rounds | | | | 14.37 | |
+| g4 | Colab G4 (RTX PRO 6000 Blackwell, 96 GB) | 15:30 | 18:48, stopped | 3.30 (27.15 compute units at 8.90 per hour) | third round, at the user's go-ahead to exceed the target: GWS L = 2 for 50 epochs (CIFAR-10) with the bf16 check, DeltaNet 2,000 epochs (5 decay rates), Fig. 5 at 1/10 scale (GWS and parametric Adam 3e-3), hybrid τ = 35 grid for β = 30 |
+| molab | marimo molab notebook (RTX PRO 6000 Blackwell, 96 GB; no compute units) | 15:40 | running at the time of writing | - | third round: GWS L = 2 for 50 epochs (CIFAR-100), Mesa and Muon tuning on CIFAR-100, hybrid τ = 35 grid for β = 10 and 60, parametric Adam 1e-2 for Fig. 5, facts width and value-rate scans |
+| Total paid GPU time (Colab) | | | | 17.67 | |
 
 The first A100 session ended at about 07:25 without polling (Colab most likely reclaimed it as idle), and the runs after 06:59 were lost. The permission check of this agent first refused a new session; after the user asked to reconnect, a second A100 session reran all of them except the 50-epoch temperature runs at T = 3 and 30 (replaced by the 10-epoch sweep). The second session was polled every 3-4 minutes.
 
-Not attempted: the 2,000-epoch DeltaNet experiment (App. E.3.1, about 10 A100-hours); the 2,000-epoch parametric softmax of Fig. 5 (about 22 A100-hours at 250k keys); GWS at L ≥ 1 for 50 epochs (about 154 GB); the per-τ hyperparameter tuning of the hybrid layer (about 12 A100-hours); the full biography task of the article.
+Not attempted after the first two rounds, and done in the third round: the 2,000-epoch DeltaNet experiment (§7.8: 2.7 hours for all five decay rates at once, not 10 A100-hours, because the five models share one stacked step captured as a CUDA graph); the 2,000-epoch parametric softmax of Fig. 5 (at 1/10 of the data with the paper's ratios, §7.7); GWS at L = 2 for 50 epochs (bf16 tables on a 96 GB GPU, §7.4); the per-τ tuning of the hybrid layer at τ = 35 (§5.2). Still not attempted: the full-scale parametric softmax of Fig. 5 (2.56M keys need about 126 GB with Adam state), the RBF kernel at L = 2 for 50 epochs (the bf16 path does not support RBF distances), and the full biography task of the article (Gemma 3 backbone).
+
+Third-round efficiency (one 96 GB GPU per machine, two to four job streams each):
+
+| Change | Measured effect |
+|---|---|
+| bf16 storage of GWS keys and values (`store_dtype`) | L = 2 at 50 epochs fits in 77 GB; 10-epoch check 65.03% vs 65.05% (fp32) |
+| DeltaNet: five decay rates as one stacked model, augmentation on the GPU, CUDA graph | 4.2 ms per step for all five models alone (6 ms shared), against an estimated 10 A100-hours for separate runs |
+| DeltaNet: Delta term inside the weight-gradient matmul, learning rate folded into the loss | 5.05 → 4.16 ms per step (fewer passes over the weights) |
+| Small runs placed beside the 77 GB runs (DeltaNet, facts, Mesa, hybrid) | the GPUs stayed at 97-100% use |
 
 GPU efficiency work on the second A100 session (prompted by the question whether the GPU time was used well; measured on the A100):
 

@@ -19,6 +19,7 @@ import numpy as np
 # Reference palette (dataviz skill, light mode): categorical slots in fixed order, sequential blue ramp, text inks.
 SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948']
 BLUES = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b']
+ORANGES = ['#f4b088', '#ee8a52', '#d4581f', '#9e3f12']    # sequential ramp of the second categorical hue
 SURFACE, INK, INK2, GRID = '#fcfcfb', '#0b0b0b', '#52514e', '#e4e3df'
 
 
@@ -351,18 +352,32 @@ def fig_facts(facts, out):
   """Fact loss vs step per population size N (main phase), and old/new fact accuracy during fine-tuning."""
   main = {p: r for p, r in facts.items() if not r['cfg'].get('finetune_people')}
   if main:
+    third = lambda p: 'molab' in p                          # third-round width / value-rate scans (molab)
     Ns = sorted({r['cfg']['n_people'] for r in main.values()})
-    fig, axes = new_fig(4.6 * len(Ns), 3.8, ncols=len(Ns))
-    for ax, N in zip(np.atleast_1d(axes), Ns):
-      items = sorted((p, r) for p, r in main.items() if r['cfg']['n_people'] == N)
+    panels = [(f'N = {N} individuals: fact loss', [(p, r) for p, r in sorted(main.items())
+                                                    if r['cfg']['n_people'] == N and not third(p)], None) for N in Ns]
+    scan = {p: r for p, r in main.items() if r['cfg']['n_people'] == 16384 and
+            (third(p) or os.path.basename(p) in ('cos_w16384_N16384', 'rbf_last_eta0.3_N16384', 'rbf_last_eta1_N16384',
+                                                 'geglu_w512_N16384'))}
+    if any(third(p) for p in scan):
+      cos = sorted((p for p in scan if scan[p]['cfg']['ffn'] == 'cos'), key=lambda p: scan[p]['cfg']['width'])
+      rbf = sorted((p for p in scan if scan[p]['cfg']['ffn'] == 'rbf'), key=lambda p: scan[p]['cfg']['rbf_eta'])
+      geg = [p for p in scan if os.path.basename(p) == 'geglu_w512_N16384']
+      ramp = {p: BLUES[2 + i] for i, p in enumerate(cos)} | {p: ORANGES[i] for i, p in enumerate(rbf)}
+      ramp |= {p: INK2 for p in geg}
+      panels.append(('N = 16384: Cos width (blue), RBF η (orange)',
+                     [(p, scan[p]) for p in geg + cos + rbf], ramp))
+    fig, axes = new_fig(4.8 * len(panels), 3.9, ncols=len(panels))
+    for ax, (title, items, colors) in zip(np.atleast_1d(axes), panels):
+      N = items[0][1]['cfg']['n_people']
       for c, (p, r) in zip(SERIES * 2, items):
-        ax.plot([q['step'] for q in r['log']], [q['loss'] for q in r['log']], linewidth=1.8, color=c,
+        ax.plot([q['step'] for q in r['log']], [q['loss'] for q in r['log']], linewidth=1.8,
+                color=colors[p] if colors else c,
                 label=f"{os.path.basename(p).replace(f'_N{N}', '')}: acc {r['final_acc']:.3f}")
       K = items[0][1]['cfg']['n_values']
       ax.axhline(math.log(K), color=INK2, linewidth=0.8, linestyle=':')
       ax.axhline(0.9 * math.log(K), color=INK2, linewidth=0.6, linestyle='--')
-      style(ax, f'N = {N} individuals: fact loss', 'training step',
-            'cross-entropy (dotted: ln K; dashed: 0.9 ln K)')
+      style(ax, title, 'training step', 'cross-entropy (dotted: ln K; dashed: 0.9 ln K)')
       ax.legend(fontsize=7, frameon=False)
     fig.tight_layout()
     fig.savefig(os.path.join(out, 'facts_plateau.png'), dpi=150, facecolor=SURFACE)
@@ -387,7 +402,7 @@ def fig_facts(facts, out):
 def main():
   p = argparse.ArgumentParser()
   p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/cpu_overfit',
-                                                  'results/colab_a2', 'results/colab_g4'])
+                                                  'results/colab_a2', 'results/colab_g4', 'results/molab_pull'])
   p.add_argument('--recovered', default='docs/data/singlepass_recovered.json')
   p.add_argument('--out', default='docs/figures')
   args = p.parse_args()
