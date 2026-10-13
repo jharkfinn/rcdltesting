@@ -29,7 +29,7 @@ Budget: about 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU. "Repro
 | 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Depth reproduced (one pass: 53.5 / 58.5 / 59.4; 10 epochs: 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2). Temperature: PENDING | §5.1, §7.4 |
 | 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
 | 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | PENDING (reduced scale) | §7.4 |
-| 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Standard ViT reproduced (best 49.6). GWS-ViT: PENDING (first run stalled at the L4's memory limit; rerun queued) | §5.3 |
+| 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Supported, not fully reproduced: standard ViT 49.6; GWS-ViT 5.5 points ahead at step 600 of 781 (online accuracy), but a kernel slowdown at 2^21 stored rows stopped both runs before the end | §5.3 |
 | 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities match within 4 points; accuracy within 1.2 points for τ ≥ 50 (τ = 35 is an outlier) | §5.2 |
 | 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Not attempted: about 2 × 5 A100-hours | - |
 | 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it; GeGLU has a lower ceiling | PENDING (minimal version; the two-token task has no plateau, the redesigned task has one that grows with N) | §7.5 |
@@ -158,11 +158,20 @@ ViT for CIFAR-10: 4 × 4 patches (64 tokens plus a CLS token), width 128, 2 bloc
 |---|---|---|---|
 | Standard ViT, FFN width 4 × 128 | Adam 3e-4 / 1e-3 / 3e-3 | 49.37 / **49.62** / 46.25 | best 48.4 |
 | Standard ViT, FFN width 16 × 128 | Adam 3e-4 / 1e-3 / 3e-3 | 49.24 / 49.20 / 39.75 | |
-| GWS-ViT, T = 1, η = 0.1, β = 30, fused bf16 attention | Adam 1e-3 | PENDING | best 54.4 |
+| GWS-ViT, T = 1, η = 0.1, β = 30, fused bf16 attention | Adam 1e-3 | not reached (see below) | best 54.4 |
 
 The standard ViT reproduces (49.6 against 48.4). Each dense run takes 5-7 s on the L4.
 
-The first GWS-ViT run stalled. Its online training accuracy rose to 51.1% by step 500 of 781, then the run made no progress for 22 minutes. The process held 21.9 of the L4's 23 GB while drawing only 35 of 72 W. The likely cause: the attention inputs grow by 4,160 rows every step, so the PyTorch caching allocator cannot reuse its blocks and frees and re-allocates near the memory limit. A rerun with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is queued. The other three GWS-ViT settings were dropped to stay within the GPU budget.
+Both GWS-ViT runs (the second with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`) hit the same performance cliff. Steps 400 to 500 took 204 s; steps 500 to 600 took 4,565 s, at 35 W of the L4's 72 W and only 12.3 GB of memory in use. So my first diagnosis (allocator fragmentation at the memory limit) was wrong. The cliff falls at about 2.1M stored rows per layer: step 504 gives 64 + 504 × 4,160 = 2,096,704 rows, next to 2^21 = 2,097,152. The likely cause is a kernel-selection or indexing threshold in the backward pass of PyTorch's fused memory-efficient attention for 2^21 or more keys. At the observed rate, the last 181 steps would need about 2.3 more hours, so both runs were stopped.
+
+Online accuracy (each batch scored before the model learns from it; mean of the last 100 batches) gives a like-for-like comparison at equal steps:
+
+| Step (of 781) | 200 | 300 | 400 | 500 | 600 | 781 | Test acc |
+|---|---|---|---|---|---|---|---|
+| GWS-ViT (run 2; run 1 within 0.4 points) | 37.6 | 42.7 | 46.8 | 51.4 | **52.8** | - | - |
+| Best standard ViT (width 4 × 128, Adam 1e-3) | 33.5 | 37.7 | 42.0 | 46.1 | 47.3 | 50.4 | 49.62 |
+
+The GWS-ViT leads by 4.1 points at step 200 and by 4.8 to 5.5 points from step 300 on. For the standard ViT, the final online accuracy (50.4) is within 0.8 points of the test accuracy. **Verdict: supported, not fully reproduced.** The GWS-ViT is clearly ahead at equal steps, consistent with the paper's 54.4 vs 48.4, but the final test number was not reached within the budget.
 
 ## 6. Classical baselines (single pass over 50,000 training images, exact solvers, Colab A100)
 
