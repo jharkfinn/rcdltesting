@@ -110,9 +110,25 @@ The first L4 session was evicted when a third GPU session was opened (the accoun
 
 **Verdict:** the single-pass claims of Fig. 2 (right) and App. F.2 reproduce. GWS and RBF are the best methods. Muon is about 2 points behind, Mesa about 7 points behind, and Adam and Delta about 10 points behind.
 
-## 5. Ablations
+## 5. Single-pass ablations, hybrid layer and ViT
 
-PENDING.
+### 5.1 Ablations of the best single-pass GWS setting (T = 6, β = 3, η = 0.003, L = 2, batch 16; seeds 1-2; Colab L4)
+
+| Variant | What it tests | Test acc, seeds 1 / 2 | Online train loss (last 100 batches) |
+|---|---|---|---|
+| Default (section 4) | reference | 59.18 / 59.64 (5 seeds: 59.41 ± 0.22) | 1.20 / 1.19 |
+| η = 0 | learned denominator off: new rows get w = 0 | 28.34 / 25.73 | 81 / 88 |
+| No clip of <s, ḡ> | the undocumented clip | 59.07 / 59.57 | 1.20 / 1.19 |
+| η = 0.1 (β/η = 30 instead of 1,000) | step-size ratio | 53.45 / 54.03 | 1.41 / 1.40 |
+| Growing RBF at T = 6 | same temperature as GWS, no normalization | 56.02 / 56.28 | 1.34 / 1.31 |
+| L = 0 (readout only) | depth | 53.54 / 53.55 | 1.42 / 1.41 |
+| L = 1 | depth | PENDING | |
+
+Findings:
+- **Depth adds 6 points** in one pass (L = 0: 53.5%, L = 2: 59.4%). The L = 0 model is an online kernel machine with almost the kernel of section 6, and it stays 5 points below the exact kernel ridge solution (58.55%). So depth mainly compensates for the online, one-pass solver; the margin over the exact kernel machine is about 1 point.
+- **The clip does nothing** here; the β/η ratio matters (5.7 points between 1,000 and 30).
+- **η = 0 diverges**, but not because normalization is needed: the tuned unnormalized RBF layer reaches 59.1% (section 4). At equal temperature (T = 6) the RBF layer is 3.3 points below GWS; at its own best temperature (T = 10) it is level with GWS.
+
 
 ## 6. Classical baselines (single pass over 50,000 training images, exact solvers, Colab A100)
 
