@@ -49,6 +49,8 @@ All pass in float64.
 | Functional gradient descent equals appending one tuple (App. C.3). | The loss slope matches the predicted rate. See the note below. |
 | Gauge invariance (Prop. C.2) and locality of the gauge-fixed update (Thm. C.3). | Exact. |
 | Momentum and decoupled weight decay have a closed form per stored row (App. D.3). | Equals primal SGD-momentum-decay to 1e-6. |
+| The mesa layer over (input, gradient-corrected output) pairs is the FOOF optimizer (Sec. 4, App. E.2 "Algorithm A"). | The closed-form regularized least-squares solution equals the recursion W_T = W_{T-1} - η g_T x_T^T Φ_T^{-1} to 1e-10. |
+| The Mesa (Algorithm B) and Delta updates as implemented in `rcdl.train`. | One step equals the defining formula exactly. |
 
 Note on the functional gradient. With notation q_t (query), s_t (prediction), g_t (loss gradient with respect to the prediction), w_i and k_i (stored weights and keys), σ_k^2 and σ_v^2 (key and value variances of the base Gaussian measure), η (step size), the exact functional-gradient step appends
 
@@ -60,19 +62,57 @@ where D_t = Σ_i w_i exp(<k_i, q_t>) is the weighted softmax denominator at q_t.
 
 ## 4. Results: single-pass CIFAR-10 (batch 16, no augmentation)
 
-PENDING (5 seeds per row, from `results/gpu`).
+Port of the notebook configurations, Hugging Face sample order, seeds 1-5, Colab L4. Accuracy is on the full 10,000-image test set after one pass over the 50,000 training images.
+
+| Model | Seeds | Test accuracy (mean ± std) | Per seed | Notebook (1 seed) | Paper |
+|---|---|---|---|---|---|
+| Growing Weighted Softmax (GWS) | 5 | **59.41 ± 0.22** | 59.18, 59.64, 59.36, 59.64, 59.24 | 59.18 | 59.4 ± 0.4 |
+| Growing RBF | 5 | **59.10 ± 0.62** | 58.42, 59.51, 58.46, 59.75, 59.34 | 58.42 | 58.8 ± 0.2 |
+| Gauge-invariant GWS | 5 | **58.62 ± 0.44** | 58.48, 58.98, 58.01, 59.11, 58.50 | 58.33 | 58.4 ± 0.4 |
+| ResNet-MLP + Muon | 1 | 57.04 | 57.04 | 57.2 ± 0.4 (tuned) | ~57.5 (plot) |
+| ResNet-MLP + Adam | 5 | **49.48 ± 0.57** | 49.98, 48.50, 49.55, 49.72, 49.63 | 48.2 ± 1.0 (tuned) | ~50 (plot) |
+| PENDING: AdamW, SGD, RMSprop, Mesa, Delta, parametric softmax, hybrid | | | | | |
+
+The first L4 session was evicted when a third GPU session was opened (the account allows two at a time). The rows above come from its logged per-run outputs. Reruns that rebuild the raw files are queued.
+
+**Verdict:** the single-pass claims of Fig. 2 (right) and App. F.2 reproduce. GWS and RBF are the best methods. Muon is about 2 points behind, and Adam about 10 points behind.
 
 ## 5. Ablations
 
 PENDING.
 
-## 6. Classical baselines
+## 6. Classical baselines (single pass over 50,000 training images, exact solvers, Colab A100)
 
-PENDING.
+| Method | Best on test (as paper) | Held-out selection | Paper (Fig. 2 right, plot) |
+|---|---|---|---|
+| kNN (euclidean, inverse-distance votes, k = 5) | 35.64 | 36.08 | ~35.5 |
+| Kernel ridge regression, RBF kernel, median-heuristic bandwidth ("SVM" in the paper) | 58.55 | 58.12 | ~58.5 |
+| Kernel ridge regression, the GWS first-layer kernel exp(<q, q'> / (T √d)) on RMSNorm'd pixels | 58.42 (T = 10, λ = 10) | 58.02 | not in paper |
+| Nadaraya-Watson vote with that kernel (pure retrieval, no learning) | 44.58 (T = 1) | 44.14 | not in paper |
 
-## 7. 50-epoch runs
+Both classical points of the paper reproduce. Context they give: **single-pass GWS (59.41%) is 0.9 points above exact kernel ridge regression on raw pixels (58.55%).** Most of the single-pass advantage of the growing nets over parametric MLPs is therefore the advantage of a kernel machine on CIFAR pixels. The depth and the online learning rule add about 1 point. The pure retrieval vote is 15 points lower, so the learned values (not retrieval alone) carry the result.
 
-PENDING.
+## 7. Multi-epoch runs (augmentation, batch 64)
+
+### 7.1 Only the ratio β/η matters (5-epoch sweep, L = 0, T = 10)
+
+Test accuracy after 5 epochs (seed 1):
+
+| η \ β | 1 | 3 | 10 | 30 |
+|---|---|---|---|---|
+| 0 | 46.25 (train loss 38) | 47.68 (113) | 47.71 (384) | 47.25 (1162) |
+| 0.003 | 52.51 | 54.85 | **55.94** | 55.49 |
+| 0.03 | 44.45 | 48.16 | 52.51 | 54.85 |
+| 0.3 | 36.42 | 40.40 | 44.45 | 48.16 |
+
+Settings with the same β/η give the same accuracy and the same training loss to 4 digits (for example (0.003, 1) and (0.03, 10)). Reason: with ṽ the stored weighted values and w the stored weights, the output Σ e^z ṽ / Σ w e^z does not change when all new ṽ and w are scaled by the same factor c. Only the B initial rows (weight 1/B each) break this symmetry, and their share of the denominator is soon negligible. So η is a gauge (scale) choice, not a learning rate, and the layer has two effective hyperparameters: T and β/η.
+
+Consequences:
+- The best ratio is about 3,000 at T = 10.
+- The paper's 50-epoch grid (η in [0.3, 3], β in [20, 60]) gives ratios of only 7 to 200. In the notebook's convention these all fall in the poor region; a run with η = 1, β = 30 for 50 epochs stalls at 44.6%. So the paper's grid must use another convention (for example a batch-mean gradient in the weight rule), which it does not state.
+- η = 0 (no denominator learning) is not stable over several epochs: the outputs and the loss grow without bound (train loss 38 to 1,162), although the argmax still gives about 47%.
+
+### 7.2 PENDING: 50-epoch L = 0 temperature sweep, linearization, depth at 10 epochs, MLP baselines, parametric softmax, CIFAR-100
 
 ## 8. Discrepancies between paper, notebooks and article
 
