@@ -65,51 +65,84 @@ class StackedResMLP:
   def _ln(x, g, b):
     return F.layer_norm(x, x.shape[-1:]) * g[:, None, :] + b[:, None, :]
 
-  def forward(self, x: torch.Tensor, train: bool, record=None):
-    """x: (B, d_in) shared by all K models. record: list that receives (W, X, Y0) of every linear layer."""
+  def forward(self, x: torch.Tensor, train: bool, c=None, record=None):
+    """x: (B, d_in) shared by all K models. c: (K,) Delta coefficients λ_k η_t (training) or None (plain linear
+    layers). record: list that receives (W, X, Y0) of every linear layer (tests)."""
     K, B = self.K, x.shape[0]
-    y0 = (x @ self.W_in.reshape(-1, x.shape[1]).T).reshape(B, K, -1).transpose(0, 1)   # (K, B, d)
+    if c is None:
+      y0 = (x @ self.W_in.reshape(-1, x.shape[1]).T).reshape(B, K, -1).transpose(0, 1)   # (K, B, d)
+      bmm = lambda a, W: torch.bmm(a, W.transpose(1, 2))
+    else:
+      y0 = DeltaLinearShared.apply(x, self.W_in, c)
+      bmm = lambda a, W: DeltaLinear.apply(a, W, c)
     if record is not None:
       record.append((self.W_in, x, y0))
     h = y0 + self.b_in[:, None, :]
     for blk in self.blk:
       a = self._ln(h, blk['g'], blk['b'])
-      u0 = torch.bmm(a, blk['W1'].transpose(1, 2))
+      u0 = bmm(a, blk['W1'])
       z = F.gelu(u0 + blk['b1'][:, None, :])
-      v0 = torch.bmm(z, blk['W2'].transpose(1, 2))
+      v0 = bmm(z, blk['W2'])
       if record is not None:
         record += [(blk['W1'], a, u0), (blk['W2'], z, v0)]
       v = v0 + blk['b2'][:, None, :]
       h = h + (F.dropout(v, self.p_drop, training=True) if train else v)
     a = self._ln(h, self.g_f, self.b_f)
-    o0 = torch.bmm(a, self.W_out.transpose(1, 2))
+    o0 = bmm(a, self.W_out)
     if record is not None:
       record.append((self.W_out, a, o0))
     return o0 + self.b_out[:, None, :]                                                  # (K, B, n_cls)
 
 
-def add_delta_terms(record, lam: torch.Tensor):
-  """W.grad += λ_k Y0^T X for every linear layer (the Delta-rule decay; X shared across models for the input layer)."""
-  for W, X, Y0 in record:
-    Ys = (Y0.detach() * lam[:, None, None]).transpose(1, 2)           # (K, d_out, B)
-    if X.dim() == 2:                                                  # input layer: X (B, d_in) shared by all models
-      W.grad.add_((Ys.reshape(-1, X.shape[0]) @ X).reshape(W.shape))
-    else:
-      W.grad.baddbmm_(Ys, X.detach())
+class DeltaLinear(torch.autograd.Function):
+  """Y0 = X W^T per model (X: (K, B, d_in), W: (K, d_out, d_in)). Backward: dX = G W as usual, but the weight
+  gradient is (G + c Y0)^T X with c = λ η per model: the Delta-rule decay enters the weight update in the same
+  matmul, and does not change the gradient passed to earlier layers."""
+
+  @staticmethod
+  def forward(ctx, x, W, c):
+    y0 = torch.bmm(x, W.transpose(1, 2))
+    ctx.save_for_backward(x, W, c, y0)
+    return y0
+
+  @staticmethod
+  def backward(ctx, G):
+    x, W, c, y0 = ctx.saved_tensors
+    dx = torch.bmm(G, W) if ctx.needs_input_grad[0] else None
+    dW = torch.bmm((G + c[:, None, None] * y0).transpose(1, 2), x)
+    return dx, dW, None
+
+
+class DeltaLinearShared(torch.autograd.Function):
+  """DeltaLinear for the input layer, whose input X (B, d_in) is shared by all K models (one GEMM for all)."""
+
+  @staticmethod
+  def forward(ctx, x, W, c):
+    K, d_out, d_in = W.shape
+    y0 = (x @ W.reshape(-1, d_in).T).reshape(x.shape[0], K, d_out).transpose(0, 1)
+    ctx.save_for_backward(x, c, y0)
+    ctx.shape = W.shape
+    return y0
+
+  @staticmethod
+  def backward(ctx, G):
+    x, c, y0 = ctx.saved_tensors
+    K, d_out, d_in = ctx.shape
+    S = (G + c[:, None, None] * y0).transpose(1, 2).reshape(K * d_out, x.shape[0])
+    return None, (S @ x).reshape(K, d_out, d_in), None
 
 
 def train_step(model, params, x, y, lam, lr, stats=None):
-  """One SGD step with Delta-rule decay for all K models. lr: 0-dim tensor (CUDA-graph safe). Returns the K losses."""
+  """One SGD step with Delta-rule decay for all K models. lr: 0-dim tensor (CUDA-graph safe). Returns the K losses.
+
+  The loss is scaled by η_t before the backward pass, so every gradient already is the step: p <- p - grad. With the
+  Delta coefficient c = λ η_t, the weight step is η_t (G + λ Y0)^T X = η_t G X^T + λ η_t W X X^T, the paper's update."""
   K, B = model.K, x.shape[0]
-  record = []
-  out = model.forward(x, train=True, record=record)
+  out = model.forward(x, train=True, c=lam * lr)
   losses = F.cross_entropy(out.reshape(-1, out.shape[-1]), y.repeat(K), reduction='none').reshape(K, B).mean(1)
-  losses.sum().backward()                        # models are independent: d(sum)/dθ_k = d(loss_k)/dθ_k
+  (losses.sum() * lr).backward()                 # models are independent: d(sum)/dθ_k = d(loss_k)/dθ_k
   with torch.no_grad():
-    add_delta_terms(record, lam)
-    grads = [q.grad for q in params]
-    torch._foreach_mul_(grads, lr)
-    torch._foreach_sub_(params, grads)
+    torch._foreach_sub_(params, [q.grad for q in params])
     if stats is not None:
       stats[0].add_(losses)
       stats[1].add_((out.argmax(-1) == y).float().sum(1))
