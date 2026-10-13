@@ -61,7 +61,7 @@ class RCDLConfig:
   age_rule: str = 'notebook'         # 'notebook': (1-γ)^a (1-μ^(a+1))/(1-μ+1e-6) | 'exact': paper Eq. (combined)
   decay_scope: str = 'values'        # 'values' (notebook) | 'values_and_weights' (paper App. D)
   augment: bool = False              # multi-epoch runs: paper App. E.1.1 augmentation
-  attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' (fused, memory-efficient; 'gws'/'gauge' only)
+  attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' | 'sdpa_bf16' (fused; 'gws'/'gauge' only)
   dataset: str = 'cifar10'           # 'cifar10' | 'cifar100'
   # --- ViT (paper Sec. 5 'Mixing retrieval-centric and parametric layers', App. E.9) ---
   arch: str = 'resmlp'               # 'resmlp' | 'vit' (num_layers = ViT blocks, hidden_dim = token width)
@@ -99,20 +99,24 @@ def weighted_attention(q, keys, values, weights, temperature: float, db_size: Op
   return (exp_qk @ values) / (denom.abs().clamp_min(1e-8) * sign)
 
 
-def weighted_attention_sdpa(q, keys, values, weights, temperature: float):
+def weighted_attention_sdpa(q, keys, values, weights, temperature: float, dtype=None):
   """Memory-efficient weighted softmax attention via fused scaled-dot-product attention.
 
   With z_j = <q, k_j> / (T sqrt(d_in)) and softmax over all rows, s_D(q) = Σ_j e^{z_j} ṽ_j / Σ_m w_m e^{z_m}
   = (softmax(z) @ ṽ) / (softmax(z) @ w). One fused call over the columns [ṽ, w] gives both terms without building the
   query x rows logit matrix. Empty rows (k = 0, ṽ = 0, w = 0) add nothing to either term, so no mask is needed.
+  dtype=torch.bfloat16 runs the fused kernel on bf16 inputs (fp32 accumulation); the output has the dtype of q.
   """
   d_out = values.shape[1]
   V = torch.cat([values, weights], -1)
   pad = (-V.shape[1]) % 8
   if pad:
     V = torch.nn.functional.pad(V, (0, pad))
+  qq, kk = q, keys
+  if dtype is not None:
+    qq, kk, V = q.to(dtype), keys.to(dtype), V.to(dtype)
   out = torch.nn.functional.scaled_dot_product_attention(
-      q[None, None], keys[None, None], V[None, None], scale=1.0 / (temperature * math.sqrt(q.shape[-1])))[0, 0]
+      qq[None, None], kk[None, None], V[None, None], scale=1.0 / (temperature * math.sqrt(q.shape[-1])))[0, 0].to(q.dtype)
   denom = out[:, d_out:d_out + 1]
   sign = torch.where(denom < 0, -torch.ones_like(denom), torch.ones_like(denom))
   return out[:, :d_out] / (denom.abs().clamp_min(1e-30) * sign)
@@ -217,8 +221,9 @@ class RCDLLayer(nn.Module):
         s = rbf_attention(q, keys, values, self.T)
       elif self.linearize and not self.training:
         s = linearized_weighted_attention(q, keys, values, weights, self.T)
-      elif cfg.attn_impl == 'sdpa':
-        s = weighted_attention_sdpa(q, keys, values, weights, self.T)
+      elif cfg.attn_impl in ('sdpa', 'sdpa_bf16'):
+        s = weighted_attention_sdpa(q, keys, values, weights, self.T,
+                                    torch.bfloat16 if cfg.attn_impl == 'sdpa_bf16' else None)
       else:
         s = weighted_attention(q, keys, values, weights, self.T, valid=self.valid_rows[:m])
     if self.training and torch.is_grad_enabled():

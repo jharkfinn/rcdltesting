@@ -163,11 +163,15 @@ def get_per_layer_db_sizes(model: CifarRCDLClassifier, cfg: RCDLConfig) -> Dict[
 def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, eval_every: int = 250,
                         eval_subset: Optional[int] = None, eval_batch_size: int = 500, input_grad: bool = False,
                         train_u8: Optional[np.ndarray] = None, max_steps: Optional[int] = None,
-                        log_every: int = 100, keep_model: bool = False) -> Dict[str, Any]:
+                        log_every: int = 100, keep_model: bool = False, linearize_eval: bool = False,
+                        train_eval_subset: Optional[int] = None) -> Dict[str, Any]:
   """Online CIFAR-10 runner for all model kinds, with the notebook's stream order (torch.randperm, seed = init seed).
 
   data: (train_x, train_y, test_x, test_y) tensors. eval_subset: intermediate evaluations on the first `eval_subset`
   test images (the final evaluation always uses the full test set). train_u8: raw images, required if cfg.augment.
+  linearize_eval: after training, also evaluate with exp(z) replaced by 1 + z in every weighted-softmax layer (paper
+  Fig. 4 right). train_eval_subset: at every evaluation, also measure accuracy on the first `train_eval_subset`
+  (non-augmented) training images (paper Fig. 5).
   Writes config.json, evals.jsonl, train_curve.npz and summary.json to out_dir if given.
   """
   train_x, train_y, test_x, test_y = data
@@ -198,6 +202,9 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
     rec = {'step': step, 'samples': step * B, 'n_test': m, 'test_loss': test_loss, 'test_acc': test_acc,
            'capacity': total, 'capacity_frac': total / total_full_cap, 'eval_sec': time.time() - t0,
            'wall_sec': time.time() - start_time}
+    if train_eval_subset:
+      rec['train_loss'], rec['train_acc'] = rcdl_evaluate(model, train_x[:train_eval_subset],
+                                                          train_y[:train_eval_subset], eval_batch_size)
     evals.append(rec)
     if out_dir:
       eval_log.write(json.dumps(rec) + '\n')
@@ -236,6 +243,14 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
             'final_db_size': sum(final_dbs.values()), 'total_full_capacity': total_full_cap,
             'per_layer_db': final_dbs, 'elapsed': elapsed, 'steps': step,
             'final_train_loss_avg100': float(np.mean(train_losses[-100:]))}
+  if linearize_eval and model.rcdl_layers():
+    for layer in model.rcdl_layers().values():
+      layer.linearize = True
+    result['final_test_loss_linearized'], result['final_test_acc_linearized'] = rcdl_evaluate(
+        model, test_x, test_y, eval_batch_size)
+    for layer in model.rcdl_layers().values():
+      layer.linearize = False
+    print(f'[eval] linearized exp(z) -> 1 + z: acc={result["final_test_acc_linearized"]:.4f}', flush=True)
   print(f'--> Finished in {elapsed:.1f}s | Final Test Accuracy: {result["final_test_acc"] * 100:.2f}%', flush=True)
   if out_dir:
     eval_log.close()
