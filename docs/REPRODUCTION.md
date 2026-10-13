@@ -213,7 +213,7 @@ ResNet-MLP baselines (L = 2, width 3,072, GELU, batch 64, augmentation, 50 epoch
 | MLP + Mesa, lr 3e-4 | PENDING | | | ~67.8 |
 | GWS, L = 0, T = 10 (section 7.2) | 61.86 | 0.81 | 22.6 | ~64 (L = 0 curve of Fig. 4) |
 
-Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L = 2 at 50 epochs would store 3 × 2.5M rows of width 3,072 in each of 3 layers, about 190 GB, so depth is compared at 10 epochs:
+Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L = 2 at 50 epochs would store 2.5M rows in each of 3 layers (keys and values of width 3,072 in the two hidden layers, 61 GB each in fp32; 31 GB in the readout), about 154 GB, so depth is compared at 10 epochs:
 
 | Model | Test acc (%) | exp(z) → 1 + z after training | Minutes (A100) |
 |---|---|---|---|
