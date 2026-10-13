@@ -164,6 +164,18 @@
     "temperature": 0.1,
     "psm_size": 640064
    }
+  },
+  "gws_100k": {
+   "eval_every": 10000,
+   "base": {
+    "student": "gws",
+    "beta": 1.0,
+    "eta": 30.0,
+    "temperature": 1.0,
+    "momentum": 0.9,
+    "steps": 100000,
+    "attn_impl": "splitk_tf32"
+   }
   }
  },
  "_comment_final": "Final runs at the paper's 200,000 steps with the best 10k-step settings: GWS beta1_eta30_temperature1_momentum0.9 (test MSE 4.2e-4 at 10k), MLP lr 0.3 / momentum 0.9 / batch 256 (5.3e-4) and the sample-matched batch-64 MLP lr 0.1 (6.4e-4). gws_precision_check compares the dense path with the Triton split-key kernel (tf32x3 and tf32) at 10k steps. psm_final: best psm_sweep_small setting (lr 1e-3, T = 0.1; test MSE 2.5e-4 at 10k steps) with the 10k-step table size (640,064 trained keys) for 200,000 steps; the paper's 10.24M trained keys would need about 20 GB of parameters and Adam state."
