@@ -25,6 +25,8 @@ def main():
   for s in sorted(glob.glob(os.path.join(args.root, '*', 'seed*', 'summary.json'))):
     name = s.split(os.sep)[-3]
     r = json.load(open(s))
+    if 'skipped' in r:                    # placeholder written to make --skip-done skip a run (GPU budget)
+      continue
     rows.setdefault(name, []).append((r['final_test_acc'], r['final_train_loss_avg100'], r['elapsed']))
   print('| experiment | seeds | test acc % (mean ± std) | min-max | train loss (last 100) | sec/run | notebook | paper |')
   print('|---|---|---|---|---|---|---|---|')

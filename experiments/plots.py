@@ -51,6 +51,8 @@ def load_runs(root):
   for s in glob.glob(os.path.join(root, '**', 'seed*', 'summary.json'), recursive=True):
     d = os.path.dirname(s)
     r = json.load(open(s))
+    if 'skipped' in r:                    # placeholder written to make --skip-done skip a run (GPU budget)
+      continue
     r['seed_dir'] = d
     ev = os.path.join(d, 'evals.jsonl')
     r['evals'] = [json.loads(l) for l in open(ev)] if os.path.exists(ev) else []

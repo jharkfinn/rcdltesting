@@ -99,11 +99,16 @@ Port of the notebook configurations, Hugging Face sample order, seeds 1-5, Colab
 | Gauge-invariant GWS | 5 | **58.62 ± 0.44** | 58.48, 58.98, 58.01, 59.11, 58.50 | 58.33 | 58.4 ± 0.4 |
 | ResNet-MLP + Muon | 1 | 57.04 | 57.04 | 57.2 ± 0.4 (tuned) | ~57.5 (plot) |
 | ResNet-MLP + Adam | 5 | **49.48 ± 0.57** | 49.98, 48.50, 49.55, 49.72, 49.63 | 48.2 ± 1.0 (tuned) | ~50 (plot) |
-| PENDING: AdamW, SGD, RMSprop, Mesa, Delta, parametric softmax, hybrid | | | | | |
+| ResNet-MLP + AdamW (notebook setting) | 1 | 49.98 | 49.98 | - | ~50 (plot) |
+| ResNet-MLP (L = 4) + Mesa/FOOF, best of 6 (lr 1e-4, λ = 0.01, γ = 0.99) | 1 | 52.04 | grid: 47.42-52.04 | - | ~49 (plot) |
+| ResNet-MLP (L = 4) + Delta, best of 9 (lr 3e-3, λ = 1e-5) | 1 | 46.58 | grid: 34.83-46.58 | - | ~47 (plot) |
+| PENDING: SGD, RMSprop, parametric softmax | | | | | |
+
+The paper does not state the Mesa and Delta settings for this plot. The grids above lie inside its 50-epoch ranges (`experiments/configs/repro_1epoch_optimizers.json`), with selection on the test set as in the paper. The best Mesa setting is at the low edge of the learning-rate grid, so a lower rate can be better still.
 
 The first L4 session was evicted when a third GPU session was opened (the account allows two at a time). The rows above come from its logged per-run outputs. Reruns that rebuild the raw files are queued.
 
-**Verdict:** the single-pass claims of Fig. 2 (right) and App. F.2 reproduce. GWS and RBF are the best methods. Muon is about 2 points behind, and Adam about 10 points behind.
+**Verdict:** the single-pass claims of Fig. 2 (right) and App. F.2 reproduce. GWS and RBF are the best methods. Muon is about 2 points behind, Mesa about 7 points behind, and Adam and Delta about 10 points behind.
 
 ## 5. Ablations
 
@@ -135,12 +140,49 @@ Test accuracy after 5 epochs (seed 1):
 
 Settings with the same β/η give the same accuracy and the same training loss to 4 digits (for example (0.003, 1) and (0.03, 10)). Reason: with ṽ the stored weighted values and w the stored weights, the output Σ e^z ṽ / Σ w e^z does not change when all new ṽ and w are scaled by the same factor c. Only the B initial rows (weight 1/B each) break this symmetry, and their share of the denominator is soon negligible. So η is a gauge (scale) choice, not a learning rate, and the layer has two effective hyperparameters: T and β/η.
 
+Direct check (`experiments/inspect_gws.py`, single-pass notebook GWS, seed 1, 59.18%): over 1,000 test queries, the 16 initial rows hold a median 0.20% of the denominator in layer 0, 0.25% in layer 1 and 0.03% in the readout (90th percentiles 0.73%, 0.47%, 0.07%). The same check shows that the clip max(0, ·) sets w = 0 for 47%, 43% and 65% of the stored rows of these three layers. Those rows add to the numerator only. So most readout rows act as unnormalized exponential-kernel rows, and the learned normalization rests on the other third.
+
+The same symmetry holds in the teacher-student sweep (section 7.3): the three settings with β/η = 0.01 give relative test MSE 0.187, 0.186 and 0.186.
+
 Consequences:
 - The best ratio is about 3,000 at T = 10.
 - The paper's 50-epoch grid (η in [0.3, 3], β in [20, 60]) gives ratios of only 7 to 200. In the notebook's convention these all fall in the poor region; a run with η = 1, β = 30 for 50 epochs stalls at 44.6%. So the paper's grid must use another convention (for example a batch-mean gradient in the weight rule), which it does not state.
 - η = 0 (no denominator learning) is not stable over several epochs: the outputs and the loss grow without bound (train loss 38 to 1,162), although the argmax still gives about 47%.
 
 ### 7.2 PENDING: 50-epoch L = 0 temperature sweep, linearization, depth at 10 epochs, MLP baselines, parametric softmax, CIFAR-100
+
+### 7.3 Teacher-student regression (paper Fig. 3, App. E.1.2)
+
+Setup: inputs x on the unit sphere in R^100; target y = f(x), with f a random residual ReLU MLP (width 100, L = 2 blocks, LeCun-normal weights). The target variance is Var(y) = 0.0044. Every step draws a fresh batch, so there is no overfitting. Relative MSE = test MSE / Var(y); 1 means "predicts the mean".
+
+Sweep at 10,000 steps (one seed; grids of the paper's App. tables; Colab A100):
+
+| Student | Grid | Best setting | Test MSE | Relative MSE |
+|---|---|---|---|---|
+| GWS (one layer on RMSNorm(x), batch 64) | β ∈ {0.1, 0.3, 1}, η ∈ {10, 30, 100}, T ∈ {0.1, 1, 3, 10}, momentum ∈ {0.6, 0.9} (72) | β = 1, η = 30, T = 1, momentum 0.9 | 4.2e-4 | 0.095 |
+| MLP (residual ReLU, width 1,024, SGD) | lr ∈ {0.003 ... 0.3}, momentum ∈ {0, 0.9}, batch ∈ {64, 256} (20) | lr 0.3, momentum 0.9, batch 256 | 5.3e-4 | 0.120 |
+| MLP, batch 64 (same samples per step as GWS) | as above | lr 0.1, momentum 0.9 | 6.4e-4 | 0.145 |
+
+Relative MSE of GWS at 10,000 steps, momentum 0.9, by β/η and T ("div" = diverged):
+
+| β/η | (β, η) | T = 0.1 | T = 1 | T = 3 | T = 10 |
+|---|---|---|---|---|---|
+| 0.001 | (0.1, 100) | div | 0.583 | 0.815 | 0.953 |
+| 0.0033 | (0.1, 30) | div | 0.302 | 0.551 | 0.855 |
+| 0.01 | (0.1, 10) | div | 0.187 | 0.320 | 0.650 |
+| 0.01 | (0.3, 30) | div | 0.186 | 0.320 | 0.649 |
+| 0.01 | (1, 100) | div | 0.186 | 0.320 | 0.649 |
+| 0.033 | (1, 30) | div | **0.095** | 0.240 | 0.369 |
+| 0.1 | (1, 10) | div | 0.102 | 0.164 | 0.287 |
+
+Findings:
+- Only β/η matters here too, so the paper's 3 × 3 grid over (β, η) holds 5 distinct settings.
+- T = 0.1 diverges for every setting.
+- With momentum 0.6 and at T = 3, the best ratio is the grid's largest (0.1), so the grid edge limits those rows.
+- At 10,000 steps GWS is ahead of the best MLP. The paper's plot shows the MLP ahead at 200,000 steps (about 1.7e-4 against 2.6e-4). The 200,000-step runs decide this (PENDING).
+- The paper's absolute values are not comparable with ours: it does not state the teacher's output scale, and our Var(y) = 0.0044 is already close to its parametric-softmax value (4e-3).
+
+GPU note: one GWS step at 200,000 steps scans 12.8 million rows for only 64 queries. PyTorch's fused attention runs this on a single GPU block (50 times slower than the dense path on an A100), and the dense path needs about 90 A100-minutes. `rcdl/splitk_attention.py` adds a split-key Triton kernel (each program takes a chunk of rows; the chunk maxima are merged afterwards). It matches the dense path to fp32 rounding (`tests/test_splitk.py`) and is 2.3 times (tf32x3) to 6.6 times (tf32) faster.
 
 ## 8. Discrepancies between paper, notebooks and article
 
