@@ -143,28 +143,35 @@ def fig_beta_eta(runs, out):
 
 
 def fig_teacher_student(ts, out):
-  best = {}
+  """Final 200k-step runs where present (sweeps otherwise: best grid point per student at 10k steps)."""
+  ts = {p: r for p, r in ts.items() if 'precision_check' not in p}
+  curves = {}
   for path, r in ts.items():
-    st = r['cfg']['student']
-    if st not in best or r['final_test_mse'] < best[st][1]['final_test_mse'] or 'full' in path:
-      if st in best and 'full' in best[st][0] and 'full' not in path:
-        continue
-      best[st] = (path, r)
-  if not best:
+    st, final = r['cfg']['student'], '_final' in path
+    key = os.path.basename(os.path.dirname(path)) if final else st
+    if final or not any(st == r2['cfg']['student'] and '_final' in p2 for p2, r2 in ts.items()):
+      if key not in curves or r['final_test_mse'] < curves[key][1]['final_test_mse']:
+        curves[key] = (path, r)
+  if not curves:
     return
   names = {'gws': 'Weighted softmax (growing)', 'mlp': 'Reference MLP', 'psm': 'Parametric softmax'}
   targets = {'gws': 2.6e-4, 'mlp': 1.7e-4, 'psm': 4e-3}
-  fig, ax = new_fig(6.4, 4.0)
-  for c, st in zip(SERIES, ('gws', 'mlp', 'psm')):
-    if st not in best:
-      continue
-    path, r = best[st]
+  color = dict(zip(('gws', 'mlp', 'psm'), SERIES))            # one color per student: curves and paper markers
+  fig, ax = new_fig(6.6, 4.0)
+  for key in sorted(curves):
+    path, r = curves[key]
+    st = r['cfg']['student']
     xs = [p['step'] for p in r['log'] if p['step'] > 0]      # step 0 omitted: the initial rows' outputs are B x scale
     ys = [p['test_mse'] for p in r['log'] if p['step'] > 0]
-    ax.plot(xs, ys, color=c, linewidth=2, label=f'{names[st]} ({os.path.basename(path)})')
-    ax.scatter([200000], [targets[st]], marker='D', s=36, color=c, edgecolor=SURFACE, linewidth=1.5, zorder=3)
+    dashed = st == 'mlp' and r['cfg']['batch_size'] == 64
+    label = f"{names[st]}, batch {r['cfg']['batch_size']}: {ys[-1]:.2e}"
+    ax.plot(xs, ys, color=color[st], linewidth=2, linestyle='--' if dashed else '-', label=label)
+  for st in ('gws', 'mlp', 'psm'):
+    ax.scatter([200000], [targets[st]], marker='D', s=36, color=color[st], edgecolor=SURFACE, linewidth=1.5,
+               zorder=3, label=f'paper at 200k steps, {names[st]} (read off plot)')
+  ax.set_xscale('log')
   ax.set_yscale('log')
-  style(ax, 'Teacher-student regression: test MSE (diamonds: paper at 200k steps)', 'training step', 'test MSE')
+  style(ax, 'Teacher-student regression: test MSE', 'training step', 'test MSE')
   ax.legend(fontsize=7, frameon=False)
   fig.tight_layout()
   fig.savefig(os.path.join(out, 'teacher_student.png'), dpi=150, facecolor=SURFACE)
@@ -198,19 +205,21 @@ def fig_hybrid(runs, out):
 
 
 def fig_multi_epoch(runs, out):
-  keys = [k for k in runs if k.endswith('_50ep') and not k.endswith('c100')]
-  if not keys:
+  panels = [('CIFAR-10', [k for k in runs if k.endswith('_50ep')]),
+            ('CIFAR-100', [k for k in runs if k.endswith('_50ep_c100')])]
+  panels = [(t, ks) for t, ks in panels if ks]
+  if not panels:
     return
-  fig, ax = new_fig(7.0, 4.2)
-  for c, k in zip(SERIES, sorted(keys)):
-    r = runs[k][0]
-    spe = 781
-    ev = [e for e in r['evals'] if e['step'] > 0]
-    ax.plot([e['step'] / spe for e in ev], [100 * e['test_acc'] for e in ev], '-o', markersize=3, linewidth=1.6,
-            color=c, label=f'{k}: {100 * r["final_test_acc"]:.1f}')
-  style(ax, 'CIFAR-10, 50 epochs (aug.): test accuracy (%; intermediate points on 2,000 test images)', 'epoch',
-        'test accuracy (%)')
-  ax.legend(fontsize=7, frameon=False, ncol=2)
+  fig, axes = new_fig(6.4 * len(panels), 4.2, ncols=len(panels))
+  for ax, (title, keys) in zip(np.atleast_1d(axes), panels):
+    for c, k in zip(SERIES * 2, sorted(keys, key=lambda k: -runs[k][0]['final_test_acc'])):
+      r = runs[k][0]
+      spe = 781
+      ev = [e for e in r['evals'] if e['step'] > 0]
+      ax.plot([e['step'] / spe for e in ev], [100 * e['test_acc'] for e in ev], '-o', markersize=3, linewidth=1.6,
+              color=c, label=f'{k}: {100 * r["final_test_acc"]:.1f}')
+    style(ax, f'{title}, 50 epochs (aug.): test accuracy (%)', 'epoch', 'test accuracy (%)')
+    ax.legend(fontsize=7, frameon=False)
   fig.tight_layout()
   fig.savefig(os.path.join(out, 'multi_epoch.png'), dpi=150, facecolor=SURFACE)
   plt.close(fig)
@@ -253,28 +262,45 @@ def fig_train_loss(roots, out, names=('gws', 'rbf', 'gauge', 'mlp_muon', 'mlp_ad
 
 
 def fig_facts(facts, out):
-  if not facts:
-    return
-  Ns = sorted({r['cfg']['n_people'] for r in facts.values()})
-  fig, axes = new_fig(4.2 * len(Ns), 3.8, ncols=len(Ns))
-  axes = np.atleast_1d(axes)
-  for ax, N in zip(axes, Ns):
-    items = sorted((p, r) for p, r in facts.items() if r['cfg']['n_people'] == N)
-    for c, (p, r) in zip(SERIES, items):
-      ax.plot([q['step'] for q in r['log']], [q['loss'] for q in r['log']], linewidth=1.8, color=c,
-              label=os.path.basename(p).replace(f'_N{N}', ''))
-    K = items[0][1]['cfg']['n_values']
-    ax.axhline(math.log(K), color=INK2, linewidth=0.8, linestyle=':')
-    style(ax, f'N = {N} individuals: fact loss', 'training step', 'cross-entropy on all facts')
+  """Fact loss vs step per population size N (main phase), and old/new fact accuracy during fine-tuning."""
+  main = {p: r for p, r in facts.items() if not r['cfg'].get('finetune_people')}
+  if main:
+    Ns = sorted({r['cfg']['n_people'] for r in main.values()})
+    fig, axes = new_fig(4.6 * len(Ns), 3.8, ncols=len(Ns))
+    for ax, N in zip(np.atleast_1d(axes), Ns):
+      items = sorted((p, r) for p, r in main.items() if r['cfg']['n_people'] == N)
+      for c, (p, r) in zip(SERIES * 2, items):
+        ax.plot([q['step'] for q in r['log']], [q['loss'] for q in r['log']], linewidth=1.8, color=c,
+                label=f"{os.path.basename(p).replace(f'_N{N}', '')}: acc {r['final_acc']:.3f}")
+      K = items[0][1]['cfg']['n_values']
+      ax.axhline(math.log(K), color=INK2, linewidth=0.8, linestyle=':')
+      ax.axhline(0.9 * math.log(K), color=INK2, linewidth=0.6, linestyle='--')
+      style(ax, f'N = {N} individuals: fact loss (dotted: ln K; dashed: plateau end)', 'training step',
+            'cross-entropy on facts')
+      ax.legend(fontsize=7, frameon=False)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, 'facts_plateau.png'), dpi=150, facecolor=SURFACE)
+    plt.close(fig)
+  ft = {p: r for p, r in facts.items() if r['cfg'].get('finetune_people')}
+  if ft:
+    fig, ax = new_fig(6.8, 4.0)
+    for c, (p, r) in zip(SERIES, sorted(ft.items())):
+      T0 = r['cfg']['steps']
+      log = [q for q in r['log'] if q['step'] >= T0]
+      name = os.path.basename(p)
+      ax.plot([q['step'] - T0 for q in log], [q['acc'] for q in log], color=c, linewidth=2, label=f'{name}: old facts')
+      ax.plot([q['step'] - T0 for q in log], [q['acc_new'] for q in log], color=c, linewidth=1.4, linestyle='--',
+              label=f'{name}: new facts')
+    style(ax, 'Fine-tuning on new individuals only (no replay): fact accuracy', 'fine-tuning step', 'accuracy')
     ax.legend(fontsize=7, frameon=False)
-  fig.tight_layout()
-  fig.savefig(os.path.join(out, 'facts_plateau.png'), dpi=150, facecolor=SURFACE)
-  plt.close(fig)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, 'facts_finetune.png'), dpi=150, facecolor=SURFACE)
+    plt.close(fig)
 
 
 def main():
   p = argparse.ArgumentParser()
-  p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/local_facts'])
+  p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b'])
   p.add_argument('--recovered', default='docs/data/singlepass_recovered.json')
   p.add_argument('--out', default='docs/figures')
   args = p.parse_args()
@@ -286,7 +312,8 @@ def main():
     for f in glob.glob(os.path.join(root, '**', 'baselines_n50000.json'), recursive=True):
       baselines.update({k: v for k, v in json.load(open(f)).items() if isinstance(v, dict)})
     ts.update(load_json_results(root, 'ts'))
-    facts.update(load_json_results(root, 'facts'))
+    ts.update(load_json_results(root, 'ts_final'))
+    facts.update({p: r for p, r in load_json_results(root, 'facts2').items()})   # task with 2-token names (v2)
   if os.path.exists(args.recovered):     # single-pass runs whose files were lost (see the file's comment)
     for k, accs in json.load(open(args.recovered)).items():
       if not k.startswith('_') and len(runs.get(k, [])) < len(accs):
