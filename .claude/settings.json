@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(colab:*)"
+      "Bash(colab:*)",
+      "Bash(*/mo.sh:*)",
+      "Bash(*execute-code.sh:*)"
     ]
   }
 }
