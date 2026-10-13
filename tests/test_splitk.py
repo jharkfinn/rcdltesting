@@ -25,8 +25,8 @@ for n, nq, d, dout, T in [(1000, 64, 100, 1, 1.0), (777, 37, 100, 1, 0.1), (3000
   ref = weighted_attention(q, k, v, w, T)
   for precision in ['ieee', 'tf32x3']:
     out = weighted_attention_splitk(q, k, v, w, T, precision=precision, programs_per_sm=2)
-    err = (out - ref).abs().max().item()
-    assert err < 1e-6, (n, nq, d, dout, T, precision, err)
+    err = ((out - ref).abs().max() / ref.abs().max()).item()   # T = 0.1 gives large outputs: compare relative error
+    assert err < 1e-5, (n, nq, d, dout, T, precision, err)
 print('OK')
 '''
 
@@ -46,3 +46,22 @@ def test_splitk_matches_dense():
 def _has_cuda() -> bool:
   import torch
   return torch.cuda.is_available()
+
+
+def test_flash2_matches_dense_on_gpu():
+  """attn_impl='flash2' (two bf16 FlashAttention calls) equals the dense weighted softmax up to bf16 rounding,
+  including the gradient with respect to the queries."""
+  import torch
+  if not torch.cuda.is_available():
+    pytest.skip('FlashAttention needs a CUDA GPU')
+  from rcdl.layers import weighted_attention, weighted_attention_flash, rms_norm
+  torch.manual_seed(0)
+  n, nq, d = 5000, 300, 128
+  q = rms_norm(torch.randn(nq, d, device='cuda')).requires_grad_(True)
+  k, v, w = rms_norm(torch.randn(n, d, device='cuda')), torch.randn(n, d, device='cuda') * 0.1, torch.rand(n, 1, device='cuda')
+  ref = weighted_attention(q, k, v, w, 1.0)
+  g_ref, = torch.autograd.grad(ref.sum(), q)
+  out = weighted_attention_flash(q, k, v, w, 1.0)
+  g_out, = torch.autograd.grad(out.sum(), q)
+  rel = lambda a, b: ((a - b).norm() / b.norm()).item()
+  assert rel(out, ref) < 2e-2 and rel(g_out, g_ref) < 5e-2, (rel(out, ref), rel(g_out, g_ref))

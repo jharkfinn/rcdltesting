@@ -61,7 +61,8 @@ class RCDLConfig:
   age_rule: str = 'notebook'         # 'notebook': (1-γ)^a (1-μ^(a+1))/(1-μ+1e-6) | 'exact': paper Eq. (combined)
   decay_scope: str = 'values'        # 'values' (notebook) | 'values_and_weights' (paper App. D)
   augment: bool = False              # multi-epoch runs: paper App. E.1.1 augmentation
-  attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' | 'sdpa_bf16' (fused) | 'splitk' | 'splitk_tf32'
+  attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' | 'sdpa_bf16' (fused) | 'flash2' (2 flash calls,
+                                     # bf16, value width = query width) | 'splitk' | 'splitk_tf32'
                                      # (Triton, few queries, forward-only: 'dense' is used when q needs a gradient)
   dataset: str = 'cifar10'           # 'cifar10' | 'cifar100'
   # --- ViT (paper Sec. 5 'Mixing retrieval-centric and parametric layers', App. E.9) ---
@@ -121,6 +122,30 @@ def weighted_attention_sdpa(q, keys, values, weights, temperature: float, dtype=
   denom = out[:, d_out:d_out + 1]
   sign = torch.where(denom < 0, -torch.ones_like(denom), torch.ones_like(denom))
   return out[:, :d_out] / (denom.abs().clamp_min(1e-30) * sign)
+
+
+def weighted_attention_flash(q, keys, values, weights, temperature: float):
+  """Exact weighted softmax with two FlashAttention calls (bf16): s = (P ṽ) / (P w), P = softmax over all rows.
+
+  Both calls use the same softmax P, so the softmax normalizer cancels in the ratio and autograd gives the exact
+  gradient. FlashAttention needs equal head widths for q, k and v, so ṽ must have the width of q (true for the ViT FFN)
+  and w is padded with zero columns. Reason for this path: PyTorch's memory-efficient attention backward slows down
+  about 50 times at 2^21 keys (measured on L4 and A100, torch 2.11: 502 ms at 2.09M keys, 25.4 s at 2.10M keys for
+  4,160 bf16 queries of width 128), which stalled the GWS-ViT runs. Two flash calls take 164 ms at 2.1M keys.
+  """
+  from torch.nn.attention import SDPBackend, sdpa_kernel
+  d = q.shape[-1]
+  if values.shape[1] != d:
+    raise ValueError(f'flash2 needs value width = query width ({values.shape[1]} != {d})')
+  scale = 1.0 / (temperature * math.sqrt(d))
+  qq, kk = q.to(torch.bfloat16)[None, None], keys.to(torch.bfloat16)[None, None]
+  W = torch.nn.functional.pad(weights, (0, d - weights.shape[1])).to(torch.bfloat16)
+  with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+    num = torch.nn.functional.scaled_dot_product_attention(qq, kk, values.to(torch.bfloat16)[None, None], scale=scale)
+    den = torch.nn.functional.scaled_dot_product_attention(qq, kk, W[None, None], scale=scale)
+  num, den = num[0, 0].float(), den[0, 0, :, :1].float()
+  sign = torch.where(den < 0, -torch.ones_like(den), torch.ones_like(den))
+  return (num / (den.abs().clamp_min(1e-30) * sign)).to(q.dtype)
 
 
 def linearized_weighted_attention(q, keys, values, weights, temperature: float):
@@ -226,6 +251,8 @@ class RCDLLayer(nn.Module):
         from rcdl.splitk_attention import weighted_attention_splitk
         s = weighted_attention_splitk(q, keys, values, weights, self.T,
                                       precision='tf32' if cfg.attn_impl == 'splitk_tf32' else 'tf32x3')
+      elif cfg.attn_impl == 'flash2':
+        s = weighted_attention_flash(q, keys, values, weights, self.T)
       elif cfg.attn_impl in ('sdpa', 'sdpa_bf16'):
         s = weighted_attention_sdpa(q, keys, values, weights, self.T,
                                     torch.bfloat16 if cfg.attn_impl == 'sdpa_bf16' else None)
