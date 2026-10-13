@@ -59,17 +59,22 @@ def predict(k, X: torch.Tensor, coef: torch.Tensor, Xq: torch.Tensor, chunk: int
 
 
 def krr_solve(K: torch.Tensor, Y: torch.Tensor, lams: Iterable[float]) -> Dict[float, torch.Tensor]:
-  """α(λ) = (K + λI)^{-1} Y for several λ from one eigendecomposition K = U diag(s) U^T (float64 for stability
-  if memory allows, else float32)."""
-  try:
-    s, U = torch.linalg.eigh(K.double())
-    UtY = U.T @ Y.double()
-    return {lam: (U @ (UtY / (s + lam)[:, None])).float() for lam in lams}
-  except (RuntimeError, torch.OutOfMemoryError):
-    torch.cuda.empty_cache() if K.is_cuda else None
-    s, U = torch.linalg.eigh(K)
-    UtY = U.T @ Y
-    return {lam: U @ (UtY / (s + lam)[:, None]) for lam in lams}
+  """α(λ) = (K + λI)^{-1} Y for several λ by one Cholesky factorization per λ (float32).
+
+  The diagonal of K is shifted in place, so peak memory is K plus one factor (2 n^2 floats: 20 GB for n = 50,000).
+  K is restored on return. A λ whose shifted matrix is not numerically positive definite in float32 is skipped.
+  """
+  out, shift = {}, 0.0
+  diag = K.diagonal()
+  for lam in sorted(lams):
+    diag.add_(lam - shift)
+    shift = lam
+    L, info = torch.linalg.cholesky_ex(K)
+    if int(info) == 0:
+      out[lam] = torch.cholesky_solve(Y, L)
+    del L
+  diag.sub_(shift)
+  return out
 
 
 @torch.no_grad()
