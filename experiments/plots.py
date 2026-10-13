@@ -58,6 +58,8 @@ def load_runs(root):
     r['evals'] = [json.loads(l) for l in open(ev)] if os.path.exists(ev) else []
     cfg = os.path.join(d, 'config.json')
     r['config'] = json.load(open(cfg)) if os.path.exists(cfg) else {}
+    if r['config'].get('max_steps') is not None:   # truncated speed A/B runs (docs/REPRODUCTION.md section 10)
+      continue
     runs[os.path.basename(os.path.dirname(d))].append(r)
   return runs
 
@@ -165,9 +167,10 @@ def fig_teacher_student(ts, out, partial=None):
     xs = [p['step'] for p in r['log'] if p['step'] > 0]      # step 0 omitted: the initial rows' outputs are B x scale
     ys = [p['test_mse'] for p in r['log'] if p['step'] > 0]
     dashed = st == 'mlp' and r['cfg']['batch_size'] == 64
-    label = f"{names[st]}, batch {r['cfg']['batch_size']}: {ys[-1]:.2e}"
+    label = f"{names[st]}, batch {r['cfg']['batch_size']}, {xs[-1] // 1000}k steps: {ys[-1]:.2e}"
     ax.plot(xs, ys, color=color[st], linewidth=2, linestyle='--' if dashed else '-', label=label)
-  if partial:                                                 # GWS 200k run stopped at 40k (log only)
+  if partial and not any(r['cfg']['student'] == 'gws' and r['log'][-1]['step'] >= 200000 for _, r in curves.values()):
+    # GWS 200k run stopped at 40k (log only); drawn only while no complete 200k GWS run exists
     ax.plot([q[0] for q in partial], [q[1] for q in partial], color=color['gws'], linewidth=2, linestyle=':',
             label=f'{names["gws"]}, 200k run stopped at {partial[-1][0] // 1000}k: {partial[-1][1]:.2e}')
   for st in ('gws', 'mlp', 'psm'):
@@ -216,8 +219,9 @@ def fig_multi_epoch(runs, out):
     return
   fig, axes = new_fig(6.4 * len(panels), 4.2, ncols=len(panels))
   for ax, (title, keys) in zip(np.atleast_1d(axes), panels):
-    for c, k in zip(SERIES * 2, sorted(keys, key=lambda k: -runs[k][0]['final_test_acc'])):
-      r = runs[k][0]
+    best = {k: max(runs[k], key=lambda r: r['final_test_acc']) for k in keys}   # gws_L0_T10_50ep: eta 1 and 0.003 runs
+    for c, k in zip(SERIES * 2, sorted(keys, key=lambda k: -best[k]['final_test_acc'])):
+      r = best[k]
       spe = 781
       ev = [e for e in r['evals'] if e['step'] > 0]
       ax.plot([e['step'] / spe for e in ev], [100 * e['test_acc'] for e in ev], '-o', markersize=3, linewidth=1.6,

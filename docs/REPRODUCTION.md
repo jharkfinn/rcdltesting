@@ -10,7 +10,7 @@ Status: final. Numbers come from `results/` (not committed) and `experiments/sum
 
 ## 0. Claims and verdicts
 
-Budget: about 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU. "Reproduced" means the same number within the stated spread, or the same qualitative result where the paper gives only a plot.
+Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours were used, then 2.50 more A100-hours at the user's request to rerun work lost with the first A100 session (total 14.37, section 10). "Reproduced" means the same number within the stated spread, or the same qualitative result where the paper gives only a plot.
 
 | # | Claim (source) | Verdict | Evidence |
 |---|---|---|---|
@@ -24,13 +24,13 @@ Budget: about 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU. "Repro
 | 8 | Single pass on CIFAR-10: GWS 59.4 ± 0.4, RBF 58.8 ± 0.2, gauge 58.4 ± 0.4; all above Muon, Adam, SGD, Mesa, Delta (Fig. 2 right, App. F.2) | Reproduced: 59.41 ± 0.22, 59.10 ± 0.62, 58.62 ± 0.44; best baseline Muon 57.41 ± 0.52 | §4 |
 | 9 | Kernel ridge regression (~58.5) and kNN (~35.5) on pixels (Fig. 2 right) | Reproduced (58.55, 35.64); GWS is only 0.9 points above exact kernel ridge regression | §6 |
 | 10 | Teacher-student: GWS far below the parametric softmax; MLP student best (Fig. 3) | Reproduced at the paper's endpoint (200k steps): MLP 1.81e-4 < GWS 1.99e-4 < parametric softmax 1.95e-3 (paper ~1.7e-4 / ~2.6e-4 / ~4e-3). Nuance: the parametric softmax is the best student up to ~80k steps (1.9e-4), then degrades without a learning-rate schedule | §7.3 |
-| 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | Partly: Muon 69.5, Adam 64.7 and SGD 59.8 reproduce. GWS at L = 0 (61.9) beats SGD but not Adam; L = 2 at 50 epochs needs about 154 GB, but L = 2 at 10 epochs (65.1) already equals Adam at 50. CIFAR-100 and Mesa at 50 epochs: not obtained (A100 session lost) | §7.2, §7.4 |
+| 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | Partly. Baselines reproduce (CIFAR-10: Muon 69.5, Mesa 66.7, Adam 64.7, SGD 59.8; CIFAR-100: Muon 40.2). GWS at L = 0 (61.9) beats SGD only; L = 2 at 50 epochs needs about 154 GB, but at equal 10 epochs GWS L = 2 (65.1) beats Muon (62.2) and Adam (56.9). Not reproduced: Mesa (38.5) is 1.7 points below Muon on CIFAR-100 at one setting | §7.2, §7.4 |
 | 12 | Training loss falls much faster for GWS and RBF (Fig. 2 middle) | Reproduced for L = 2 (online loss 0.75 after 10 epochs; Muon 1.12, Adam 1.31) and in one pass (1.20 against Muon 1.26) | §7.4, figure |
 | 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Reproduced. Depth: one pass 53.5 / 58.5 / 59.4, 10 epochs 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2. Temperature (L = 0, 10 epochs): 53.5 / 58.6 / 51.3 for T = 3 / 10 / 30 | §5.1, §7.4 |
 | 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
-| 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Partly (reduced scale, CPU): GWS reaches higher test accuracy (48.8 vs 40.8) and the parametric model fits more slowly, as claimed; but GWS has the larger, widening train-test gap (48 vs 7 points). Learned weights diverge, as the paper reports. Full-scale A100 run: §7.8 | §7.7 |
-| 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Reproduced: 55.24 vs 49.62 (after replacing PyTorch's fused attention, whose backward pass slows 50 times at 2^21 keys, by an exact two-call FlashAttention form) | §5.3 |
-| 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities match within 4 points; accuracy within 1.2 points for τ ≥ 50 (τ = 35 is an outlier) | §5.2 |
+| 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Partly. Reproduced: GWS reaches much higher test accuracy (61.9 vs 49.1 at full scale) and the parametric model fits slowly; learned weights make it diverge. Not reproduced within the budget: the parametric model's overfitting needs ~2,000 epochs (at 50 it is still underfitting); and GWS has the larger train-test gap at every epoch (20 vs 3 points) | §7.7 |
+| 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Reproduced: 55.24 at the first setting and 58.41 at the best of four (all four 52.5-58.4) vs 49.62 for the best standard ViT; needed an exact two-call FlashAttention form because PyTorch's fused attention backward slows 50 times at 2^21 keys | §5.3 |
+| 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced for τ ≥ 40 with the notebook setting (capacities within 4 points; accuracy within 1.2 points for τ ≥ 50, two seeds at τ = 50: 56.2, 56.5). The τ = 35 point fails with that setting on both seeds (49.5, 44.3; paper 58.6 after per-τ tuning) | §5.2 |
 | 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Not attempted: about 2 × 5 A100-hours | - |
 | 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it; GeGLU has a lower ceiling | Mostly reproduced (minimal version): the plateau grows 4-7 times for 4 times more individuals; the growing RBF layer reaches 90% of facts 3 times sooner than GeGLU and ends at 99.8% against 82-92%; the plateau ends only 18-24% earlier than with GeGLU-512 | §7.5 |
 | 20 | Article: parametric FFNs forget under fine-tuning; RCDL layers "unforget" without replay | Weakly supported: all variants forget (old facts 99.6% → 16-30%); only the growing layer recovers part of them without replay (30.1% → 38.4%) | §7.5 |
@@ -153,7 +153,7 @@ Notebook setting for every τ (L = 3, T = 5, β = 30, η = 1, Adam 1e-3, batch 1
 | 65 | 0.8 | 39.80 | ~1 / ~41.0 |
 | 70 | 0.2 | 34.23 | ~0 / ~34.5 |
 
-The capacities match the paper within 4 points at every τ, so the growth rule is the paper's. Accuracy matches within 1.2 points for τ ≥ 50 and is 1.3-1.7 points lower at τ = 40-45, where the paper's per-τ tuning matters most. τ = 35 is an outlier (49.5%, training loss 1.49 against 1.26 at τ = 40); a second seed of τ = 35 and τ = 50 is queued. The notebook's own hybrid run (τ = 50, seed 42, official sample order) gives 55.12%. **Verdict: reproduced** for the trade-off curve: at 22% of the rows the layer keeps 54.2%, 5 points below full single-pass GWS.
+The capacities match the paper within 4 points at every τ, so the growth rule is the paper's. Accuracy matches within 1.2 points for τ ≥ 50 and is 1.3-1.7 points lower at τ = 40-45, where the paper's per-τ tuning matters most. A second seed confirms both ends: τ = 50 gives 56.45% (seed 1: 56.22%) and τ = 35 gives 44.32% (seed 1: 49.47%; training loss 1.76 and 1.49 against 1.26-1.29 at τ = 40-50). So the τ = 35 drop is systematic with the notebook setting, and the paper's 58.6% at τ = 35 depends on its per-τ tuning. The notebook's own hybrid run (τ = 50, seed 42, official sample order) gives 55.12%. **Verdict: reproduced** for the trade-off curve: at 22% of the rows the layer keeps 54.2%, 5 points below full single-pass GWS. Not reproduced with one fixed setting: the highest-capacity point (τ = 35) needs retuning.
 
 
 ### 5.3 ViT with growing FFN layers (paper Sec. 5, App. E.9)
@@ -164,7 +164,10 @@ ViT for CIFAR-10: 4 × 4 patches (64 tokens plus a CLS token), width 128, 2 bloc
 |---|---|---|---|
 | Standard ViT, FFN width 4 × 128 | Adam 3e-4 / 1e-3 / 3e-3 | 49.37 / **49.62** / 46.25 | best 48.4 |
 | Standard ViT, FFN width 16 × 128 | Adam 3e-4 / 1e-3 / 3e-3 | 49.24 / 49.20 / 39.75 | |
-| GWS-ViT, T = 1, η = 0.1, β = 30, two-call FlashAttention (bf16) | Adam 1e-3 | **55.24** (A100, 4.0 min) | best 54.4 |
+| GWS-ViT, T = 1, η = 0.1, β = 30, two-call FlashAttention (bf16) | Adam 1e-3 | 55.24 (A100, 4.0 min) | best 54.4 |
+| GWS-ViT, T = 1, η = 0.1, β = 10 | Adam 1e-3 | **58.41** | |
+| GWS-ViT, T = 0.3, η = 0.1, β = 30 | Adam 1e-3 | 53.84 | |
+| GWS-ViT, T = 3, η = 0.1, β = 30 | Adam 1e-3 | 52.49 | |
 
 The standard ViT reproduces (49.6 against 48.4). Each dense run takes 5-7 s on the L4.
 
@@ -179,7 +182,7 @@ Online accuracy (each batch scored before the model learns from it; mean of the 
 
 The GWS-ViT leads by 4.1 points at step 200 and by 4.8 to 5.5 points from step 300 on. For the standard ViT, the final online accuracy (50.4) is within 0.8 points of the test accuracy.
 
-**Fix and final run.** The weighted softmax is s = (P ṽ) / (P w), with P the softmax matrix over all stored rows, ṽ the stored values and w the stored weights. Both terms share P, so two FlashAttention calls (one with ṽ, one with w padded to the head width) give s exactly, and autograd gives the exact gradient (`attn_impl='flash2'`, `rcdl.layers.weighted_attention_flash`; GPU test in `tests/test_splitk.py`). FlashAttention has no slowdown at 2^21 keys: 164 ms per forward and backward pass at 2.1M keys and 254 ms at 3.25M keys, against 25.4 s for the memory-efficient kernel at 2.1M keys. With it, the full epoch takes 4.0 minutes on an A100 and gives **55.24%** test accuracy (paper: 54.4%), 5.6 points above the best standard ViT (49.62%; paper 48.4%, a 6.0-point gap). **Verdict: reproduced.**
+**Fix and final run.** The weighted softmax is s = (P ṽ) / (P w), with P the softmax matrix over all stored rows, ṽ the stored values and w the stored weights. Both terms share P, so two FlashAttention calls (one with ṽ, one with w padded to the head width) give s exactly, and autograd gives the exact gradient (`attn_impl='flash2'`, `rcdl.layers.weighted_attention_flash`; GPU test in `tests/test_splitk.py`). FlashAttention has no slowdown at 2^21 keys: 164 ms per forward and backward pass at 2.1M keys and 254 ms at 3.25M keys, against 25.4 s for the memory-efficient kernel at 2.1M keys. With it, the full epoch takes 4.0 minutes on an A100 and gives **55.24%** test accuracy (paper: 54.4%), 5.6 points above the best standard ViT (49.62%; paper 48.4%, a 6.0-point gap). All four GWS-ViT settings beat every standard ViT (52.5-58.4% against at most 49.6%); the best (T = 1, β/η = 100) reaches 58.41%, selected on the test set as in the paper. **Verdict: reproduced.**
 
 ## 6. Classical baselines (single pass over 50,000 training images, exact solvers, Colab A100)
 
@@ -241,7 +244,7 @@ ResNet-MLP baselines (L = 2, width 3,072, GELU, batch 64, augmentation, 50 epoch
 | MLP + Adam, lr 3e-4 | 64.72 | 0.85 | 4.5 | ~65 |
 | MLP + Adam, lr 1e-4 | 64.37 | 0.87 | 4.5 | ~65 |
 | MLP + SGD, lr 1e-2 | 59.77 | 1.15 | 3.8 | ~61 |
-| MLP + Mesa, lr 3e-4 | lost: 57% done at the last copy (online train accuracy 72%); the A100 session ended before the result was copied | | | ~67.8 |
+| MLP + Mesa, lr 3e-4 (second A100 session; low-rank solve, TF32) | 66.72 | 0.59 | 10.6 | ~67.8 |
 | GWS, L = 0, T = 10 (section 7.2) | 61.86 | 0.81 | 22.6 | ~64 (L = 0 curve of Fig. 4) |
 
 Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L = 2 at 50 epochs would store 2.5M rows in each of 3 layers (keys and values of width 3,072 in the two hidden layers, 61 GB each in fp32; 31 GB in the readout), about 154 GB, so depth is compared at 10 epochs:
@@ -251,7 +254,8 @@ Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L
 | GWS, L = 0 | 58.55 | 20.93 | 1.4 |
 | GWS, L = 1 | 63.83 | 24.00 | 3.9 |
 | GWS, L = 2 | **65.05** | 23.69 | 7.0 |
-| MLP + Adam / Muon, L = 0 and L = 2, 10 epochs | not run (GPU budget) | | |
+| MLP + Adam, L = 0 / L = 2, 10 epochs | 36.65 / 56.85 | | 0.5 / 0.5 |
+| MLP + Muon, L = 0 / L = 2, 10 epochs | 38.70 / 62.22 | | 0.5 / 2.7 |
 
 Temperature at L = 0, 10 epochs (η = 0.003, β = 10, the best ratio at T = 10; Colab L4):
 
@@ -263,10 +267,19 @@ Temperature at L = 0, 10 epochs (η = 0.003, β = 10, the best ratio at T = 10; 
 
 The effect of T is non-monotonic with a peak at T = 10, as in the paper's Fig. 4 (left; ~59 / ~64 / ~61 at 50 epochs). A low temperature (sharp kernel) overfits (train 88%, test 53%); a high temperature underfits (train 52%). Caveat: β/η was tuned at T = 10 only.
 
-CIFAR-100 (Muon, Mesa, GWS at 50 epochs) was queued on the A100 and lost with the session; it was not rerun (GPU budget).
+CIFAR-100, 50 epochs (second A100 session, TF32; one setting per method):
+
+| Model | Test acc (%) | Paper (Fig. 2 left, CIFAR-100 panel, read off plot) |
+|---|---|---|
+| MLP + Muon, lr 1e-3 | **40.16** | ~39.2 |
+| MLP + Mesa, lr 3e-4 | 38.51 | ~40.4 (best in the paper) |
+| GWS, L = 0, T = 10 | 31.81 (linearized: 2.92) | ~39.1 for L = 2 |
+
+The paper's claim that Mesa is best on CIFAR-100 does not hold at these settings: Muon is 1.65 points ahead. The paper tuned Mesa over learning rate, γ and λ; this run uses one setting.
 
 Findings:
-- The Muon and Adam baselines reproduce the paper's values (69.5% and about 65%).
+- The Muon, Adam, Mesa and SGD baselines reproduce the paper's CIFAR-10 values (69.5, 64.7, 66.7 and 59.8% against about 69.5, 65, 67.8 and 61).
+- At equal training (10 epochs), GWS beats the MLPs at every depth: 58.6 vs 38.7 (L = 0, where the MLP is a linear model) and 65.1 vs 62.2 (L = 2, Muon) and 56.9 (Adam).
 - GWS at L = 0 after 50 epochs (61.9%) is below Adam (64.7%). GWS at L = 2 after only 10 epochs (65.1%) is already level with Adam after 50 epochs. The paper's claim (GWS above Adam, SGD and RMSprop, below Muon) refers to deeper GWS models at 50 epochs, which this budget cannot hold in memory.
 - The linearization collapse holds at every depth (21-24% at 10 epochs).
 
@@ -358,7 +371,7 @@ Memory is the stored table (keys, values, weights; fp32) or the parameters; comp
 | | ResNet-MLP L = 8 + AdamW | 50.0 | 0.30 GB | 0.15 G | 101 s |
 | 50 epochs, batch 64 (A100) | GWS, L = 0 (2.5M rows) | 61.9 | 31 GB | 15.4 G | 22.6 min |
 | | ResNet-MLP L = 2 + Muon | 69.5 | 0.08 GB | 0.04 G | 9.7 min |
-| Teacher-student (test MSE, not accuracy) | GWS, stopped at 40k steps (2.56M rows of width 100) | 2.5e-4 | 1.0 GB (5.2 GB at 200k) | 0.52 G | 7.4 min (L4, shared) |
+| Teacher-student, 200k steps (test MSE, not accuracy) | GWS (12.8M rows of width 100) | 1.99e-4 | 5.2 GB | 2.6 G | 14.8 min (A100, split-key kernel) |
 | | MLP, width 1,024, 200k steps, batch 256 | 1.81e-4 | 4.6 MB | 2.3 M | 7.5 min (L4) |
 
 Reading: in one pass, GWS is both the most accurate and among the fastest to train (no optimizer state, one write per sample), at 10 times the memory and inference compute of the 8-layer MLP. Over 50 epochs the picture reverses: the L = 0 GWS layer uses 400 times the memory and compute of the 2-layer MLP and is 7.6 points below it. At 10 epochs, the L = 2 GWS model (65.1%) needs 3 × 0.5M rows, about 31 GB. The article's summary ("matches but does not beat strong baselines, at much higher cost") fits the multi-epoch results. In the single-pass regime GWS beats the strongest baseline measured here by 2 points.
@@ -380,7 +393,14 @@ Findings:
 - GWS reaches higher test accuracy (48.8% against 40.8%), as in the paper, and the parametric baseline is "slower to fit the training data", as the paper says.
 - The paper's other statement does not hold here: GWS has by far the larger train-test gap (48 points against 7), and its gap widens. GWS memorizes the training set (97%) while its test accuracy keeps rising slowly. The parametric softmax shows only a small widening gap. At this scale, the difference between the two models is how fast they fit, not whether they overfit.
 - The instability of learned weights reproduces.
-- A full-scale run (all 50,000 images, 250,000 trained keys, 50 epochs, A100) is in section 7.8 when it finishes.
+- Full scale (all 50,000 images, 250,000 trained keys, plain softmax, Adam 1e-3, T = 1, 50 epochs, A100, 33 min):
+
+| Epoch | 5 | 10 | 20 | 30 | 40 | 50 |
+|---|---|---|---|---|---|---|
+| Parametric softmax: test / train acc (%) | 37.2 / 37.1 | 41.5 / 41.1 | 44.4 / 45.8 | 46.1 / 48.9 | 46.8 / 51.3 | **49.1 / 52.3** |
+| GWS, L = 0 (section 7.2): test / train acc (%) | 56.1 / 65.2 | 58.5 / 72.3 | 60.2 / 76.6 | 60.3 / 80.1 | 61.4 / 82.1 | **61.9 / 82.3** |
+
+  At 50 epochs the parametric model is still underfitting (train 52%) and its test accuracy is still rising; the gap is 3 points. The paper's widening gap appears after much longer training (2,000 epochs, 40 times this run, about 22 A100-hours at this table size), which was not attempted. GWS is 12.8 points ahead on test accuracy and fits much faster, as claimed, but its own gap (20 points) is larger at every epoch.
 
 ## 8. Discrepancies between paper, notebooks and article
 
@@ -457,11 +477,12 @@ Each direction states what it tests, the evidence from this reproduction that mo
 | gpu | L4 | 03:22 | 04:11, evicted when a third session was opened (limit: two) | 0.82 | single-pass reproduction, 5 seeds |
 | a100 | A100-40GB | 03:40 | about 07:25, reclaimed (end time estimated from the compute-unit balance) | 3.75 | baselines, β/η sweep, 50-epoch L = 0, teacher-student grids, depth, hybrid, 50-epoch MLPs |
 | l4b | L4 | 04:11 | 11:29, stopped | 7.30 | optimizer grids, ViT, ablations, single-pass rest, teacher-student long runs, facts, temperature sweep |
-| Total | | | | 11.87 | |
+| a2 | A100-40GB | 12:34 | 15:04, stopped | 2.50 | rerun of the lost A100 work (at the user's request, beyond the 12-hour target): GWS-ViT, 200k-step teacher-student, CIFAR-100, 50-epoch Mesa and parametric softmax, 10-epoch MLPs, hybrid seed 2 |
+| Total | | | | 14.37 | |
 
-Lost with the A100 session (it ran without polling from about 07:00, and Colab most likely reclaimed it as idle): the 50-epoch Mesa run, the 50-epoch temperature runs (T = 3, 30), the reduced-scale parametric-softmax overfitting run (Fig. 5), the CIFAR-100 runs, the 10-epoch MLP depth runs, a second seed of the hybrid layer at τ = 35 and 50, and the 200,000-step GWS and parametric-softmax teacher-student runs. A replacement A100 session was not created (the permission check of this agent refused it). The temperature effect was rerun at 10 epochs on the L4, and the parametric softmax at 50,000 steps.
+The first A100 session ended at about 07:25 without polling (Colab most likely reclaimed it as idle), and the runs after 06:59 were lost. The permission check of this agent first refused a new session; after the user asked to reconnect, a second A100 session reran all of them except the 50-epoch temperature runs at T = 3 and 30 (replaced by the 10-epoch sweep). The second session was polled every 3-4 minutes.
 
-Not attempted: the 2,000-epoch DeltaNet experiment (App. E.3.1, about 10 A100-hours); GWS at L ≥ 1 for 50 epochs (about 154 GB); the per-τ hyperparameter tuning of the hybrid layer (about 12 A100-hours); the full biography task of the article.
+Not attempted: the 2,000-epoch DeltaNet experiment (App. E.3.1, about 10 A100-hours); the 2,000-epoch parametric softmax of Fig. 5 (about 22 A100-hours at 250k keys); GWS at L ≥ 1 for 50 epochs (about 154 GB); the per-τ hyperparameter tuning of the hybrid layer (about 12 A100-hours); the full biography task of the article.
 
 GPU efficiency work on the second A100 session (prompted by the question whether the GPU time was used well; measured on the A100):
 
