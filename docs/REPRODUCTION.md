@@ -97,12 +97,15 @@ Port of the notebook configurations, Hugging Face sample order, seeds 1-5, Colab
 | Growing Weighted Softmax (GWS) | 5 | **59.41 ± 0.22** | 59.18, 59.64, 59.36, 59.64, 59.24 | 59.18 | 59.4 ± 0.4 |
 | Growing RBF | 5 | **59.10 ± 0.62** | 58.42, 59.51, 58.46, 59.75, 59.34 | 58.42 | 58.8 ± 0.2 |
 | Gauge-invariant GWS | 5 | **58.62 ± 0.44** | 58.48, 58.98, 58.01, 59.11, 58.50 | 58.33 | 58.4 ± 0.4 |
-| ResNet-MLP + Muon | 1 | 57.04 | 57.04 | 57.2 ± 0.4 (tuned) | ~57.5 (plot) |
+| ResNet-MLP + Muon | 2 | **57.41 ± 0.52** | 57.04, 57.78 | 57.2 ± 0.4 (tuned) | ~57.5 (plot) |
 | ResNet-MLP + Adam | 5 | **49.48 ± 0.57** | 49.98, 48.50, 49.55, 49.72, 49.63 | 48.2 ± 1.0 (tuned) | ~50 (plot) |
 | ResNet-MLP + AdamW (notebook setting) | 1 | 49.98 | 49.98 | - | ~50 (plot) |
 | ResNet-MLP (L = 4) + Mesa/FOOF, best of 6 (lr 1e-4, λ = 0.01, γ = 0.99) | 1 | 52.04 | grid: 47.42-52.04 | - | ~49 (plot) |
 | ResNet-MLP (L = 4) + Delta, best of 9 (lr 3e-3, λ = 1e-5) | 1 | 46.58 | grid: 34.83-46.58 | - | ~47 (plot) |
-| PENDING: SGD, RMSprop, parametric softmax | | | | | |
+| ResNet-MLP + RMSprop | 2 | 48.12 ± 1.44 | 47.10, 49.13 | - | below Adam (plot) |
+| ResNet-MLP + SGD (momentum 0.85) | 2 | 44.26 ± 1.56 | 45.36, 43.15 | - | below Adam (plot) |
+| Parametric softmax, 5,000 rows per layer | 2 | 41.77 ± 0.09 | 41.83, 41.70 | 42.02 | - |
+| Parametric softmax, 50,016 rows per layer | PENDING | | | 40.60 | - |
 
 The paper does not state the Mesa and Delta settings for this plot. The grids above lie inside its 50-epoch ranges (`experiments/configs/repro_1epoch_optimizers.json`), with selection on the test set as in the paper. The best Mesa setting is at the low edge of the learning-rate grid, so a lower rate can be better still.
 
@@ -122,12 +125,29 @@ The first L4 session was evicted when a third GPU session was opened (the accoun
 | η = 0.1 (β/η = 30 instead of 1,000) | step-size ratio | 53.45 / 54.03 | 1.41 / 1.40 |
 | Growing RBF at T = 6 | same temperature as GWS, no normalization | 56.02 / 56.28 | 1.34 / 1.31 |
 | L = 0 (readout only) | depth | 53.54 / 53.55 | 1.42 / 1.41 |
-| L = 1 | depth | PENDING | |
+| L = 1 | depth | 58.25 / 58.67 | 1.25 / 1.23 |
 
 Findings:
-- **Depth adds 6 points** in one pass (L = 0: 53.5%, L = 2: 59.4%). The L = 0 model is an online kernel machine with almost the kernel of section 6, and it stays 5 points below the exact kernel ridge solution (58.55%). So depth mainly compensates for the online, one-pass solver; the margin over the exact kernel machine is about 1 point.
+- **Depth adds 6 points** in one pass (L = 0: 53.5%, L = 1: 58.5%, L = 2: 59.4%). The L = 0 model is an online kernel machine with almost the kernel of section 6, and it stays 5 points below the exact kernel ridge solution (58.55%). So depth mainly compensates for the online, one-pass solver; the margin over the exact kernel machine is about 1 point.
 - **The clip does nothing** here; the β/η ratio matters (5.7 points between 1,000 and 30).
 - **η = 0 diverges**, but not because normalization is needed: the tuned unnormalized RBF layer reaches 59.1% (section 4). At equal temperature (T = 6) the RBF layer is 3.3 points below GWS; at its own best temperature (T = 10) it is level with GWS.
+
+### 5.2 Hybrid layer: accuracy against stored rows (paper Fig. 6)
+
+Notebook setting for every τ (L = 3, T = 5, β = 30, η = 1, Adam 1e-3, batch 16), seed 1, Colab A100, about 4 minutes per run. Capacity = stored rows summed over the 4 layers / (4 × 50,016). The paper tuned T ∈ {1, 5, 10}, β ∈ {10, 30, 60} and the Adam rate ∈ {3e-4, 1e-3, 3e-3} for each τ (27 settings per point, about 12 A100-hours in all); this sweep uses one setting, so its points are lower bounds.
+
+| τ | Capacity (%) | Test acc (%) | Paper (read off Fig. 6): capacity / acc |
+|---|---|---|---|
+| 35 | 89.6 | 49.47 | ~88 / ~58.6 |
+| 40 | 81.8 | 56.83 | ~79 / ~58.5 |
+| 45 | 67.1 | 56.68 | ~65 / ~58.0 |
+| 50 | 46.7 | 56.22 | ~45 / ~56.5 |
+| 55 | 21.8 | 54.20 | ~26 / ~54.5 |
+| 60 | 5.1 | 49.05 | ~5 / ~50.0 |
+| 65 | 0.8 | 39.80 | ~1 / ~41.0 |
+| 70 | 0.2 | 34.23 | ~0 / ~34.5 |
+
+The capacities match the paper within 4 points at every τ, so the growth rule is the paper's. Accuracy matches within 1.2 points for τ ≥ 50 and is 1.3-1.7 points lower at τ = 40-45, where the paper's per-τ tuning matters most. τ = 35 is an outlier (49.5%, training loss 1.49 against 1.26 at τ = 40); a second seed of τ = 35 and τ = 50 is queued. The notebook's own hybrid run (τ = 50, seed 42, official sample order) gives 55.12%. **Verdict: reproduced** for the trade-off curve: at 22% of the rows the layer keeps 54.2%, 5 points below full single-pass GWS.
 
 
 ## 6. Classical baselines (single pass over 50,000 training images, exact solvers, Colab A100)
@@ -178,6 +198,34 @@ Setup: one GWS readout layer over RMSNorm'd pixels (d = 3072), batch 64, augment
 Test accuracy on the 2,000-image subset over training: 56.1 (epoch 5), 60.2 (epoch 20), 62.1 (epoch 35), 61.7 (epoch 45). The test loss falls the whole time (1.276 to 1.123), so the 20-point train-test gap does not come with a rising test loss.
 
 Linearization: the paper's Fig. 4 (right) replaces exp(z) by its first-order expansion 1 + z after training. The accuracy falls from 61.86% to 15.91%, near chance. This reproduces the claim that the nonlinearity of the kernel carries the model. With z = <q, k>/(T√d) and T = 10, |z| is at most √d/T ≈ 5.5, far outside the range where 1 + z approximates e^z.
+
+### 7.4 50-epoch baselines, depth, CIFAR-100 (paper Fig. 2 left, Fig. 4 left)
+
+ResNet-MLP baselines (L = 2, width 3,072, GELU, batch 64, augmentation, 50 epochs; Colab A100). The paper's grids: L ∈ {2, 4}, learning rate 1e-4 to 1e-2, batch {16, 64}.
+
+| Model | Test acc (%) | Online train loss (last 100 batches) | Minutes | Paper (Fig. 2 left, read off plot) |
+|---|---|---|---|---|
+| MLP + Muon, lr 1e-3 | **69.51** | 0.59 | 9.7 | ~69.5 |
+| MLP + Muon, lr 3e-3 | PENDING | | | |
+| MLP + Adam, lr 3e-4 | 64.72 | 0.85 | 4.5 | ~65 |
+| MLP + Adam, lr 1e-4 | 64.37 | 0.87 | 4.5 | ~65 |
+| MLP + SGD, lr 1e-2 | PENDING | | | ~61 |
+| MLP + Mesa, lr 3e-4 | PENDING | | | ~67.8 |
+| GWS, L = 0, T = 10 (section 7.2) | 61.86 | 0.81 | 22.6 | ~64 (L = 0 curve of Fig. 4) |
+
+Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L = 2 at 50 epochs would store 3 × 2.5M rows of width 3,072 in each of 3 layers, about 190 GB, so depth is compared at 10 epochs:
+
+| Model | Test acc (%) | exp(z) → 1 + z after training | Minutes (A100) |
+|---|---|---|---|
+| GWS, L = 0 | 58.55 | 20.93 | 1.4 |
+| GWS, L = 1 | 63.83 | 24.00 | 3.9 |
+| GWS, L = 2 | **65.05** | 23.69 | 7.0 |
+| MLP + Adam / Muon, L = 0 and L = 2, 10 epochs | PENDING | | |
+
+Findings so far:
+- The Muon and Adam baselines reproduce the paper's values (69.5% and about 65%).
+- GWS at L = 0 after 50 epochs (61.9%) is below Adam (64.7%). GWS at L = 2 after only 10 epochs (65.1%) is already level with Adam after 50 epochs. The paper's claim (GWS above Adam, SGD and RMSprop, below Muon) refers to deeper GWS models at 50 epochs, which this budget cannot hold in memory.
+- The linearization collapse holds at every depth (21-24% at 10 epochs).
 
 ### 7.3 Teacher-student regression (paper Fig. 3, App. E.1.2)
 
