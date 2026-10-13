@@ -1,0 +1,77 @@
+{
+ "_comment": "Minimal version of the article's biography experiment (unpublished there): N individuals x 4 attributes x 32 values, 2-layer transformer (d = 128), online training, batch 128, Adam 1e-3. Article claims: plateau length grows ~linearly with N; growing RBF and wide Cos-Bochner FFNs shorten it drastically; GeGLU plateaus at a lower ceiling. rbf_last: the last FFN is a growing RBF layer (temperature 1, eta 1), the first is GeGLU (width 512), as in the article's hybrids with one RBF layer.",
+ "experiments": {
+  "geglu_w512_N1024": {
+   "n_people": 1024,
+   "steps": 10000,
+   "eval_every": 500,
+   "ffn": "geglu",
+   "width": 512
+  },
+  "geglu_w4096_N1024": {
+   "n_people": 1024,
+   "steps": 10000,
+   "eval_every": 500,
+   "ffn": "geglu",
+   "width": 4096
+  },
+  "cos_w4096_N1024": {
+   "n_people": 1024,
+   "steps": 10000,
+   "eval_every": 500,
+   "ffn": "cos",
+   "width": 4096
+  },
+  "cos_w16384_N1024": {
+   "n_people": 1024,
+   "steps": 10000,
+   "eval_every": 500,
+   "ffn": "cos",
+   "width": 16384
+  },
+  "rbf_last_N1024": {
+   "n_people": 1024,
+   "steps": 10000,
+   "eval_every": 500,
+   "ffn": "rbf",
+   "rbf_layers": "last",
+   "width": 512
+  },
+  "geglu_w512_N4096": {
+   "n_people": 4096,
+   "steps": 20000,
+   "eval_every": 500,
+   "ffn": "geglu",
+   "width": 512
+  },
+  "geglu_w4096_N4096": {
+   "n_people": 4096,
+   "steps": 20000,
+   "eval_every": 500,
+   "ffn": "geglu",
+   "width": 4096
+  },
+  "cos_w4096_N4096": {
+   "n_people": 4096,
+   "steps": 20000,
+   "eval_every": 500,
+   "ffn": "cos",
+   "width": 4096
+  },
+  "cos_w16384_N4096": {
+   "n_people": 4096,
+   "steps": 20000,
+   "eval_every": 500,
+   "ffn": "cos",
+   "width": 16384
+  },
+  "rbf_last_N4096": {
+   "n_people": 4096,
+   "steps": 20000,
+   "eval_every": 500,
+   "ffn": "rbf",
+   "rbf_layers": "last",
+   "width": 512
+  }
+ }
+}
