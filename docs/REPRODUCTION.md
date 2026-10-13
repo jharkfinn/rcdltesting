@@ -21,20 +21,20 @@ Budget: about 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU. "Repro
 | 5 | Gauge invariance and locality of the gauge-fixed update (App. C.6) | Reproduced (exact) | §3 |
 | 6 | Closed form of momentum and weight decay per stored row (App. D) | Reproduced (exact); the notebooks implement an approximation and two bugs | §3, §8.2 |
 | 7 | The mesa layer over the dual form is the FOOF optimizer (Sec. 4) | Reproduced (exact) | §3 |
-| 8 | Single pass on CIFAR-10: GWS 59.4 ± 0.4, RBF 58.8 ± 0.2, gauge 58.4 ± 0.4; all above Muon, Adam, SGD, Mesa, Delta (Fig. 2 right, App. F.2) | Reproduced | §4 |
-| 9 | Kernel ridge regression (~58.5) and kNN (~35.5) on pixels (Fig. 2 right) | Reproduced; GWS is only 0.9 points above kernel ridge regression | §6 |
-| 10 | Teacher-student: GWS far below the parametric softmax; MLP student best (Fig. 3) | PENDING | §7 |
-| 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | PENDING (L = 0 only; L = 2 needs > 150 GB) | §7 |
-| 12 | Training loss falls much faster for GWS and RBF (Fig. 2 middle) | PENDING | §7 |
-| 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | PENDING | §7 |
-| 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | PENDING | §7 |
-| 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | PENDING (reduced scale) | §7 |
-| 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | PENDING | §5 |
-| 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | PENDING | §5 |
+| 8 | Single pass on CIFAR-10: GWS 59.4 ± 0.4, RBF 58.8 ± 0.2, gauge 58.4 ± 0.4; all above Muon, Adam, SGD, Mesa, Delta (Fig. 2 right, App. F.2) | Reproduced: 59.41 ± 0.22, 59.10 ± 0.62, 58.62 ± 0.44; best baseline Muon 57.41 ± 0.52 | §4 |
+| 9 | Kernel ridge regression (~58.5) and kNN (~35.5) on pixels (Fig. 2 right) | Reproduced (58.55, 35.64); GWS is only 0.9 points above exact kernel ridge regression | §6 |
+| 10 | Teacher-student: GWS far below the parametric softmax; MLP student best (Fig. 3) | PENDING (200k steps). At 10k steps GWS (rel. MSE 0.095) is ahead of the best MLP (0.120) | §7.3 |
+| 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | Partly: Muon 69.5 and Adam 64.7 reproduce. GWS at L = 0 (61.9) is below Adam; L = 2 at 50 epochs needs about 154 GB, but L = 2 at 10 epochs (65.1) already equals Adam at 50. CIFAR-100: PENDING | §7.2, §7.4 |
+| 12 | Training loss falls much faster for GWS and RBF (Fig. 2 middle) | Reproduced for L = 2 (online loss 0.75 after 10 epochs; Muon 1.12, Adam 1.31) and in one pass (1.20 against Muon 1.26) | §7.4, figure |
+| 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Depth reproduced (one pass: 53.5 / 58.5 / 59.4; 10 epochs: 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2). Temperature: PENDING | §5.1, §7.4 |
+| 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
+| 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | PENDING (reduced scale) | §7.4 |
+| 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Standard ViT reproduced (best 49.6). GWS-ViT: PENDING (first run stalled at the L4's memory limit; rerun queued) | §5.3 |
+| 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities match within 4 points; accuracy within 1.2 points for τ ≥ 50 (τ = 35 is an outlier) | §5.2 |
 | 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Not attempted: about 2 × 5 A100-hours | - |
-| 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it; GeGLU has a lower ceiling | PENDING (minimal version) | §7 |
-| 20 | Article: parametric FFNs forget under fine-tuning; RCDL layers "unforget" without replay | PENDING (minimal version) | §7 |
-| 21 | Article: RCDL matches but does not beat strong baselines, at much higher cost | PENDING | - |
+| 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it; GeGLU has a lower ceiling | PENDING (minimal version; the two-token task has no plateau, the redesigned task has one that grows with N) | §7.5 |
+| 20 | Article: parametric FFNs forget under fine-tuning; RCDL layers "unforget" without replay | PENDING (minimal version) | §7.5 |
+| 21 | Article: RCDL matches but does not beat strong baselines, at much higher cost | Supported for multi-epoch training (400 times the memory, 7.6 points below Muon at L = 0). In one pass GWS is 2 points above Muon at 10 times the memory | §7.6 |
 
 ## 1. How to run
 
@@ -149,6 +149,20 @@ Notebook setting for every τ (L = 3, T = 5, β = 30, η = 1, Adam 1e-3, batch 1
 
 The capacities match the paper within 4 points at every τ, so the growth rule is the paper's. Accuracy matches within 1.2 points for τ ≥ 50 and is 1.3-1.7 points lower at τ = 40-45, where the paper's per-τ tuning matters most. τ = 35 is an outlier (49.5%, training loss 1.49 against 1.26 at τ = 40); a second seed of τ = 35 and τ = 50 is queued. The notebook's own hybrid run (τ = 50, seed 42, official sample order) gives 55.12%. **Verdict: reproduced** for the trade-off curve: at 22% of the rows the layer keeps 54.2%, 5 points below full single-pass GWS.
 
+
+### 5.3 ViT with growing FFN layers (paper Sec. 5, App. E.9)
+
+ViT for CIFAR-10: 4 × 4 patches (64 tokens plus a CLS token), width 128, 2 blocks, 8 heads, Adam, batch 64, one epoch, no augmentation. In the GWS-ViT the FFN of each block is a growing weighted-softmax layer over all tokens: one row per token per step, 64 + 65 × 49,984 = 3,249,024 rows per layer at the end.
+
+| Model | Setting | Test acc (%) | Paper |
+|---|---|---|---|
+| Standard ViT, FFN width 4 × 128 | Adam 3e-4 / 1e-3 / 3e-3 | 49.37 / **49.62** / 46.25 | best 48.4 |
+| Standard ViT, FFN width 16 × 128 | Adam 3e-4 / 1e-3 / 3e-3 | 49.24 / 49.20 / 39.75 | |
+| GWS-ViT, T = 1, η = 0.1, β = 30, fused bf16 attention | Adam 1e-3 | PENDING | best 54.4 |
+
+The standard ViT reproduces (49.6 against 48.4). Each dense run takes 5-7 s on the L4.
+
+The first GWS-ViT run stalled. Its online training accuracy rose to 51.1% by step 500 of 781, then the run made no progress for 22 minutes. The process held 21.9 of the L4's 23 GB: the attention inputs grow by 4,160 rows every step, so the PyTorch caching allocator cannot reuse its blocks. A rerun with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is queued. The other three GWS-ViT settings were dropped to stay within the GPU budget.
 
 ## 6. Classical baselines (single pass over 50,000 training images, exact solvers, Colab A100)
 
