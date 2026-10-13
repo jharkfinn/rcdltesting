@@ -1,5 +1,5 @@
 {
- "_comment": "Minimal version of the article's biography experiment (unpublished there): N individuals x 4 attributes x 32 values, 2-layer transformer (d = 128, 4 heads), online training, batch 128, Adam 1e-3. Each example: 10 random distractor tokens with a two-token name (unique pairs of 256 + 256 name parts) at a random position, then the attribute token; the value is predicted at the last position. Evaluation: a fixed subset of 4,096 facts. Article claims: plateau length grows ~linearly with N; growing RBF and wide Cos-Bochner FFNs shorten it drastically; GeGLU plateaus at a lower ceiling. rbf_last_*: the last FFN is a growing RBF layer (temperature 1, value rate eta), the first is GeGLU (width 512). *_ft: after the main phase, 4,000 steps on 1,024 new individuals only (no replay); the article reports strong forgetting for parametric FFNs and that RCDL layers can 'unforget' without replay. The earlier two-token task (name, attribute) had no plateau at N = 1024 (all facts learned within 500 steps), see rcdl/facts.py.",
+ "_comment": "Minimal version of the article's biography experiment (unpublished there): N individuals x 4 attributes x 32 values, 2-layer transformer (d = 128, 4 heads), online training, batch 128, Adam 1e-3. Each example: 10 random distractor tokens with a two-token name (unique pairs of 256 + 256 name parts) at a random position, then the attribute token; the value is predicted at the last position. Evaluation: a fixed subset of 4,096 facts. Article claims: plateau length grows ~linearly with N; growing RBF and wide Cos-Bochner FFNs shorten it drastically; GeGLU plateaus at a lower ceiling. rbf_last_*: the last FFN is a growing RBF layer (temperature 1, value rate eta), the first is GeGLU (width 512). *_ft: after the main phase, 4,000 steps on 1,024 new individuals only (no replay); the article reports strong forgetting for parametric FFNs and that RCDL layers can 'unforget' without replay. The earlier two-token task (name, attribute) had no plateau at N = 1024 (all facts learned within 500 steps), see rcdl/facts.py. Second round (claim 19 details): Cos-Bochner width scan 1,024 / 4,096 / 16,384 / 65,536 (article: 'Cos Bochner improves with increased width matching growing RBF layers'), GeGLU at width 16,384, and the RBF value rate eta = 3 and 10 (does a larger eta shorten the plateau 'drastically'?), all at N = 16,384.",
  "experiments": {
   "geglu_w512_N4096": {
    "name_tokens": 2,
@@ -172,6 +172,82 @@
    "rbf_layers": "last",
    "width": 512,
    "rbf_eta": 1.0
+  },
+  "cos_w1024_N16384": {
+   "name_tokens": 2,
+   "name_vocab": 256,
+   "n_filler": 10,
+   "random_name_pos": true,
+   "eval_facts": 4096,
+   "eval_every": 250,
+   "n_people": 16384,
+   "steps": 16000,
+   "ffn": "cos",
+   "width": 1024
+  },
+  "cos_w4096_N16384": {
+   "name_tokens": 2,
+   "name_vocab": 256,
+   "n_filler": 10,
+   "random_name_pos": true,
+   "eval_facts": 4096,
+   "eval_every": 250,
+   "n_people": 16384,
+   "steps": 16000,
+   "ffn": "cos",
+   "width": 4096
+  },
+  "cos_w65536_N16384": {
+   "name_tokens": 2,
+   "name_vocab": 256,
+   "n_filler": 10,
+   "random_name_pos": true,
+   "eval_facts": 4096,
+   "eval_every": 250,
+   "n_people": 16384,
+   "steps": 16000,
+   "ffn": "cos",
+   "width": 65536
+  },
+  "geglu_w16384_N16384": {
+   "name_tokens": 2,
+   "name_vocab": 256,
+   "n_filler": 10,
+   "random_name_pos": true,
+   "eval_facts": 4096,
+   "eval_every": 250,
+   "n_people": 16384,
+   "steps": 16000,
+   "ffn": "geglu",
+   "width": 16384
+  },
+  "rbf_last_eta3_N16384": {
+   "name_tokens": 2,
+   "name_vocab": 256,
+   "n_filler": 10,
+   "random_name_pos": true,
+   "eval_facts": 4096,
+   "eval_every": 250,
+   "n_people": 16384,
+   "steps": 16000,
+   "ffn": "rbf",
+   "rbf_layers": "last",
+   "width": 512,
+   "rbf_eta": 3.0
+  },
+  "rbf_last_eta10_N16384": {
+   "name_tokens": 2,
+   "name_vocab": 256,
+   "n_filler": 10,
+   "random_name_pos": true,
+   "eval_facts": 4096,
+   "eval_every": 250,
+   "n_people": 16384,
+   "steps": 16000,
+   "ffn": "rbf",
+   "rbf_layers": "last",
+   "width": 512,
+   "rbf_eta": 10.0
   }
  }
 }
