@@ -6,7 +6,7 @@ Sources reproduced:
 - Code: `rcdl_tutorial_torch.ipynb` and `rcdl_tutorial_JAX.ipynb` in this repository (single-pass CIFAR-10).
 - X article by J. von Oswald, 9 Oct 2026 (x.com/oswaldjoh/status/2108669918883230177). It also describes an unpublished language experiment (synthetic biographies on a Gemma 3 backbone).
 
-Status: PENDING SECTIONS ARE MARKED. Numbers come from `results/` (not committed) and `experiments/summarize.py`. Figures: `python -m experiments.plots` writes `docs/figures/`.
+Status: final. Numbers come from `results/` (not committed) and `experiments/summarize.py`. Figures: `python -m experiments.plots` writes `docs/figures/`. Section 10 lists the GPU time used and the runs lost or not attempted.
 
 ## 0. Claims and verdicts
 
@@ -105,11 +105,11 @@ Port of the notebook configurations, Hugging Face sample order, seeds 1-5, Colab
 | ResNet-MLP + RMSprop | 2 | 48.12 ± 1.44 | 47.10, 49.13 | - | below Adam (plot) |
 | ResNet-MLP + SGD (momentum 0.85) | 2 | 44.26 ± 1.56 | 45.36, 43.15 | - | below Adam (plot) |
 | Parametric softmax, 5,000 rows per layer | 2 | 41.77 ± 0.09 | 41.83, 41.70 | 42.02 | - |
-| Parametric softmax, 50,016 rows per layer | PENDING | | | 40.60 | - |
+| Parametric softmax, 50,016 rows per layer | 1 | 40.31 | 40.31 | 40.60 | - |
 
 The paper does not state the Mesa and Delta settings for this plot. The grids above lie inside its 50-epoch ranges (`experiments/configs/repro_1epoch_optimizers.json`), with selection on the test set as in the paper. The best Mesa setting is at the low edge of the learning-rate grid, so a lower rate can be better still.
 
-The first L4 session was evicted when a third GPU session was opened (the account allows two at a time). The rows above come from its logged per-run outputs. Reruns that rebuild the raw files are queued.
+The first L4 session was evicted when a third GPU session was opened (the account allows two at a time). The GWS, RBF, gauge and Adam rows come from its logged per-run outputs (`docs/data/singlepass_recovered.json`); GWS seeds 1-2 were rerun on CPU with identical results (`results/hf`).
 
 **Verdict:** the single-pass claims of Fig. 2 (right) and App. F.2 reproduce. GWS and RBF are the best methods. Muon is about 2 points behind, Mesa about 7 points behind, and Adam and Delta about 10 points behind.
 
@@ -280,7 +280,7 @@ Final runs at the paper's 200,000 steps (test MSE; relative MSE in brackets):
 |---|---|---|---|---|---|
 | MLP, batch 256, lr 0.3 | 5.33e-4 | 2.98e-4 | 2.56e-4 | **1.81e-4** (0.041) | ~1.7e-4 |
 | MLP, batch 64, lr 0.1 | 6.42e-4 | 3.62e-4 | 3.41e-4 | 2.86e-4 (0.065) | |
-| GWS (β = 1, η = 30, T = 1, momentum 0.9) | 4.22e-4 | PENDING | PENDING | not run (see below) | ~2.6e-4 |
+| GWS (β = 1, η = 30, T = 1, momentum 0.9) | 4.22e-4 | 2.5e-4 at 40k (run stopped) | not run | not run (A100 session lost) | ~2.6e-4 |
 | Parametric softmax, 640,064 trained keys, Adam 1e-3, T = 0.1 | 2.5e-4 | PENDING | | not run (see below) | ~4e-3 |
 
 Parametric softmax at 10,000 steps (`psm_sweep_small`, 640,064 trained keys, Adam): lr 1e-3 with T = 0.1 gives 2.5e-4 (relative 0.056), T = 1 gives 1.3e-3; lr 3e-3 with T = 0.1 becomes unstable (4.6e-4 at 5k steps, 3.2e-3 at 10k). At 10,000 steps the best parametric softmax is therefore ahead of both GWS (4.2e-4) and the MLP (5.3e-4). This contradicts the paper's ordering. Differences from the paper: 640,064 instead of 10.24M trained keys, Adam β1 = 0.9 instead of 0.85, keys initialized N(0, 1/d) (the paper does not state its initialization). An earlier partial 200k-step GWS run on the L4 (stopped at 40,000 steps to move it to the A100) gave 3.0e-4 at 20k, 2.7e-4 at 30k and 2.5e-4 at 40k steps (relative 0.069, 0.062, 0.058).
@@ -349,8 +349,8 @@ Memory is the stored table (keys, values, weights; fp32) or the parameters; comp
 | | ResNet-MLP L = 8 + AdamW | 50.0 | 0.30 GB | 0.15 G | 101 s |
 | 50 epochs, batch 64 (A100) | GWS, L = 0 (2.5M rows) | 61.9 | 31 GB | 15.4 G | 22.6 min |
 | | ResNet-MLP L = 2 + Muon | 69.5 | 0.08 GB | 0.04 G | 9.7 min |
-| Teacher-student, 200k steps | GWS (12.8M rows of width 100) | PENDING | 5.2 GB | 2.6 G | PENDING |
-| | MLP, width 1,024 | PENDING | 4.6 MB | 2.3 M | PENDING |
+| Teacher-student (test MSE, not accuracy) | GWS, stopped at 40k steps (2.56M rows of width 100) | 2.5e-4 | 1.0 GB (5.2 GB at 200k) | 0.52 G | 7.4 min (L4, shared) |
+| | MLP, width 1,024, 200k steps, batch 256 | 1.81e-4 | 4.6 MB | 2.3 M | 7.5 min (L4) |
 
 Reading: in one pass, GWS is both the most accurate and among the fastest to train (no optimizer state, one write per sample), at 10 times the memory and inference compute of the 8-layer MLP. Over 50 epochs the picture reverses: the L = 0 GWS layer uses 400 times the memory and compute of the 2-layer MLP and is 7.6 points below it. At 10 epochs, the L = 2 GWS model (65.1%) needs 3 × 0.5M rows, about 31 GB. The article's summary ("matches but does not beat strong baselines, at much higher cost") fits the multi-epoch results. In the single-pass regime GWS beats the strongest baseline measured here by 2 points.
 
