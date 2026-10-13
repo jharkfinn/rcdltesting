@@ -463,5 +463,19 @@ Lost with the A100 session (it ran without polling from about 07:00, and Colab m
 
 Not attempted: the 2,000-epoch DeltaNet experiment (App. E.3.1, about 10 A100-hours); GWS at L ≥ 1 for 50 epochs (about 154 GB); the per-τ hyperparameter tuning of the hybrid layer (about 12 A100-hours); the full biography task of the article.
 
+GPU efficiency work on the second A100 session (prompted by the question whether the GPU time was used well; measured on the A100):
+
+| Change | Where | Measured effect | Numerics |
+|---|---|---|---|
+| TF32 tensor cores for fp32 matmuls (`RCDL_TF32=1`) | dense GWS attention at d = 3,072 | 2.4M-row step 57.7 → 29.3 ms; 50-epoch L = 0 run 22.6 → 10.9 min (CIFAR-100) | max relative output change 4.3e-4; GWS 2-epoch test acc 52.47 vs 52.45 |
+| Fused Adam (`RCDL_FUSED_ADAM=1`) | parametric softmax (768M trained values), hybrid layer, Adam baselines | 63 → 33 ms/step for the parametric softmax | identical loss and accuracy after 300 steps |
+| Mesa low-rank solve (B instead of d_out right-hand sides), sync-free Cholesky | Mesa runs | 72-79 → 44 ms/step with two other jobs on the GPU | equal to the full solve in float64 (test) |
+| Next epoch's augmentation prepared in a worker thread | all augmented runs | hides 2.7 s of CPU work per epoch (10-23% of an epoch for the MLPs) | bit-identical (CPU check) |
+| Loss and accuracy kept on the GPU, copied once per logging interval | all runs | removes two host synchronizations per step | identical |
+| Exact two-call FlashAttention for the weighted softmax | GWS-ViT | 25.4 s → 0.16 s per step at 2.1M keys | bf16, as before |
+| Two job streams at a time (memory-bound + latency-bound jobs) | second A100 session | GPU at 100% activity, 320-360 W of 400 W | none |
+
+Runs made with TF32 and fused Adam: everything on the second A100 session after 13:50 (CIFAR-100 runs, 50-epoch Mesa and parametric softmax, 10-epoch MLPs, the extra GWS-ViT settings, the second hybrid seed). An independent audit of the code (three reviewers, each finding checked by a verifier) found no larger remaining waste for these jobs; the remaining items (fp16 key storage, six redundant passes over the logit matrix, Adam over unused hybrid rows) are each worth 1.5-4 GPU-minutes.
+
 Lessons for reruns: poll every session at least every 20 minutes; copy results after every run; the fused attention of PyTorch is slow for few queries and many keys (one GPU block for 64 queries), and its backward pass slows by more than 20 times at 2^21 keys (§5.3); `rcdl/splitk_attention.py` fixes the forward pass for the teacher-student case.
 
