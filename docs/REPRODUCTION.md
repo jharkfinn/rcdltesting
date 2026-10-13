@@ -50,11 +50,17 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | Multi-epoch runs | `python3 -m experiments.run experiments/configs/multi_epoch.json --only <name>` | A100 for L = 0 at 50 epochs (31 GB) | 2-23 min per run |
 | Teacher-student grids and long runs | `python3 -m experiments.teacher_student experiments/configs/teacher_student.json --only <name>` | any GPU; `attn_impl=splitk_tf32` needs Triton | 25 s per 10k-step grid point |
 | Synthetic facts | `python3 -m experiments.facts experiments/configs/facts.json --only <name>` | L4 (CPU for small widths) | 1-10 min per run |
+| GWS at L = 2 for 50 epochs (bf16 tables, 77 GB) | `python3 -m experiments.run experiments/configs/multi_epoch_bf16.json` (CIFAR-100: `multi_epoch_cifar100.json --only gws_L2_T10_50ep_c100_bf16`) | 1 GPU with 96 GB (RTX PRO 6000) | 2 min (10 epochs) / about 40 min (50 epochs) |
+| DeltaNet decay, 10-block MLP, 2,000 epochs, 5 decay rates at once | `python3 -m experiments.deltanet_long --out results/deltanet` | any GPU (3 GB) | about 2 h on an RTX PRO 6000 |
+| Fig. 5 at 1/10 scale; hybrid tuning at τ = 35 | `experiments/configs/overfit_fig5_scaled.json`, `hybrid_tau35_tuning.json` with `experiments.run` | 1 GPU (13-17 GB) | about 45 min per parametric run; 2-4 min per hybrid run |
+| All runs for the claims opened in the last round | `bash experiments/queue_open_claims.sh results/open data` | 1 GPU with 96 GB | about 4 h |
 | Figures | `python3 -m experiments.plots` | any | seconds |
 
 Data: `--source binary` reads the official CIFAR-10 tarball (the notebook's order). `--source parquet` reads the Hugging Face mirror `uoft-cs/cifar10`. Both hold the same 50,000 training images with the same labels, in a different order (the mirror starts at official image 30,000). The test sets are identical.
 
 Colab: the GPU runs use the official Colab CLI (`google-colab-cli`, `colab new --gpu L4`, `colab upload`, `colab exec`). The jobs start in the background on the VM, so a dropped connection does not stop them.
+
+molab: the last round also ran jobs on a marimo molab notebook (RTX PRO 6000 Blackwell, 96 GB). The marimo-pair script `execute-code.sh` sends Python to the notebook kernel, which clones this branch from GitHub and starts the jobs in the background.
 
 ## 2. The port is exact
 
@@ -379,6 +385,8 @@ Reading: in one pass, GWS is both the most accurate and among the fastest to tra
 ### 7.7 Train-test gap of the parametric softmax and GWS (paper Fig. 5)
 
 Paper: a parametric softmax with 2.56M trained keys, trained for 2,000 epochs, shows a widening train-test gap that "is not present" in GWS (50 epochs), and GWS reaches much higher test accuracy. The paper also reports that learned weights make the parametric baseline unstable, so it uses a plain softmax (App. E.4).
+
+What the paper's own figure shows (read off the vector PDF, x axis = training progress): the parametric model reaches about 89% train accuracy; its test accuracy peaks at about 55.5% near 3% of training and then falls to about 49%. GWS also reaches about 89% train accuracy, with test accuracy rising to about 63%. So GWS also has a large final gap (about 26 points). The statement "the gap is not present" can only mean that the GWS test accuracy does not fall while the train accuracy rises; it cannot mean a small gap. This report reads the claim that way: (a) the parametric model overfits (test accuracy peaks early and then falls), (b) GWS does not (test accuracy keeps rising), (c) GWS has the higher test accuracy.
 
 Reduced scale on the CPU (`experiments/configs/overfit_subset_cpu.json`): the first 5,000 CIFAR-10 training images, augmentation, batch 64, L = 0. GWS: 40 epochs (199,744 stored rows; T = 10, η = 0.003, β = 10). Parametric softmax: 10,000 trained keys and values (2 per image), plain softmax, Adam 1e-3, 100 epochs. Train accuracy on 2,000 non-augmented training images; test accuracy on 2,000 test images during training and on all 10,000 at the end.
 
