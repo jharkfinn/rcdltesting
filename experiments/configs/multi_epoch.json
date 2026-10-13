@@ -271,6 +271,42 @@
     "augment": true,
     "num_epochs": 50
    }
+  },
+  "gws_L0_T3_10ep": {
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 0,
+    "temperature": 3.0,
+    "db_size": 499904,
+    "num_epochs": 10
+   }
+  },
+  "gws_L0_T30_10ep": {
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 0,
+    "temperature": 30.0,
+    "db_size": 499904,
+    "num_epochs": 10
+   }
   }
  }
 }
