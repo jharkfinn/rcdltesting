@@ -233,7 +233,7 @@ ResNet-MLP baselines (L = 2, width 3,072, GELU, batch 64, augmentation, 50 epoch
 | MLP + Adam, lr 3e-4 | 64.72 | 0.85 | 4.5 | ~65 |
 | MLP + Adam, lr 1e-4 | 64.37 | 0.87 | 4.5 | ~65 |
 | MLP + SGD, lr 1e-2 | 59.77 | 1.15 | 3.8 | ~61 |
-| MLP + Mesa, lr 3e-4 | finished on the A100, result lost with the session | | ~18.5 | ~67.8 |
+| MLP + Mesa, lr 3e-4 | lost: 57% done at the last copy (online train accuracy 72%); the A100 session ended before the result was copied | | | ~67.8 |
 | GWS, L = 0, T = 10 (section 7.2) | 61.86 | 0.81 | 22.6 | ~64 (L = 0 curve of Fig. 4) |
 
 Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L = 2 at 50 epochs would store 2.5M rows in each of 3 layers (keys and values of width 3,072 in the two hidden layers, 61 GB each in fp32; 31 GB in the readout), about 154 GB, so depth is compared at 10 epochs:
