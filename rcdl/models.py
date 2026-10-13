@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from rcdl.layers import RCDLConfig, RCDLLayer, rms_norm
+from rcdl.layers import CosBochnerLayer, RCDLConfig, RCDLLayer, rms_norm
 
 
 def dense(d_in: int, d_out: int, gen: torch.Generator) -> nn.Linear:
@@ -33,6 +33,8 @@ class CifarRCDLClassifier(nn.Module):
     gen, H = torch.Generator().manual_seed(cfg.global_init_seed), cfg.hidden_dim
     if cfg.kernel_type == 'standard':
       layer = lambda d_out, layer_id: dense(H, d_out, gen)
+    elif cfg.kernel_type == 'cos':        # random-feature (Cos-Bochner) form of the growing RBF layer
+      layer = lambda d_out, layer_id: CosBochnerLayer(cfg, H, d_out, gen, device=device)
     else:
       layer = lambda d_out, layer_id: RCDLLayer(cfg, H, d_out, layer_id, gen, device=device)
     self.layers = nn.ModuleList([layer(H, i) for i in range(cfg.num_layers)])

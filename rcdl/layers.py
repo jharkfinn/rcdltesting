@@ -20,9 +20,9 @@ import torch.nn as nn
 
 @dc.dataclass(frozen=True)
 class RCDLConfig:
-  """Unified configuration for 'gws', 'gauge', 'rbf', 'hybrid', 'parametric_softmax', and 'standard'."""
+  """Unified configuration for 'gws', 'gauge', 'rbf', 'hybrid', 'parametric_softmax', 'cos', and 'standard'."""
   # --- Architecture ---
-  kernel_type: str = 'gws'           # 'gws' | 'gauge' | 'rbf' | 'hybrid' | 'parametric_softmax' | 'standard'
+  kernel_type: str = 'gws'           # 'gws' | 'gauge' | 'rbf' | 'hybrid' | 'parametric_softmax' | 'cos' | 'standard'
   hidden_dim: int = 3072
   num_layers: int = 2
   nonlinearity: str = 'none'         # 'none' | 'gelu' | 'relu'
@@ -64,6 +64,9 @@ class RCDLConfig:
   attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' | 'sdpa_bf16' (fused) | 'flash2' (2 flash calls,
                                      # bf16, value width = query width) | 'splitk' | 'splitk_tf32'
                                      # (Triton, few queries, forward-only: 'dense' is used when q needs a gradient)
+  # --- Cos-Bochner random-feature layer ('cos'; the article's finite-width form of the growing RBF layer) ---
+  cos_width: int = 4096              # D: number of random Fourier features
+  cos_train_features: bool = False   # False: frozen Ω, b (random features of the RBF kernel); True: train Ω, b too
   store_dtype: str = 'float32'       # 'float32' | 'bfloat16': stored keys and values of 'gws'/'gauge'/'rbf' (weights
                                      # stay fp32); bf16 halves the memory (L = 2, 50 epochs: 77 GB instead of 154 GB)
   dataset: str = 'cifar10'           # 'cifar10' | 'cifar100'
@@ -207,6 +210,39 @@ def age_coefficients(birth: torch.Tensor, step: int, momentum: float, weight_dec
   else:
     raise ValueError(f'unknown age_rule {rule!r}')
   return coef.float()[:, None]
+
+
+class CosBochnerLayer(nn.Module):
+  """Random Fourier features of the RBF kernel (Bochner's theorem): the finite-width form of the growing RBF layer.
+
+  phi(q) = sqrt(2 / D) cos(Ω q + b), with Ω_ij ~ N(0, 1 / σ²), b_i ~ U[0, 2π) and σ² = T sqrt(d_in), so that
+  E[phi(q) · phi(k)] = exp(-||q - k||² / (2 T sqrt(d_in))), the kernel of rbf_attention. Output: s(q) = A^T phi(q), with
+  A (D × d_out) starting at 0 (the empty table). One SGD step on the batch-mean loss with learning rate η B changes A by
+  Σ_b phi(q_b) v_b^T with v_b = -η B ḡ_b, which is the growing RBF layer's write rule in feature space. So with frozen
+  Ω, b (cos_train_features=False) and plain SGD at rate η B, the layer follows the growing RBF layer up to the
+  random-feature error (variance of phi(q) · phi(k) about 1 / (2D)). cos_train_features=True also trains Ω and b: a
+  feed-forward layer with a cosine activation (the article's parametric Cos-Bochner layer).
+  """
+
+  def __init__(self, cfg: RCDLConfig, d_in: int, d_out: int, gen: torch.Generator, device=None):
+    super().__init__()
+    D, dev = cfg.cos_width, torch.device('cpu') if device is None else torch.device(device)
+    sigma2 = cfg.temperature * math.sqrt(d_in)
+    omega = (torch.randn(D, d_in, generator=gen) / math.sqrt(sigma2)).to(dev)
+    phase = (torch.rand(D, generator=gen) * (2.0 * math.pi)).to(dev)
+    if cfg.cos_train_features:
+      self.omega, self.phase = nn.Parameter(omega), nn.Parameter(phase)
+    else:
+      self.register_buffer('omega', omega)
+      self.register_buffer('phase', phase)
+    self.A = nn.Parameter(torch.zeros(D, d_out, device=dev))
+    self.scale = math.sqrt(2.0 / D)
+
+  def features(self, q: torch.Tensor) -> torch.Tensor:
+    return self.scale * torch.cos(q @ self.omega.T + self.phase)
+
+  def forward(self, q: torch.Tensor) -> torch.Tensor:
+    return self.features(q) @ self.A
 
 
 class RCDLLayer(nn.Module):
