@@ -111,7 +111,7 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
     with open(os.path.join(out_dir, 'config.json'), 'w') as f:
       json.dump(dc.asdict(cfg) | {'eval_every': eval_every, 'eval_subset': eval_subset, 'input_grad': input_grad,
                                   'max_steps': max_steps, 'torch': torch.__version__,
-                                  'threads': torch.get_num_threads()}, f, indent=1)
+                                  'threads': torch.get_num_threads(), 'device': str(train_x.device)}, f, indent=1)
     eval_log = open(os.path.join(out_dir, 'evals.jsonl'), 'w')
 
   n, B = len(train_x), cfg.batch_size

@@ -40,6 +40,7 @@ def main():
   p.add_argument('--data', default='data')
   p.add_argument('--source', default='auto')
   p.add_argument('--threads', type=int, default=None)
+  p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
   p.add_argument('--skip-done', action='store_true', help='skip runs whose summary.json exists')
   args = p.parse_args()
 
@@ -47,7 +48,7 @@ def main():
     torch.set_num_threads(args.threads)
   with open(args.config) as f:
     spec = json.load(f)
-  data, train_u8 = load_cifar10_tensors(args.data, args.source)
+  data, train_u8 = load_cifar10_tensors(args.data, args.source, args.device)
   names = args.only or list(spec['experiments'])
   overrides = dict(kv.split('=', 1) for kv in args.set)
   run_overrides = dict(kv.split('=', 1) for kv in args.run_set)
