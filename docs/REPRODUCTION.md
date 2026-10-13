@@ -33,7 +33,7 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced for τ ≥ 40 with the notebook setting (capacities within 4 points; accuracy within 1.2 points for τ ≥ 50, two seeds at τ = 50: 56.2, 56.5). The τ = 35 point fails with that setting on both seeds (49.5, 44.3; paper 58.6 after per-τ tuning) | §5.2 |
 | 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Not attempted: about 2 × 5 A100-hours | - |
 | 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it; GeGLU has a lower ceiling | Mostly reproduced (minimal version): the plateau grows 4-7 times for 4 times more individuals; the growing RBF layer reaches 90% of facts 3 times sooner than GeGLU and ends at 99.8% against 82-92%; the plateau ends only 18-24% earlier than with GeGLU-512 | §7.5 |
-| 20 | Article: parametric FFNs forget under fine-tuning; RCDL layers "unforget" without replay | Weakly supported: all variants forget (old facts 99.6% → 16-30%); only the growing layer recovers part of them without replay (30.1% → 38.4%) | §7.5 |
+| 20 | Article: fine-tuning on new individuals makes FFNs forget; "in the fine-tuning setting, the RBF, and also the Cos Bochner, seem to do better than the GeGLU"; RCDL layers "can 'unforget' without replay" (no numbers given) | Reproduced (qualitative, as stated): all variants forget (old facts 99.6% → 16-30%); after 4,000 steps RBF and Cos-Bochner keep 2.5 and 1.9 times as many old facts as GeGLU (38.4% and 29.9% against 15.5%); only the growing RBF layer recovers old facts without replay (30.1% after 250 steps → 38.4% after 4,000). The recovery is small | §7.5 |
 | 21 | Article: RCDL matches but does not beat strong baselines, at much higher cost | Supported for multi-epoch training (400 times the memory, 7.6 points below Muon at L = 0). In one pass GWS is 2 points above Muon at 10 times the memory | §7.6 |
 
 ## 1. How to run
@@ -364,7 +364,7 @@ Findings:
 | Cos-Bochner, width 16,384 | 99.6% / 28.6% / 29.9% | 100% |
 | Growing RBF (last FFN), η = 1 | 99.5% / 30.1% / **38.4%** | 100% |
 
-All three forget most old facts within 250 steps. Only the growing layer recovers a part of them without replay (30.1% → 38.4%, rising steadily over the 4,000 steps); GeGLU does not recover. This is the direction of the article's "unforget" claim, but the effect here is small. In this model the first FFN (GeGLU) and the attention layers still drift on the new individuals, so the old rows of the growing layer receive shifted queries.
+All three forget most old facts within 250 steps. Only the growing layer recovers a part of them without replay (30.1% → 38.4%, rising steadily over the 4,000 steps); GeGLU does not recover. The article's statement is hedged and gives no numbers: "in the fine-tuning setting, the RBF, and also the Cos Bochner, seem to do better than the GeGLU. We are still exploring the interesting phenomenon that the RCDL layers can 'unforget' without replay." Both parts hold here (after 4,000 steps RBF and Cos-Bochner keep 2.5 and 1.9 times as many old facts as GeGLU; the RBF layer recovers old facts without replay), but the recovery is small. In this model the first FFN (GeGLU) and the attention layers still drift on the new individuals, so the old rows of the growing layer receive shifted queries.
 
 ### 7.6 Cost (article: RCDL "matches but does not beat" strong baselines at much higher cost)
 
