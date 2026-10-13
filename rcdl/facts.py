@@ -51,6 +51,8 @@ class FactsConfig:
   steps: int = 5000
   eval_every: int = 250
   seed: int = 1
+  finetune_people: int = 0  # M: after `steps`, train only on M new individuals (forgetting test; 0 = off)
+  finetune_steps: int = 0
 
 
 class GeGLU(nn.Module):
@@ -78,7 +80,7 @@ class CosFeatures(nn.Module):
 class FactsModel(nn.Module):
   def __init__(self, cfg: FactsConfig, gen: torch.Generator):
     super().__init__()
-    V = cfg.n_people + cfg.n_attrs
+    V = cfg.n_people + cfg.finetune_people + cfg.n_attrs   # name tokens [0, N + M), then attribute tokens
     self.cfg = cfg
     self.emb = nn.Embedding(V, cfg.d)
     self.pos = nn.Parameter(torch.randn(2, cfg.d, generator=gen) * 0.02)
@@ -90,7 +92,8 @@ class FactsModel(nn.Module):
       use_rbf = cfg.ffn == 'rbf' and (cfg.rbf_layers == 'all' or i == cfg.layers - 1)
       if use_rbf:
         rc = RCDLConfig(kernel_type='rbf', hidden_dim=cfg.d, temperature=cfg.rbf_temperature, eta=cfg.rbf_eta,
-                        db_size=2 * cfg.batch_size * cfg.steps, batch_size=cfg.batch_size, num_classes=cfg.d)
+                        db_size=2 * cfg.batch_size * (cfg.steps + cfg.finetune_steps), batch_size=cfg.batch_size,
+                        num_classes=cfg.d)
         ffns.append(RCDLLayer(rc, cfg.d, cfg.d, i, gen))
       elif cfg.ffn == 'cos':
         ffns.append(CosFeatures(cfg.d, cfg.width, cfg.cos_sigma, gen))
@@ -118,49 +121,64 @@ class FactsModel(nn.Module):
 def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cpu') -> Dict[str, Any]:
   gen = torch.Generator().manual_seed(cfg.seed)
   torch.manual_seed(cfg.seed)
-  facts = torch.randint(0, cfg.n_values, (cfg.n_people, cfg.n_attrs), generator=gen).to(device)
+  N, M, A = cfg.n_people, cfg.finetune_people, cfg.n_attrs
+  facts = torch.randint(0, cfg.n_values, (N + M, A), generator=gen).to(device)
   model = FactsModel(cfg, gen).to(device)
   params = [p for p in model.parameters() if p.requires_grad]
   opt = torch.optim.Adam(params, lr=cfg.lr)
-  people = torch.arange(cfg.n_people, device=device).repeat_interleave(cfg.n_attrs)
-  attrs = torch.arange(cfg.n_attrs, device=device).repeat(cfg.n_people)
-  all_tokens = torch.stack([people, cfg.n_people + attrs], 1)
-  all_targets = facts[people, attrs]
+
+  def fact_set(lo, hi):                       # all (name, attribute) token pairs and values for people [lo, hi)
+    people = torch.arange(lo, hi, device=device).repeat_interleave(A)
+    attrs = torch.arange(A, device=device).repeat(hi - lo)
+    return torch.stack([people, N + M + attrs], 1), facts[people, attrs]
+
+  old_set, new_set = fact_set(0, N), (fact_set(N, N + M) if M else None)
 
   @torch.no_grad()
-  def evaluate():
+  def evaluate(tokens, targets):
     model.eval()
     loss = correct = 0.0
-    for i in range(0, len(all_tokens), 4096):
-      logits = model(all_tokens[i:i + 4096])
-      loss += F.cross_entropy(logits, all_targets[i:i + 4096], reduction='sum').item()
-      correct += (logits.argmax(-1) == all_targets[i:i + 4096]).sum().item()
+    for i in range(0, len(tokens), 4096):
+      logits = model(tokens[i:i + 4096])
+      loss += F.cross_entropy(logits, targets[i:i + 4096], reduction='sum').item()
+      correct += (logits.argmax(-1) == targets[i:i + 4096]).sum().item()
     model.train()
-    return loss / len(all_tokens), correct / len(all_tokens)
+    return loss / len(tokens), correct / len(tokens)
 
   log, t0 = [], time.time()
-  for step in range(cfg.steps + 1):
-    if step % cfg.eval_every == 0:
-      loss, acc = evaluate()
-      log.append({'step': step, 'loss': loss, 'acc': acc, 'sec': time.time() - t0})
-      print(f'[facts:{cfg.ffn}:N={cfg.n_people}] step={step} loss={loss:.4f} (ln K={math.log(cfg.n_values):.3f}) '
-            f'acc={acc:.4f} ({time.time() - t0:.0f}s)', flush=True)
-    if step == cfg.steps:
+  total = cfg.steps + (cfg.finetune_steps if M else 0)
+  for step in range(total + 1):
+    if step % cfg.eval_every == 0 or step == cfg.steps:
+      rec = {'step': step, 'sec': time.time() - t0}
+      rec['loss'], rec['acc'] = evaluate(*old_set)
+      if M:
+        rec['loss_new'], rec['acc_new'] = evaluate(*new_set)
+      log.append(rec)
+      print(f'[facts:{cfg.ffn}:N={N}] step={step} loss={rec["loss"]:.4f} (ln K={math.log(cfg.n_values):.3f}) '
+            f'acc={rec["acc"]:.4f}' + (f' new_acc={rec["acc_new"]:.4f}' if M else '') + f' ({time.time() - t0:.0f}s)',
+            flush=True)
+    if step == total:
       break
-    i = torch.randint(0, cfg.n_people, (cfg.batch_size,), generator=gen).to(device)
-    a = torch.randint(0, cfg.n_attrs, (cfg.batch_size,), generator=gen).to(device)
-    logits = model(torch.stack([i, cfg.n_people + a], 1))
+    lo, hi = (0, N) if step < cfg.steps else (N, N + M)   # phase 2: only the M new individuals
+    i = torch.randint(lo, hi, (cfg.batch_size,), generator=gen).to(device)
+    a = torch.randint(0, A, (cfg.batch_size,), generator=gen).to(device)
+    logits = model(torch.stack([i, N + M + a], 1))
     loss = F.cross_entropy(logits, facts[i, a])
     opt.zero_grad()
     loss.backward()
     opt.step()
     for layer in model.rcdl_layers().values():
       layer.commit()
-  # Plateau end: first evaluation at which the loss is 10% below ln K.
+  # Plateau end: first evaluation at which the loss on the first population is 10% below ln K.
   thresh = 0.9 * math.log(cfg.n_values)
-  plateau_end = next((r['step'] for r in log if r['loss'] < thresh), None)
-  result = {'cfg': dc.asdict(cfg), 'log': log, 'final_acc': log[-1]['acc'], 'final_loss': log[-1]['loss'],
+  plateau_end = next((r['step'] for r in log if r['step'] <= cfg.steps and r['loss'] < thresh), None)
+  phase1 = [r for r in log if r['step'] <= cfg.steps]
+  result = {'cfg': dc.asdict(cfg), 'log': log, 'final_acc': phase1[-1]['acc'], 'final_loss': phase1[-1]['loss'],
             'plateau_end_step': plateau_end, 'params': sum(p.numel() for p in params)}
+  if M:
+    phase2 = [r for r in log if r['step'] >= cfg.steps]
+    result |= {'old_acc_min_during_finetune': min(r['acc'] for r in phase2), 'old_acc_after_finetune': log[-1]['acc'],
+               'new_acc_after_finetune': log[-1]['acc_new']}
   if out_dir:
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, 'result.json'), 'w') as f:
