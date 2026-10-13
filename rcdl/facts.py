@@ -6,10 +6,20 @@ reports (i) a loss plateau whose length grows about linearly with the number of 
 plateau for RBF and wide Cos-Bochner layers, (iii) a lower ceiling for GeGLU.
 
 This module keeps only the fact-storage core of that task. There are N individuals and A attributes; fact (i, a) is a
-value in {0, ..., K-1}, drawn uniformly at random. Each training example is the token pair (name_i, attribute_a), and
-the model predicts the value from the last position. Training is online: every step draws a fresh batch of (i, a)
-pairs. Accuracy is measured on all N x A facts. Before facts are learned, the best possible loss is ln K (uniform
-values), so the plateau is the stretch of training where the loss stays near ln K.
+value in {0, ..., K-1}, drawn uniformly at random. Each example is a sequence of L random distractor tokens with the
+name of individual i (T name tokens) inserted at position p, followed by the token of attribute a. The model predicts
+the value from the last position. Training is online: every step draws a fresh batch of (i, a) pairs, distractors and
+name positions. Accuracy is measured on all N x A facts, or on a fixed random subset of them (`eval_facts`), with
+fixed distractors. Before facts are learned, the best possible loss is ln K (uniform values), so the plateau is the
+stretch of training where the loss stays near ln K.
+
+Task difficulty. Zucchet et al. (arXiv 2503.21676) report a plateau whose length is nearly proportional to N, and trace
+it to the formation of the attention circuits that move the name to the prediction position. Their task has three
+features that make these circuits necessary: rare individuals (N = 4k-256k at batch 128), names of several tokens, and
+names at varying positions inside long text. Measured here (GeGLU, width 512):
+  * T = 1, L = 0, p = 0 (the two-token task): N = 1024 learns all 4,096 facts within 500 steps, no plateau;
+  * T = 1, L = 8, p = 0: N = 1024 learns all facts by step 800, still no plateau.
+The defaults keep the two-token task; the configurations in experiments/configs/facts.json set T, L and p explicitly.
 
 FFN variants (all pre-LayerNorm, residual):
   geglu  W_o (GELU(W_g x) * (W_u x)), width w, all weights trained.
@@ -53,6 +63,12 @@ class FactsConfig:
   seed: int = 1
   finetune_people: int = 0  # M: after `steps`, train only on M new individuals (forgetting test; 0 = off)
   finetune_steps: int = 0
+  n_filler: int = 0        # L: random distractor tokens (0 = the two-token task)
+  filler_vocab: int = 64   # number of distinct distractor tokens
+  name_tokens: int = 1     # T: tokens per name; T = 1: one token per individual; T >= 2: unique tuples of name parts
+  name_vocab: int = 256    # T >= 2: distinct tokens per name part (each part has its own token range)
+  random_name_pos: bool = False   # True: the name starts at a uniform position in [0, L]; False: at position 0
+  eval_facts: int = 0      # 0: evaluate on all N x A facts; > 0: on a fixed random subset of this size
 
 
 class GeGLU(nn.Module):
@@ -77,13 +93,20 @@ class CosFeatures(nn.Module):
     return self.o(self.scale * torch.cos(x @ self.W.T + self.b))
 
 
+def name_region(cfg: FactsConfig) -> int:
+  """Number of name token ids: one per individual (T = 1) or T ranges of `name_vocab` part tokens (T >= 2)."""
+  return cfg.n_people + cfg.finetune_people if cfg.name_tokens == 1 else cfg.name_tokens * cfg.name_vocab
+
+
 class FactsModel(nn.Module):
   def __init__(self, cfg: FactsConfig, gen: torch.Generator):
     super().__init__()
-    V = cfg.n_people + cfg.finetune_people + cfg.n_attrs   # name tokens [0, N + M), then attribute tokens
+    # tokens: names [0, R), attributes [R, R + A), distractors [R + A, R + A + F), with R = name_region(cfg)
+    V = name_region(cfg) + cfg.n_attrs + cfg.filler_vocab
+    S = cfg.name_tokens + cfg.n_filler + 1                 # sequence length
     self.cfg = cfg
     self.emb = nn.Embedding(V, cfg.d)
-    self.pos = nn.Parameter(torch.randn(2, cfg.d, generator=gen) * 0.02)
+    self.pos = nn.Parameter(torch.randn(S, cfg.d, generator=gen) * 0.02)
     self.ln1 = nn.ModuleList([nn.LayerNorm(cfg.d) for _ in range(cfg.layers)])
     self.attn = nn.ModuleList([nn.MultiheadAttention(cfg.d, cfg.heads, batch_first=True) for _ in range(cfg.layers)])
     self.ln2 = nn.ModuleList([nn.LayerNorm(cfg.d) for _ in range(cfg.layers)])
@@ -91,8 +114,9 @@ class FactsModel(nn.Module):
     for i in range(cfg.layers):
       use_rbf = cfg.ffn == 'rbf' and (cfg.rbf_layers == 'all' or i == cfg.layers - 1)
       if use_rbf:
+        rows_per_step = cfg.batch_size * (1 if i == cfg.layers - 1 else S)   # the last FFN sees the last token only
         rc = RCDLConfig(kernel_type='rbf', hidden_dim=cfg.d, temperature=cfg.rbf_temperature, eta=cfg.rbf_eta,
-                        db_size=2 * cfg.batch_size * (cfg.steps + cfg.finetune_steps), batch_size=cfg.batch_size,
+                        db_size=rows_per_step * (cfg.steps + cfg.finetune_steps + 1), batch_size=cfg.batch_size,
                         num_classes=cfg.d)
         ffns.append(RCDLLayer(rc, cfg.d, cfg.d, i, gen))
       elif cfg.ffn == 'cos':
@@ -102,13 +126,15 @@ class FactsModel(nn.Module):
     self.ffn = nn.ModuleList(ffns)
     self.ln_f = nn.LayerNorm(cfg.d)
     self.head = nn.Linear(cfg.d, cfg.n_values)
-    self.register_buffer('mask', torch.triu(torch.ones(2, 2, dtype=torch.bool), 1))
+    self.register_buffer('mask', torch.triu(torch.ones(S, S, dtype=torch.bool), 1))
 
-  def forward(self, tokens):                       # tokens: (B, 2) = (name, attribute)
+  def forward(self, tokens):                       # tokens: (B, T + L + 1): distractors with the name, then attribute
     h = self.emb(tokens) + self.pos
     for i in range(self.cfg.layers):
       a = self.ln1[i](h)
       h = h + self.attn[i](a, a, a, attn_mask=self.mask, need_weights=False)[0]
+      if i == self.cfg.layers - 1:                 # only the last position reaches the head, so the last FFN runs
+        h = h[:, -1:]                              # there only (same output; the growing layer stores 1 row/example)
       f = self.ln2[i](h)
       out = self.ffn[i](f.reshape(-1, f.shape[-1])).view_as(f) if isinstance(self.ffn[i], RCDLLayer) else self.ffn[i](f)
       h = h + out
@@ -127,10 +153,35 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
   params = [p for p in model.parameters() if p.requires_grad]
   opt = torch.optim.Adam(params, lr=cfg.lr)
 
-  def fact_set(lo, hi):                       # all (name, attribute) token pairs and values for people [lo, hi)
+  R, T, L = name_region(cfg), cfg.name_tokens, cfg.n_filler
+  if T == 1:
+    names = torch.arange(N + M)[:, None]
+  else:                                       # unique T-tuples of name parts; part j uses token range [j V_n, (j+1) V_n)
+    if (N + M) > cfg.name_vocab ** T // 2:
+      raise ValueError('name_vocab ** name_tokens must be at least twice the number of individuals')
+    codes = torch.randperm(cfg.name_vocab ** T, generator=gen)[:N + M]
+    names = torch.stack([(codes // cfg.name_vocab ** j) % cfg.name_vocab + j * cfg.name_vocab for j in range(T)], 1)
+  names = names.to(device)
+
+  def sequences(people, attrs, g):            # distractors with the name inserted, then the attribute token
+    B = len(people)
+    seq = torch.randint(R + A, R + A + cfg.filler_vocab, (B, T + L), generator=g)
+    start = torch.randint(0, L + 1, (B,), generator=g) if cfg.random_name_pos else torch.zeros(B, dtype=torch.long)
+    seq, start = seq.to(device), start.to(device)
+    rows = torch.arange(B, device=device)
+    for j in range(T):
+      seq[rows, start + j] = names[people, j]
+    return torch.cat([seq, (R + attrs)[:, None]], 1)
+
+  eval_gen = torch.Generator().manual_seed(10_000 + cfg.seed)   # fixed distractors and positions for evaluation
+
+  def fact_set(lo, hi):                       # facts of people [lo, hi) (or a fixed subset): sequences and values
     people = torch.arange(lo, hi, device=device).repeat_interleave(A)
     attrs = torch.arange(A, device=device).repeat(hi - lo)
-    return torch.stack([people, N + M + attrs], 1), facts[people, attrs]
+    if cfg.eval_facts and len(people) > cfg.eval_facts:
+      pick = torch.randperm(len(people), generator=eval_gen)[:cfg.eval_facts].to(device)
+      people, attrs = people[pick], attrs[pick]
+    return sequences(people, attrs, eval_gen), facts[people, attrs]
 
   old_set, new_set = fact_set(0, N), (fact_set(N, N + M) if M else None)
 
@@ -162,7 +213,7 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
     lo, hi = (0, N) if step < cfg.steps else (N, N + M)   # phase 2: only the M new individuals
     i = torch.randint(lo, hi, (cfg.batch_size,), generator=gen).to(device)
     a = torch.randint(0, A, (cfg.batch_size,), generator=gen).to(device)
-    logits = model(torch.stack([i, N + M + a], 1))
+    logits = model(sequences(i, a, gen))
     loss = F.cross_entropy(logits, facts[i, a])
     opt.zero_grad()
     loss.backward()
