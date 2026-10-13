@@ -30,8 +30,8 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
 | 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Reproduced at 1/10 of the data with the paper's ratios (keys = GWS database size, 2,000 vs 50 epochs): the parametric model's test accuracy peaks at 43.3% (12.5% of training) and falls to 39.8% while its train accuracy rises to 93%; GWS ends at its best, 49.3%. Full scale, 50 epochs: GWS 61.9 vs 49.1. As in the paper's own figure, GWS also has a large final train-test gap; the claim holds in the sense that its test accuracy does not fall. Learned weights make the parametric model diverge (as the paper reports) | §7.7 |
 | 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Reproduced: 55.24 at the first setting and 58.41 at the best of four (all four 52.5-58.4) vs 49.62 for the best standard ViT; needed an exact two-call FlashAttention form because PyTorch's fused attention backward slows 50 times at 2^21 keys | §5.3 |
-| 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities within 4 points of the paper at every τ; accuracy within 1.2 points for τ ≥ 50 with the notebook setting (two seeds at τ = 50: 56.2, 56.5). At τ = 35 the notebook setting fails (49.5, 44.3), but the paper's per-τ tuning grid (27 settings) gives 58.29% at 89.0% of the rows (paper ~58.6% at ~88%) | §5.2 |
-| 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Reproduced: λ = 1e-5 reaches 74.0% (final 73.7%) against 68.3% for plain SGD; all five decay rates of the paper's figure match it within about 1-2 points in test and train accuracy | §7.8 |
+| 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities within 4 points of the paper at every τ; accuracy within 1.2 points for τ ≥ 50 with the notebook setting (two seeds at τ = 50: 56.2, 56.5). At τ = 35 the notebook setting fails (49.5, 44.3), but the paper's per-τ tuning grid (27 settings) gives 58.29% at 89.0% of the rows (three seeds of that setting: mean 58.27 ± 0.04; paper ~58.6% at ~88%) | §5.2 |
+| 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Reproduced: λ = 1e-5 reaches 74.0% (final 73.7%) against 68.3% for plain SGD; all five decay rates of the paper's figure match it within about 1-2 points in test and train accuracy. Second seed: 73.7% against 67.5% | §7.8 |
 | 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it "drastically"; Cos-Bochner improves with width, matching growing RBF; GeGLU has a lower ceiling | Reproduced (minimal version, 2-layer transformer): the plateau grows 4-7 times for 4 times more individuals; the growing RBF layer (η = 10) reaches 90% of the facts 3.8 times sooner than GeGLU-4096 and ends at 99.7% against 82-92% for GeGLU; Cos-Bochner improves monotonically with width (66% → 99% final, escape 5,500 → 2,500 steps) and matches the RBF layer at width 65,536. The onset of learning moves 35-45% earlier, so "drastic" applies to the time to knowledge more than to the onset | §7.5 |
 | 20 | Article: fine-tuning on new individuals makes FFNs forget; "in the fine-tuning setting, the RBF, and also the Cos Bochner, seem to do better than the GeGLU"; RCDL layers "can 'unforget' without replay" (no numbers given) | Reproduced (qualitative, as stated): all variants forget (old facts 99.6% → 16-30%); after 4,000 steps RBF and Cos-Bochner keep 2.5 and 1.9 times as many old facts as GeGLU (38.4% and 29.9% against 15.5%); only the growing RBF layer recovers old facts without replay (30.1% after 250 steps → 38.4% after 4,000). The recovery is small | §7.5 |
 | 21 | Article: RCDL matches but does not beat strong baselines, at much higher cost | Supported. Multi-epoch: at L = 0, 7.6 points below Muon with 400 times the memory; at the paper's depth (L = 2), 1.1 points below Muon (68.4 vs 69.5) with 77 GB of stored rows in bf16 against 75 MB of MLP weights (about 1,000 times). In one pass GWS is 2 points above Muon at 10 times the memory | §7.6 |
@@ -175,7 +175,7 @@ The capacities match the paper within 4 points at every τ, so the growth rule i
 | T = 1, β = 30 | 21.10 | 21.76 | 18.24 |
 | T = 1, β = 10 | 28.39 | 25.85 | 19.79 |
 
-With the paper's full tuning grid (27 settings, 26 run here plus the notebook setting from above), τ = 35 reaches **58.29% at 89.0% of the rows** (T = 5, β = 60, Adam 3e-4), against the paper's ~58.6% at ~88%. Two settings are within 0.04 points of each other (β = 30 and 60 at T = 5, Adam 3e-4). The Adam rate of the trained keys, values and weights decides the result: at T = 5, β = 30, the rate 3e-4 gives 58.25% and the notebook's 1e-3 gives 44-49%. T = 1 fails at every rate (training loss 11-43). One seed per setting, so the best of 27 is an optimistic estimate, as is the paper's.
+With the paper's full tuning grid (27 settings, 26 run here plus the notebook setting from above; seeds 2 and 3 added for the two best settings: T = 5, β = 60, Adam 3e-4 gives 58.29 / 58.30 / 58.23, mean 58.27 ± 0.04; T = 5, β = 30, Adam 3e-4 gives 58.25 / 58.08 / 58.39, mean 58.24 ± 0.16), τ = 35 reaches **58.29% at 89.0% of the rows** (T = 5, β = 60, Adam 3e-4), against the paper's ~58.6% at ~88%. Two settings are within 0.04 points of each other (β = 30 and 60 at T = 5, Adam 3e-4). The Adam rate of the trained keys, values and weights decides the result: at T = 5, β = 30, the rate 3e-4 gives 58.25% and the notebook's 1e-3 gives 44-49%. T = 1 fails at every rate (training loss 11-43). One seed per setting, so the best of 27 is an optimistic estimate, as is the paper's.
 
 
 ### 5.3 ViT with growing FFN layers (paper Sec. 5, App. E.9)
@@ -266,6 +266,8 @@ ResNet-MLP baselines (L = 2, width 3,072, GELU, batch 64, augmentation, 50 epoch
 | MLP + Adam, lr 3e-4 | 64.72 | 0.85 | 4.5 | ~65 |
 | MLP + Adam, lr 1e-4 | 64.37 | 0.87 | 4.5 | ~65 |
 | MLP + SGD, lr 1e-2 | 59.77 | 1.15 | 3.8 | ~61 |
+| MLP + AdamW, lr 1e-4 / 3e-4, weight decay 0.01 (third round, molab) | 64.49 / 64.35 | 0.87 / 0.86 | 2.6 | below GWS |
+| MLP + RMSprop, lr 1e-4 / 3e-4 (third round, molab) | 64.74 / 64.63 | 0.90 / 0.92 | 2.5 | below GWS |
 | MLP + Mesa, lr 3e-4 (second A100 session; low-rank solve, TF32) | 66.72 | 0.59 | 10.6 | ~67.8 |
 | GWS, L = 0, T = 10 (section 7.2) | 61.86 | 0.81 | 22.6 | ~64 (L = 0 curve of Fig. 4) |
 
@@ -302,10 +304,10 @@ CIFAR-100, 50 epochs (second A100 session, TF32; one setting per method):
 
 | Model | Test acc (%) | Paper (Fig. 2 left, CIFAR-100 panel, read off plot) |
 |---|---|---|
-| MLP + Muon, lr 1e-3 | 40.16 | ~39.2 |
+| MLP + Muon, lr 1e-3 (seeds 1 / 2) | 40.16 / 40.19 | ~39.2 |
 | MLP + Muon, lr 3e-3 (third round) | 38.94 | |
 | MLP + Mesa, lr 3e-4 (γ = 0.99, λ = 0.01) | 38.51 | ~40.4 (best in the paper) |
-| MLP + Mesa, lr 1e-4 (third round) | **40.83** | |
+| MLP + Mesa, lr 1e-4 (third round, seeds 1 / 2) | **40.83** / 40.19 | |
 | MLP + Mesa, lr 1e-3 (third round) | 37.00 | |
 | MLP + Mesa, lr 3e-4, γ = 1 (third round) | 38.25 | |
 | MLP + Mesa, lr 3e-4, λ = 0.1 (third round) | 36.85 | |
@@ -313,7 +315,7 @@ CIFAR-100, 50 epochs (second A100 session, TF32; one setting per method):
 | GWS, L = 0, T = 10 | 31.81 (linearized: 2.92) | ~39.1 for L = 2 |
 | GWS, L = 2, T = 10 (bf16 tables, third round) | 38.80 (linearized: 3.20) | ~39.1 |
 
-With one Mesa setting (second round), Muon was 1.65 points ahead. The third round tuned both on the paper's grids (Mesa: 5 more settings over the rate, γ, λ and depth; Muon: one more rate, molab GPU): the best Mesa (Adam 1e-4, 40.83%) is then 0.67 points above the best Muon (40.16%), so the paper's ordering on CIFAR-100 holds after tuning. One seed per setting, and the margin is small: the paper reports 40.4 against 39.2.
+With one Mesa setting (second round), Muon was 1.65 points ahead. The third round tuned both on the paper's grids (Mesa: 5 more settings over the rate, γ, λ and depth; Muon: one more rate; molab GPU) and ran a second seed of each winner: Mesa (Adam 1e-4) 40.83 / 40.19, mean 40.51; Muon (1e-3) 40.16 / 40.19, mean 40.18. So the best Mesa is 0.33 points above the best Muon on average, which is the paper's ordering (40.4 against 39.2), but the margin is inside the seed-to-seed spread of Mesa (0.64 points). Verdict: consistent with the paper, not a clear win.
 
 Findings:
 - The Muon, Adam, Mesa and SGD baselines reproduce the paper's CIFAR-10 values (69.5, 64.7, 66.7 and 59.8% against about 69.5, 65, 67.8 and 61).
@@ -481,6 +483,8 @@ where X_t (d_in × 64) holds the layer's inputs in the batch, G_t (d_out × 64) 
 | 3e-5 | 72.0 (72.2) | ~71 | 76.3 | ~78 | 80.2 |
 
 Test accuracy over training (λ = 0 / 1e-5): epoch 100: 65.6 / 61.9; 300: 66.0 / 67.1; 500: 67.1 / 69.3; 1,000: 67.5 / 70.8; 1,500: 68.2 / 72.4; 2,000: 68.3 / 73.7.
+
+Second seed (λ = 0 and 1e-5 only, molab, 1.9 hours): final 67.50% / 73.73% (best 67.80% / 73.82%); train accuracy on clean images 100.0% / 99.9%. The gain from the Delta-rule decay is 6.2 points on seed 2 and 5.4 points on seed 1.
 
 Findings:
 - **Reproduced.** Plain SGD memorizes the augmented training set by epoch ~500 (train 99.8%) and its test accuracy stays near 67-68%. Every decay rate in the paper's range ends higher (72.0-73.9%), and λ = 1e-5 reaches 74.0%, as the paper reports (74% against 67%). The ordering and the train curves match the paper's figure: larger λ fits the training set more slowly (λ = 3e-5: 76% train after 2,000 epochs) and still generalizes better than λ = 0.
