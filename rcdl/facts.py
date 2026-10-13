@@ -189,10 +189,12 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
   def evaluate(tokens, targets):
     model.eval()
     loss = correct = 0.0
-    for i in range(0, len(tokens), 4096):
-      logits = model(tokens[i:i + 4096])
-      loss += F.cross_entropy(logits, targets[i:i + 4096], reduction='sum').item()
-      correct += (logits.argmax(-1) == targets[i:i + 4096]).sum().item()
+    rows = max([layer.size for layer in model.rcdl_layers().values()] or [0])
+    chunk = max(32, min(4096, int(1e8 // max(1, rows))))   # keeps the chunk x rows distance matrix near 400 MB
+    for i in range(0, len(tokens), chunk):
+      logits = model(tokens[i:i + chunk])
+      loss += F.cross_entropy(logits, targets[i:i + chunk], reduction='sum').item()
+      correct += (logits.argmax(-1) == targets[i:i + chunk]).sum().item()
     model.train()
     return loss / len(tokens), correct / len(tokens)
 
