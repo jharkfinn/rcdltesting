@@ -64,6 +64,8 @@ class RCDLConfig:
   attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' | 'sdpa_bf16' (fused) | 'flash2' (2 flash calls,
                                      # bf16, value width = query width) | 'splitk' | 'splitk_tf32'
                                      # (Triton, few queries, forward-only: 'dense' is used when q needs a gradient)
+  store_dtype: str = 'float32'       # 'float32' | 'bfloat16': stored keys and values of 'gws'/'gauge'/'rbf' (weights
+                                     # stay fp32); bf16 halves the memory (L = 2, 50 epochs: 77 GB instead of 154 GB)
   dataset: str = 'cifar10'           # 'cifar10' | 'cifar100'
   # --- ViT (paper Sec. 5 'Mixing retrieval-centric and parametric layers', App. E.9) ---
   arch: str = 'resmlp'               # 'resmlp' | 'vit' (num_layers = ViT blocks, hidden_dim = token width)
@@ -99,6 +101,28 @@ def weighted_attention(q, keys, values, weights, temperature: float, db_size: Op
   denom = exp_qk @ weights
   sign = torch.where(denom < 0, -torch.ones_like(denom), torch.ones_like(denom))
   return (exp_qk @ values) / (denom.abs().clamp_min(1e-8) * sign)
+
+
+def _mm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+  """a @ b in the dtype of b (bf16 storage: bf16 tensor-core matmul with fp32 accumulation), result in a's dtype."""
+  return a @ b if a.dtype == b.dtype else (a.to(b.dtype) @ b).to(a.dtype)
+
+
+def weighted_attention_lowp(q, keys, values, weights, temperature: float, valid: Optional[torch.Tensor] = None):
+  """weighted_attention for keys and values stored in bf16 (cfg.store_dtype): the two large matmuls run in bf16 with
+  fp32 accumulation; the logits, the softmax shift, the exponentials and the denominator stay in fp32.
+
+  Error: rounding q and k_j to bf16 (relative 2^-9 per element) changes z_j = <q, k_j> / (T sqrt(d)) by about
+  2^-9 ||q * k_j||_2 / (T sqrt(d)) ~ 1e-4 for unit-RMS q, k_j at d = 3072, T = 10; rounding exp(z_j) for the numerator
+  adds a relative error of at most 2^-9 per row. tests/test_layers.py bounds the end-to-end difference.
+  """
+  logits = _mm(q, keys.T) / (temperature * math.sqrt(q.shape[-1]))
+  if valid is not None:
+    logits = logits.masked_fill(~valid[None, :], -1e9)
+  exp_qk = torch.exp(logits - logits.max(-1, keepdim=True).values)
+  denom = exp_qk @ weights
+  sign = torch.where(denom < 0, -torch.ones_like(denom), torch.ones_like(denom))
+  return _mm(exp_qk, values) / (denom.abs().clamp_min(1e-8) * sign)
 
 
 def weighted_attention_sdpa(q, keys, values, weights, temperature: float, dtype=None):
@@ -150,8 +174,8 @@ def weighted_attention_flash(q, keys, values, weights, temperature: float):
 
 def linearized_weighted_attention(q, keys, values, weights, temperature: float):
   """Paper Fig. 4 (right), post-training ablation: exp(z) replaced by its first-order expansion 1 + z."""
-  lin = 1.0 + q @ keys.T / (temperature * math.sqrt(q.shape[-1]))
-  return (lin @ values) / (lin @ weights)
+  lin = 1.0 + _mm(q, keys.T) / (temperature * math.sqrt(q.shape[-1]))
+  return _mm(lin, values) / (lin @ weights)
 
 
 def rbf_attention(q, keys, values, temperature: float):
@@ -190,24 +214,39 @@ class RCDLLayer(nn.Module):
   database at the end of the step.
   """
 
-  def __init__(self, cfg: RCDLConfig, d_in: int, d_out: int, layer_id: int, gen: torch.Generator):
+  def __init__(self, cfg: RCDLConfig, d_in: int, d_out: int, layer_id: int, gen: torch.Generator,
+               device: Optional[torch.device] = None):
+    """device: where to allocate the database (default CPU). Allocating a large table directly on the GPU avoids a
+    CPU copy of it (L = 2 for 50 epochs: 77 GB in bf16). Random initial values are always drawn on the CPU from
+    `gen`, so the device does not change them."""
     super().__init__()
     self.cfg, self.kind, self.T = cfg, cfg.kernel_type, cfg.temperature
     n, B = cfg.db_size, cfg.batch_size
-    keys, values, weights = torch.zeros(n, d_in), torch.zeros(n, d_out), torch.zeros(n, 1)
+    dev = torch.device('cpu') if device is None else torch.device(device)
+    store = (torch.bfloat16 if cfg.store_dtype == 'bfloat16' and self.kind in ('gws', 'gauge', 'rbf')
+             else torch.get_default_dtype())
+    if cfg.store_dtype not in ('float32', 'bfloat16'):
+      raise ValueError(f'unknown store_dtype {cfg.store_dtype!r}')
+    if store == torch.bfloat16 and (self.kind == 'rbf' or cfg.model_momentum > 0.0 or cfg.model_weight_decay > 0.0):
+      raise ValueError('store_dtype bfloat16 supports gws/gauge without momentum or weight decay only '
+                       '(RBF distances and age coefficients would make fp32 copies of the whole table)')
+    keys = torch.zeros(n, d_in, dtype=store, device=dev)
+    values = torch.zeros(n, d_out, dtype=store, device=dev)
+    weights = torch.zeros(n, 1, device=dev)
     if self.kind == 'parametric_softmax':   # fixed-size random table, every entry active from the start
-      keys = torch.randn(n, d_in, generator=gen) / math.sqrt(d_in)
-      values = torch.randn(n, d_out, generator=gen) * 0.02
-      weights = torch.ones(n, 1)
+      keys = (torch.randn(n, d_in, generator=gen) / math.sqrt(d_in)).to(dev)
+      values = (torch.randn(n, d_out, generator=gen) * 0.02).to(dev)
+      weights = torch.ones(n, 1, device=dev)
       self.size = n
     elif self.kind == 'rbf':                # empty database (+ optional frozen random projection x W_slow)
       self.size = 0
       if not cfg.freeze_init_out:
         g = torch.Generator().manual_seed(layer_id * 42)
-        self.register_buffer('w_slow', torch.randn(d_in, d_out, generator=g) / (math.sqrt(d_in) * cfg.init_pred_scale))
+        self.register_buffer('w_slow', (torch.randn(d_in, d_out, generator=g)
+                                        / (math.sqrt(d_in) * cfg.init_pred_scale)).to(dev))
     else:                                   # D_0: B random RMS-normalized entries with weight 1/B
-      keys[:B] = rms_norm(torch.randn(B, d_in, generator=gen))
-      values[:B] = rms_norm(torch.randn(B, d_out, generator=gen))
+      keys[:B] = rms_norm(torch.randn(B, d_in, generator=gen)).to(dev)
+      values[:B] = rms_norm(torch.randn(B, d_out, generator=gen)).to(dev)
       weights[:B] = 1.0 / B
       self.size = B
     learned = {'hybrid': ('keys', 'values', 'weights'),
@@ -218,8 +257,8 @@ class RCDLLayer(nn.Module):
       else:
         self.register_buffer(name, t)
     self.growing = self.kind in ('gws', 'gauge', 'rbf')
-    self.register_buffer('birth', torch.zeros(n, dtype=torch.long))      # write step of each row (D_0: 0)
-    self.register_buffer('valid_rows', torch.zeros(n, dtype=torch.bool))  # cached mask (growing layers)
+    self.register_buffer('birth', torch.zeros(n, dtype=torch.long, device=dev))      # write step of each row (D_0: 0)
+    self.register_buffer('valid_rows', torch.zeros(n, dtype=torch.bool, device=dev))  # cached mask (growing layers)
     self.valid_rows[:self.size] = (keys[:self.size] != 0).any(-1) | (weights[:self.size, 0] != 0)
     self.step, self.wrapped, self.linearize = 0, False, False   # linearize: eval-time exp(z) -> 1 + z (Fig. 4 right)
     self.next_row, self.pending = self.size, None
@@ -247,6 +286,8 @@ class RCDLLayer(nn.Module):
         s = rbf_attention(q, keys, values, self.T)
       elif self.linearize and not self.training:
         s = linearized_weighted_attention(q, keys, values, weights, self.T)
+      elif keys.dtype != q.dtype:            # bf16 storage (cfg.store_dtype)
+        s = weighted_attention_lowp(q, keys, values, weights, self.T, valid=self.valid_rows[:m])
       elif cfg.attn_impl in ('splitk', 'splitk_tf32') and not q.requires_grad:
         from rcdl.splitk_attention import weighted_attention_splitk
         s = weighted_attention_splitk(q, keys, values, weights, self.T,
@@ -314,6 +355,6 @@ class RCDLLayer(nn.Module):
         self.wrapped = True
       self.next_row = (self.next_row + len(k)) % len(self.keys)
       self.size = min(len(self.keys), self.size + len(k))
-    self.keys[idx], self.values[idx], self.weights[idx] = k, v, w
+    self.keys[idx], self.values[idx], self.weights[idx] = k.to(self.keys.dtype), v.to(self.values.dtype), w
     self.birth[idx] = self.step
     self.valid_rows[idx] = (k != 0).any(-1) | (w[:, 0] != 0)

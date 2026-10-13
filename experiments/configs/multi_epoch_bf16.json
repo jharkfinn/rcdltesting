@@ -1,0 +1,49 @@
+{
+ "_comment": "Claim 11 at the paper's depth: GWS with L = 2 for 50 epochs stores 2,499,264 rows per layer (154 GB in fp32). store_dtype bfloat16 halves this to 77 GB (fits a 96 GB GPU). gws_L2_T10_10ep_bf16 checks bf16 storage against the fp32 10-epoch run (65.05%). Settings as multi_epoch.json (T = 10, eta = 0.003, beta = 10, batch 64, augmentation). Eval batch 64 keeps the logit matrix small. The CIFAR-100 run is gws_L2_T10_50ep_c100_bf16 in multi_epoch_cifar100.json (the dataset is a file-level key).",
+ "defaults": {
+  "eval_every": 3905,
+  "eval_subset": 2000,
+  "eval_batch_size": 64
+ },
+ "experiments": {
+  "gws_L2_T10_10ep_bf16": {
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "db_size": 499904,
+    "num_epochs": 10,
+    "store_dtype": "bfloat16"
+   }
+  },
+  "gws_L2_T10_50ep_bf16": {
+   "paper_acc": "GWS above Adam (~65), SGD and RMSprop, below Muon (~69.5) (Fig. 2 left)",
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "db_size": 2499264,
+    "num_epochs": 50,
+    "store_dtype": "bfloat16"
+   }
+  }
+ }
+}

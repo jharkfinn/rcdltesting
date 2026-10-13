@@ -205,7 +205,7 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
     train_x, train_y = train_x[:train_subset], train_y[:train_subset]
     train_u8 = None if train_u8 is None else train_u8[:train_subset]
   torch.manual_seed(cfg.global_init_seed)
-  model = build_model(cfg).to(train_x.device)
+  model = build_model(cfg, device=train_x.device).to(train_x.device)
   opt = create_rcdl_optimizer(model, cfg)
   if out_dir:
     os.makedirs(out_dir, exist_ok=True)

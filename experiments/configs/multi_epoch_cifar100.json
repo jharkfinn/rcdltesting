@@ -1,5 +1,5 @@
 {
- "_comment": "CIFAR-100, 50 epochs, augmentation, batch 64 (paper Fig. 2 left, CIFAR-100 panel; values read off the plot). GWS at L=0 only (L=2 does not fit one GPU).",
+ "_comment": "CIFAR-100, 50 epochs, augmentation, batch 64 (paper Fig. 2 left, CIFAR-100 panel; values read off the plot). GWS at L=0 only (L=2 does not fit one GPU). gws_L2_T10_50ep_c100_bf16: L = 2 with bf16 storage (77 GB; multi_epoch_bf16.json).",
  "dataset": "cifar100",
  "defaults": {
   "eval_every": 3905,
@@ -69,6 +69,27 @@
     "num_epochs": 50,
     "optimizer": "mesa",
     "learning_rate": 0.0003,
+    "num_classes": 100
+   }
+  },
+  "gws_L2_T10_50ep_c100_bf16": {
+   "paper_acc": "~39.1 (Fig. 2 left, CIFAR-100)",
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "db_size": 2499264,
+    "num_epochs": 50,
+    "store_dtype": "bfloat16",
     "num_classes": 100
    }
   }

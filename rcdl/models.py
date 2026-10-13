@@ -27,14 +27,14 @@ class CifarRCDLClassifier(nn.Module):
   """Stacked residual classifier supporting all RCDL layers, Parametric Softmax, and standard dense (ResNet-MLP) layers:
   L pre-norm residual blocks x <- x + act(layer(RMSNorm(x))) followed by a readout layer of the same kind."""
 
-  def __init__(self, cfg: RCDLConfig):
+  def __init__(self, cfg: RCDLConfig, device=None):
     super().__init__()
     self.cfg, self.act = cfg, ACTIVATIONS[cfg.nonlinearity]
     gen, H = torch.Generator().manual_seed(cfg.global_init_seed), cfg.hidden_dim
     if cfg.kernel_type == 'standard':
       layer = lambda d_out, layer_id: dense(H, d_out, gen)
     else:
-      layer = lambda d_out, layer_id: RCDLLayer(cfg, H, d_out, layer_id, gen)
+      layer = lambda d_out, layer_id: RCDLLayer(cfg, H, d_out, layer_id, gen, device=device)
     self.layers = nn.ModuleList([layer(H, i) for i in range(cfg.num_layers)])
     self.output_layer = layer(cfg.num_classes, cfg.num_layers)
 
@@ -61,7 +61,7 @@ class CifarViT(nn.Module):
   trained by the optimizer.
   """
 
-  def __init__(self, cfg: RCDLConfig):
+  def __init__(self, cfg: RCDLConfig, device=None):
     super().__init__()
     torch.manual_seed(cfg.global_init_seed)
     gen = torch.Generator().manual_seed(cfg.global_init_seed)
@@ -77,7 +77,7 @@ class CifarViT(nn.Module):
       r = cfg.vit_ffn_blowup
       self.ffn = nn.ModuleList([nn.Sequential(nn.Linear(d, r * d), nn.GELU(), nn.Linear(r * d, d)) for _ in range(L)])
     else:
-      self.ffn = nn.ModuleList([RCDLLayer(cfg, d, d, i, gen) for i in range(L)])
+      self.ffn = nn.ModuleList([RCDLLayer(cfg, d, d, i, gen, device=device) for i in range(L)])
     self.ln_f = nn.LayerNorm(d)
     self.head = nn.Linear(d, cfg.num_classes)
 
@@ -96,5 +96,6 @@ class CifarViT(nn.Module):
     return {f'ffn_{i}': m for i, m in enumerate(self.ffn) if isinstance(m, RCDLLayer)}
 
 
-def build_model(cfg: RCDLConfig) -> nn.Module:
-  return CifarViT(cfg) if cfg.arch == 'vit' else CifarRCDLClassifier(cfg)
+def build_model(cfg: RCDLConfig, device=None) -> nn.Module:
+  """device: where the RCDL layers allocate their tables (the caller still moves the module with .to(device))."""
+  return CifarViT(cfg, device) if cfg.arch == 'vit' else CifarRCDLClassifier(cfg, device)

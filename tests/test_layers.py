@@ -141,6 +141,44 @@ def test_vit_with_growing_ffn_trains_and_grows():
   assert loss == loss                             # finite
 
 
+@pytest.mark.parametrize('kind', ['gws', 'gauge'])
+def test_bf16_storage_matches_fp32_on_same_database(kind):
+  """store_dtype='bfloat16' (used for L = 2 at 50 epochs): a bf16 model trains and grows like the fp32 model, and on
+  the same database (fp32 rows rounded to bf16) its outputs and input gradients agree within 2% (relative L2).
+
+  Training trajectories are not compared: in this tiny model (training loss 3-50) they separate within a few steps
+  from any perturbation, so they say nothing about the precision of the layer. The CIFAR check is a 10-epoch L = 2
+  run against the fp32 run (docs/REPRODUCTION.md, section 7.4).
+  """
+  kw = small_cfg(kernel_type=kind, hidden_dim=64, temperature=10.0, eta=0.003, beta=10.0)
+  ref = CifarRCDLClassifier(RCDLConfig(**kw))
+  low = CifarRCDLClassifier(RCDLConfig(**kw, store_dtype='bfloat16'))
+  for x, y in batches(12, d=64):
+    rcdl_train_step(ref, None, x.clone(), y)
+    rcdl_train_step(low, None, x.clone(), y)
+  for (name, a), (_, b) in zip(ref.rcdl_layers().items(), low.rcdl_layers().items()):
+    assert b.keys.dtype == torch.bfloat16 and b.weights.dtype == torch.get_default_dtype() and a.size == b.size, name
+    b.keys.copy_(a.keys), b.values.copy_(a.values), b.weights.copy_(a.weights)
+    b.valid_rows.copy_(a.valid_rows)
+  tx = torch.randn(16, 64, generator=torch.Generator().manual_seed(5), requires_grad=True)
+  rel = lambda u, v: ((u - v).norm() / u.norm()).item()
+  ref.eval(), low.eval()
+  oa, ob = ref(tx), low(tx)
+  ga, = torch.autograd.grad(oa.pow(2).sum(), tx)
+  gb, = torch.autograd.grad(ob.pow(2).sum(), tx)
+  assert rel(oa, ob) < 2e-2 and rel(ga, gb) < 2e-2, (rel(oa, ob), rel(ga, gb))
+  with torch.no_grad():
+    for m in (ref, low):
+      for layer in m.rcdl_layers().values():
+        layer.linearize = True
+    assert rel(ref(tx), low(tx)) < 2e-2
+
+
+def test_bf16_storage_rejects_rbf():
+  with pytest.raises(ValueError):
+    CifarRCDLClassifier(RCDLConfig(**small_cfg(kernel_type='rbf', db_size=48, store_dtype='bfloat16')))
+
+
 def test_eval_is_independent_of_batch_size():
   kw = small_cfg(kernel_type='gws', model_momentum=0.5)
   m = CifarRCDLClassifier(RCDLConfig(**kw))
