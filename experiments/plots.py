@@ -214,6 +214,42 @@ def fig_multi_epoch(runs, out):
   plt.close(fig)
 
 
+def fig_train_loss(roots, out, names=('gws', 'rbf', 'gauge', 'mlp_muon', 'mlp_adamw', 'mlp_adam', 'mlp_sgd'),
+                   prefixes=('mesa_L4', 'delta_L4'), window=100):
+  """Online (prequential) training loss of single-pass runs: each batch is scored before the model learns from it."""
+  curves = {}
+  for root in roots:
+    for f in glob.glob(os.path.join(root, '**', 'seed*', 'train_curve.npz'), recursive=True):
+      name = os.path.basename(os.path.dirname(os.path.dirname(f)))
+      cfg = os.path.join(os.path.dirname(f), 'config.json')
+      if not os.path.exists(cfg) or json.load(open(cfg)).get('num_epochs', 1) != 1:
+        continue
+      if name in names or name.startswith(prefixes):
+        curves.setdefault(name, f)
+  for pre in prefixes:                     # keep only the best grid point per prefix (lowest final loss)
+    cands = [k for k in curves if k.startswith(pre)]
+    if len(cands) > 1:
+      best = min(cands, key=lambda k: np.load(curves[k])['loss'][-window:].mean())
+      for k in cands:
+        if k != best:
+          curves.pop(k)
+  if not curves:
+    return
+  fig, ax = new_fig(7.0, 4.0)
+  order = sorted(curves, key=lambda k: np.load(curves[k])['loss'][-window:].mean())
+  for c, k in zip(SERIES, order):
+    loss = np.load(curves[k])['loss']
+    sm = np.convolve(loss, np.ones(window) / window, mode='valid')
+    ax.plot(np.arange(window, len(loss) + 1) * 16, sm, color=c, linewidth=1.8, label=f'{k}: {sm[-1]:.3f}')
+  ax.set_ylim(1.0, 2.6)
+  style(ax, 'CIFAR-10, one pass: online training loss (moving average of 100 batches)', 'training samples seen',
+        'cross-entropy')
+  ax.legend(fontsize=7, frameon=False)
+  fig.tight_layout()
+  fig.savefig(os.path.join(out, 'train_loss_singlepass.png'), dpi=150, facecolor=SURFACE)
+  plt.close(fig)
+
+
 def fig_facts(facts, out):
   if not facts:
     return
@@ -259,6 +295,7 @@ def main():
   fig_hybrid(runs, args.out)
   fig_multi_epoch(runs, args.out)
   fig_facts(facts, args.out)
+  fig_train_loss(args.results + ['results/hf', 'results/cpu_binary'], args.out)
   print('figures:', sorted(os.listdir(args.out)))
 
 
