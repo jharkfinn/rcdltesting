@@ -61,7 +61,7 @@ Colab: the GPU runs use the official Colab CLI (`google-colab-cli`, `colab new -
 | 8,000 | 1.5734 / 0.4636 | 1.5734 / 0.4636 |
 | 12,000 | 1.4602 / 0.4870 | 1.4603 / 0.4872 |
 | 16,000 | 1.4038 / 0.5077 | 1.4039 / 0.5077 |
-| 50,000 | 1.1631 / 0.5918 | PENDING |
+| 50,000 | 1.1631 / 0.5918 | 1.1631 / 0.5918 |
 
 CPU and GPU runs of the port give the same final accuracy and loss to 4 decimals.
 
