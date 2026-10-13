@@ -110,4 +110,33 @@ The port fixes both by storing the write step of each row.
 
 ## 9. Extensions
 
-PENDING.
+Each direction lists what it tests and the questions it answers. The infrastructure in this repo supports A, B, C, D and F directly. E needs a new language-model harness.
+
+### A. What does the single-pass result measure?
+- Compare GWS with exact kernel ridge regression using the same kernel as its first layer (section 6), and with the Nadaraya-Watson vote (no learning).
+- Ablate the denominator (η = 0), depth (L = 0, 1, 2) and temperature.
+- Measure feature learning: kernel alignment or CKA between each layer's stored keys and the labels. The notebook's analysis already shows weak class purity of the retrieved rows (28% at layer 0, 36% at the readout, chance = 10%).
+- Questions: How much of the 2-point margin over Muon and the margin over parametric nets is the kernel machine itself? Does depth add more than a better kernel? Is the "weighted softmax" doing anything that an unnormalized exponential kernel does not?
+
+### B. From the theory to better learning rules
+- B1. **Exact functional gradient.** Keep the 1/D_t factor, computed in log space, and tie β = η σ_v^2. Does the rule the paper derives beat the heuristic it runs?
+- B2. **A second-order RCDL layer.** Sec. 4 maps the mesa layer to the FOOF optimizer for linear layers. The kernel analogue of the mesa layer is kernel recursive least squares (Engel, Mannor and Meir, 2004). Its approximate-linear-dependence test adds a row only when the new key is not well represented by the stored keys. That is a principled version of the hybrid layer's distance threshold τ. This answers the paper's open question, how to derive advanced optimizers for RCDL, and it gives sublinear growth from the same principle.
+- B3. **Positive weights without clipping.** Update w multiplicatively (exponentiated gradient, i.e. mirror descent on the mixture weights). Is the paper's gauge trick a special case?
+
+### C. Memory and compute
+- C1. **Sparse retrieval.** The notebook shows that test-time top-K retrieval loses accuracy fast: 37.5% with the top 1,000 of 50,016 rows, against 59.2% dense. Train with top-K retrieval so that the model adapts, then use an approximate nearest-neighbour index.
+- C2. **Budget methods from online kernel learning:** NORMA truncation (Kivinen, Smola and Williamson, 2004), the Projectron (Orabona et al., 2008), budgeted SGD with merging (Wang, Crammer and Vucetic, 2012). Plot accuracy against stored rows for these and for the paper's hybrid layer.
+- C3. **Distill the table into a parametric layer** (k-means keys plus least-squares values) and measure the loss.
+
+### D. Continual learning (the article's "unforget" claim)
+- Class-incremental split CIFAR-10 (5 tasks of 2 classes), single pass: GWS and RBF against MLP+Adam, with and without replay. This is cheap on an L4.
+- Questions: Do new rows overwhelm old ones through the shared denominator? Can a test-time temperature change recover old classes, as in the "silent memory" analogy (paper Sec. 6)?
+
+### E. Language: the biography experiment from the article (unpublished)
+- Rebuild the synthetic biography task of Zucchet et al. (arXiv 2503.21676, built on Allen-Zhu and Li, arXiv 2309.14316) with a 2-layer transformer. Replace the feed-forward layers by a growing RBF layer, a wide random-Fourier-feature ("Cos Bochner") layer, or GeGLU. Measure the plateau length against population size, then forgetting under fine-tuning.
+- Question: the article reports that a wide random-feature layer trained by SGD approaches the growing RBF layer. If that holds, the gain comes from the kernel's locality, not from growth or retrieval. This is the cleanest test of what "retrieval-centric" adds.
+
+### F. Evaluation hygiene
+- Select hyperparameters on a validation split for every method. The paper selected on the test set.
+- Compare at matched inference compute: a GWS layer costs O(N d) per query and grows with the data.
+- Strengthen the parametric softmax baseline. Its keys start with length about 1, while the queries have length √d ≈ 55, so its attention starts almost uniform (logits near 0.006). Initialize its keys from data or rescale them, and retune it.
