@@ -162,7 +162,7 @@ ViT for CIFAR-10: 4 × 4 patches (64 tokens plus a CLS token), width 128, 2 bloc
 
 The standard ViT reproduces (49.6 against 48.4). Each dense run takes 5-7 s on the L4.
 
-The first GWS-ViT run stalled. Its online training accuracy rose to 51.1% by step 500 of 781, then the run made no progress for 22 minutes. The process held 21.9 of the L4's 23 GB: the attention inputs grow by 4,160 rows every step, so the PyTorch caching allocator cannot reuse its blocks. A rerun with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is queued. The other three GWS-ViT settings were dropped to stay within the GPU budget.
+The first GWS-ViT run stalled. Its online training accuracy rose to 51.1% by step 500 of 781, then the run made no progress for 22 minutes. The process held 21.9 of the L4's 23 GB while drawing only 35 of 72 W. The likely cause: the attention inputs grow by 4,160 rows every step, so the PyTorch caching allocator cannot reuse its blocks and frees and re-allocates near the memory limit. A rerun with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is queued. The other three GWS-ViT settings were dropped to stay within the GPU budget.
 
 ## 6. Classical baselines (single pass over 50,000 training images, exact solvers, Colab A100)
 
