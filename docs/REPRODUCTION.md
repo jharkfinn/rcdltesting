@@ -215,8 +215,8 @@ Setup: one GWS readout layer over RMSNorm'd pixels (d = 3072), batch 64, augment
 | T | Test acc (10,000 images) | Train acc (2,000-image subset) | Test acc with exp(z) → 1 + z after training | Paper (Fig. 4, read off plot) |
 |---|---|---|---|---|
 | 10 | **61.86** | 82.3 | **15.91** | ~64 (L = 0); large drop when linearized |
-| 3 | PENDING | | | ~59 |
-| 30 | PENDING | | | ~61 |
+| 3 | not run (A100 session lost; see the 10-epoch sweep in §7.4) | | | ~59 |
+| 30 | not run (as above) | | | ~61 |
 
 Test accuracy on the 2,000-image subset over training: 56.1 (epoch 5), 60.2 (epoch 20), 62.1 (epoch 35), 61.7 (epoch 45). The test loss falls the whole time (1.276 to 1.123), so the 20-point train-test gap does not come with a rising test loss.
 
@@ -233,7 +233,7 @@ ResNet-MLP baselines (L = 2, width 3,072, GELU, batch 64, augmentation, 50 epoch
 | MLP + Adam, lr 3e-4 | 64.72 | 0.85 | 4.5 | ~65 |
 | MLP + Adam, lr 1e-4 | 64.37 | 0.87 | 4.5 | ~65 |
 | MLP + SGD, lr 1e-2 | 59.77 | 1.15 | 3.8 | ~61 |
-| MLP + Mesa, lr 3e-4 | PENDING | | | ~67.8 |
+| MLP + Mesa, lr 3e-4 | finished on the A100, result lost with the session | | ~18.5 | ~67.8 |
 | GWS, L = 0, T = 10 (section 7.2) | 61.86 | 0.81 | 22.6 | ~64 (L = 0 curve of Fig. 4) |
 
 Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L = 2 at 50 epochs would store 2.5M rows in each of 3 layers (keys and values of width 3,072 in the two hidden layers, 61 GB each in fp32; 31 GB in the readout), about 154 GB, so depth is compared at 10 epochs:
@@ -243,9 +243,21 @@ Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L
 | GWS, L = 0 | 58.55 | 20.93 | 1.4 |
 | GWS, L = 1 | 63.83 | 24.00 | 3.9 |
 | GWS, L = 2 | **65.05** | 23.69 | 7.0 |
-| MLP + Adam / Muon, L = 0 and L = 2, 10 epochs | PENDING | | |
+| MLP + Adam / Muon, L = 0 and L = 2, 10 epochs | not run (GPU budget) | | |
 
-Findings so far:
+Temperature at L = 0, 10 epochs (η = 0.003, β = 10, the best ratio at T = 10; Colab L4):
+
+| T | Test acc (%) | Train acc, 2,000-image subset (%) | exp(z) → 1 + z |
+|---|---|---|---|
+| 3 | 53.46 | 88.2 | 11.85 |
+| 10 | **58.55** | - | 20.93 |
+| 30 | 51.26 | 51.9 | 28.65 |
+
+The effect of T is non-monotonic with a peak at T = 10, as in the paper's Fig. 4 (left; ~59 / ~64 / ~61 at 50 epochs). A low temperature (sharp kernel) overfits (train 88%, test 53%); a high temperature underfits (train 52%). Caveat: β/η was tuned at T = 10 only.
+
+CIFAR-100 (Muon, Mesa, GWS at 50 epochs) was queued on the A100 and lost with the session; it was not rerun (GPU budget).
+
+Findings:
 - The Muon and Adam baselines reproduce the paper's values (69.5% and about 65%).
 - GWS at L = 0 after 50 epochs (61.9%) is below Adam (64.7%). GWS at L = 2 after only 10 epochs (65.1%) is already level with Adam after 50 epochs. The paper's claim (GWS above Adam, SGD and RMSprop, below Muon) refers to deeper GWS models at 50 epochs, which this budget cannot hold in memory.
 - The linearization collapse holds at every depth (21-24% at 10 epochs).
