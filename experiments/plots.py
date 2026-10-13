@@ -218,8 +218,9 @@ def fig_hybrid(runs, out):
 
 
 def fig_multi_epoch(runs, out):
-  panels = [('CIFAR-10', [k for k in runs if k.endswith(('_50ep', '_50ep_bf16'))]),
-            ('CIFAR-100', [k for k in runs if k.endswith(('_50ep_c100', '_50ep_c100_bf16'))])]
+  full = lambda k: 'sub5k' not in k                         # 5,000-image runs: fig_fig5_scaled
+  panels = [('CIFAR-10', [k for k in runs if k.endswith(('_50ep', '_50ep_bf16')) and full(k)]),
+            ('CIFAR-100', [k for k in runs if k.endswith(('_50ep_c100', '_50ep_c100_bf16')) and full(k)])]
   panels = [(t, ks) for t, ks in panels if ks]
   if not panels:
     return
