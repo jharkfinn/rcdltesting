@@ -61,7 +61,8 @@ class RCDLConfig:
   age_rule: str = 'notebook'         # 'notebook': (1-γ)^a (1-μ^(a+1))/(1-μ+1e-6) | 'exact': paper Eq. (combined)
   decay_scope: str = 'values'        # 'values' (notebook) | 'values_and_weights' (paper App. D)
   augment: bool = False              # multi-epoch runs: paper App. E.1.1 augmentation
-  attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' | 'sdpa_bf16' (fused; 'gws'/'gauge' only)
+  attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' | 'sdpa_bf16' (fused) | 'splitk' | 'splitk_tf32'
+                                     # (Triton, few queries, forward-only: 'dense' is used when q needs a gradient)
   dataset: str = 'cifar10'           # 'cifar10' | 'cifar100'
   # --- ViT (paper Sec. 5 'Mixing retrieval-centric and parametric layers', App. E.9) ---
   arch: str = 'resmlp'               # 'resmlp' | 'vit' (num_layers = ViT blocks, hidden_dim = token width)
@@ -221,6 +222,10 @@ class RCDLLayer(nn.Module):
         s = rbf_attention(q, keys, values, self.T)
       elif self.linearize and not self.training:
         s = linearized_weighted_attention(q, keys, values, weights, self.T)
+      elif cfg.attn_impl in ('splitk', 'splitk_tf32') and not q.requires_grad:
+        from rcdl.splitk_attention import weighted_attention_splitk
+        s = weighted_attention_splitk(q, keys, values, weights, self.T,
+                                      precision='tf32' if cfg.attn_impl == 'splitk_tf32' else 'tf32x3')
       elif cfg.attn_impl in ('sdpa', 'sdpa_bf16'):
         s = weighted_attention_sdpa(q, keys, values, weights, self.T,
                                     torch.bfloat16 if cfg.attn_impl == 'sdpa_bf16' else None)

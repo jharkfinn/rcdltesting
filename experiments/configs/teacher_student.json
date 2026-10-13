@@ -92,6 +92,59 @@
      1.0
     ]
    }
+  },
+  "gws_precision_check": {
+   "eval_every": 5000,
+   "base": {
+    "student": "gws",
+    "beta": 1.0,
+    "eta": 30.0,
+    "temperature": 1.0,
+    "momentum": 0.9,
+    "steps": 10000
+   },
+   "grid": {
+    "attn_impl": [
+     "dense",
+     "splitk",
+     "splitk_tf32"
+    ]
+   }
+  },
+  "gws_final": {
+   "eval_every": 10000,
+   "base": {
+    "student": "gws",
+    "beta": 1.0,
+    "eta": 30.0,
+    "temperature": 1.0,
+    "momentum": 0.9,
+    "steps": 200000,
+    "attn_impl": "splitk_tf32"
+   }
+  },
+  "mlp_final_bs256": {
+   "eval_every": 10000,
+   "base": {
+    "student": "mlp",
+    "steps": 200000,
+    "mlp_width": 1024,
+    "mlp_momentum": 0.9,
+    "lr": 0.3,
+    "batch_size": 256
+   }
+  },
+  "mlp_final_bs64": {
+   "eval_every": 10000,
+   "base": {
+    "student": "mlp",
+    "steps": 200000,
+    "mlp_width": 1024,
+    "mlp_momentum": 0.9,
+    "lr": 0.1,
+    "batch_size": 64
+   }
   }
- }
+ },
+ "_comment_final": "Final runs at the paper's 200,000 steps with the best 10k-step settings: GWS beta1_eta30_temperature1_momentum0.9 (test MSE 4.2e-4 at 10k), MLP lr 0.3 / momentum 0.9 / batch 256 (5.3e-4) and the sample-matched batch-64 MLP lr 0.1 (6.4e-4). gws_precision_check compares the dense path with the Triton split-key kernel (tf32x3 and tf32) at 10k steps."
 }

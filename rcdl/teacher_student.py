@@ -72,6 +72,7 @@ class TSConfig:
   eta: float = 30.0              # weight learning rate (App. Table: [10, 30, 100])
   beta: float = 0.3              # value learning rate (App. Table: [0.1, 0.3, 1.0])
   momentum: float = 0.0
+  attn_impl: str = 'dense'       # 'dense' | 'splitk' | 'splitk_tf32' (Triton split-key kernel; faster on GPU)
   # psm / mlp
   psm_size: int = 0              # 0 = batch_size * (steps + 1), i.e. the final GWS database size
   lr: float = 1e-3
@@ -94,7 +95,7 @@ def run_teacher_student(cfg: TSConfig, out_dir: Optional[str] = None, eval_every
   if cfg.student == 'gws':
     rc = RCDLConfig(kernel_type='gws', hidden_dim=cfg.d_in, num_layers=0, temperature=cfg.temperature, eta=cfg.eta,
                     beta=cfg.beta, model_momentum=cfg.momentum, db_size=B * (cfg.steps + 1), batch_size=B,
-                    num_classes=1, global_init_seed=cfg.seed)
+                    num_classes=1, global_init_seed=cfg.seed, attn_impl=cfg.attn_impl)
     layer = RCDLLayer(rc, cfg.d_in, 1, 0, gen).to(device)
     model = lambda x: layer(rms_norm(x))
     params, modules, rows = [], [layer], lambda: layer.size
@@ -118,6 +119,8 @@ def run_teacher_student(cfg: TSConfig, out_dir: Optional[str] = None, eval_every
     for m in modules:
       m.eval()
     chunk = max(16, min(2000, int(2.5e8 // max(1, rows()))))   # keeps the chunk x rows logit matrix near 1 GB
+    if cfg.attn_impl.startswith('splitk'):
+      chunk = 2000                                              # no logit matrix is built
     with torch.no_grad():
       mse = sum(F.mse_loss(model(test_x[i:i + chunk]), test_y[i:i + chunk], reduction='sum').item()
                 for i in range(0, cfg.n_test, chunk)) / cfg.n_test
