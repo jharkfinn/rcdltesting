@@ -45,6 +45,12 @@ Budget: about 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU. "Repro
 | All single-pass runs, 5 seeds, plus ablations | `bash experiments/gpu_batch.sh results/gpu` | 1 GPU (22 GB) | about 1-2 h on an L4 |
 | Kernel baselines + 50-epoch L=0 | `bash experiments/a100_batch.sh results/a100` | 1 GPU (40 GB) | about 1 h on an A100 |
 | Table of results | `python3 -m experiments.summarize results/gpu` | any | seconds |
+| Optimizer grids (AdamW, Mesa, Delta), one pass | `python3 -m experiments.run experiments/configs/repro_1epoch_optimizers.json --source parquet` | L4 | about 40 min |
+| Ablations, hybrid sweep, ViT | `experiments/configs/ablations_1epoch.json`, `hybrid_1epoch.json`, `vit_1epoch.json` with `experiments.run` | L4 / A100 | 1 min / 4 min / 25 min (GWS-ViT: see §5.3) per run |
+| Multi-epoch runs | `python3 -m experiments.run experiments/configs/multi_epoch.json --only <name>` | A100 for L = 0 at 50 epochs (31 GB) | 2-23 min per run |
+| Teacher-student grids and long runs | `python3 -m experiments.teacher_student experiments/configs/teacher_student.json --only <name>` | any GPU; `attn_impl=splitk_tf32` needs Triton | 25 s per 10k-step grid point |
+| Synthetic facts | `python3 -m experiments.facts experiments/configs/facts.json --only <name>` | L4 (CPU for small widths) | 1-10 min per run |
+| Figures | `python3 -m experiments.plots` | any | seconds |
 
 Data: `--source binary` reads the official CIFAR-10 tarball (the notebook's order). `--source parquet` reads the Hugging Face mirror `uoft-cs/cifar10`. Both hold the same 50,000 training images with the same labels, in a different order (the mirror starts at official image 30,000). The test sets are identical.
 
@@ -421,3 +427,19 @@ Each direction states what it tests, the evidence from this reproduction that mo
 - Select hyperparameters on a validation split for every method. The paper selected on the test set.
 - Compare at matched inference compute and memory (section 7.6 gives the factors).
 - Strengthen the parametric softmax baseline. Its keys start with length about 1, while the queries have length √d ≈ 55, so its attention starts almost uniform (logits near 0.006). Initialize its keys from data or rescale them, and retune it.
+
+## 10. GPU time, lost runs, and runs not attempted
+
+| Session | GPU | Start (UTC) | End | Hours | Work |
+|---|---|---|---|---|---|
+| gpu | L4 | 03:22 | 04:11, evicted when a third session was opened (limit: two) | 0.82 | single-pass reproduction, 5 seeds |
+| a100 | A100-40GB | 03:40 | about 07:25, reclaimed (end time estimated from the compute-unit balance) | 3.75 | baselines, β/η sweep, 50-epoch L = 0, teacher-student grids, depth, hybrid, 50-epoch MLPs |
+| l4b | L4 | 04:11 | about 11:25 | about 7.2 | optimizer grids, ViT, ablations, single-pass rest, teacher-student long runs, facts, temperature sweep |
+| Total | | | | about 11.8 | |
+
+Lost with the A100 session (it ran without polling from about 07:00, and Colab most likely reclaimed it as idle): the 50-epoch Mesa run, the 50-epoch temperature runs (T = 3, 30), the reduced-scale parametric-softmax overfitting run (Fig. 5), the CIFAR-100 runs, the 10-epoch MLP depth runs, a second seed of the hybrid layer at τ = 35 and 50, and the 200,000-step GWS and parametric-softmax teacher-student runs. A replacement A100 session was not created (the permission check of this agent refused it). The temperature effect was rerun at 10 epochs on the L4, and the parametric softmax at 50,000 steps.
+
+Not attempted: the 2,000-epoch DeltaNet experiment (App. E.3.1, about 10 A100-hours); GWS at L ≥ 1 for 50 epochs (about 154 GB); the per-τ hyperparameter tuning of the hybrid layer (about 12 A100-hours); the full biography task of the article.
+
+Lessons for reruns: poll every session at least every 20 minutes; copy results after every run; the fused attention of PyTorch is slow for few queries and many keys (one GPU block for 64 queries), and its backward pass slows by more than 20 times at 2^21 keys (§5.3); `rcdl/splitk_attention.py` fixes the forward pass for the teacher-student case.
+
