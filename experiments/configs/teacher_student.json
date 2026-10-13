@@ -1,14 +1,97 @@
 {
-  "_comment": "Paper Fig. 3 (teacher-student, d_in = 100, teacher: residual ReLU MLP, width 100, L = 2 blocks, d_out = 1, inputs on the unit sphere). Read off the plot at 200k steps: Weighted Softmax ~2.6e-4, Reference MLP ~1.7e-4, Parametric Softmax ~4e-3 (y axis 'Loss'; whether it is MSE or MSE/2 is not stated). Grids follow App. Tables 'Nonparametric GWS teacher-student' and 'MLP baseline teacher-student', shortened to `steps` for the sweeps.",
-  "experiments": {
-    "gws_sweep": {"eval_every": 5000,
-      "base": {"student": "gws", "steps": 10000},
-      "grid": {"beta": [0.1, 0.3, 1.0], "eta": [10.0, 30.0, 100.0], "temperature": [0.1, 1.0, 3.0, 10.0], "momentum": [0.6, 0.9]}},
-    "mlp_sweep": {"eval_every": 5000,
-      "base": {"student": "mlp", "steps": 10000, "mlp_width": 1024},
-      "grid": {"lr": [0.003, 0.01, 0.03, 0.1, 0.3], "mlp_momentum": [0.0, 0.9], "batch_size": [64, 256]}},
-    "psm_sweep": {"eval_every": 5000,
-      "base": {"student": "psm", "steps": 10000},
-      "grid": {"lr": [0.0003, 0.001, 0.003, 0.01], "temperature": [0.01, 0.1, 1.0, 10.0]}}
+ "_comment": "Paper Fig. 3 (teacher-student, d_in = 100, teacher: residual ReLU MLP, width 100, L = 2 blocks, d_out = 1, inputs on the unit sphere). Read off the plot at 200k steps: Weighted Softmax ~2.6e-4, Reference MLP ~1.7e-4, Parametric Softmax ~4e-3 (y axis 'Loss'; whether it is MSE or MSE/2 is not stated). Grids follow App. Tables 'Nonparametric GWS teacher-student' and 'MLP baseline teacher-student', shortened to `steps` for the sweeps.",
+ "experiments": {
+  "gws_sweep": {
+   "eval_every": 5000,
+   "base": {
+    "student": "gws",
+    "steps": 10000
+   },
+   "grid": {
+    "beta": [
+     0.1,
+     0.3,
+     1.0
+    ],
+    "eta": [
+     10.0,
+     30.0,
+     100.0
+    ],
+    "temperature": [
+     0.1,
+     1.0,
+     3.0,
+     10.0
+    ],
+    "momentum": [
+     0.6,
+     0.9
+    ]
+   }
+  },
+  "mlp_sweep": {
+   "eval_every": 5000,
+   "base": {
+    "student": "mlp",
+    "steps": 10000,
+    "mlp_width": 1024
+   },
+   "grid": {
+    "lr": [
+     0.003,
+     0.01,
+     0.03,
+     0.1,
+     0.3
+    ],
+    "mlp_momentum": [
+     0.0,
+     0.9
+    ],
+    "batch_size": [
+     64,
+     256
+    ]
+   }
+  },
+  "psm_sweep": {
+   "eval_every": 5000,
+   "base": {
+    "student": "psm",
+    "steps": 10000
+   },
+   "grid": {
+    "lr": [
+     0.0003,
+     0.001,
+     0.003,
+     0.01
+    ],
+    "temperature": [
+     0.01,
+     0.1,
+     1.0,
+     10.0
+    ]
+   }
+  },
+  "psm_sweep_small": {
+   "eval_every": 5000,
+   "base": {
+    "student": "psm",
+    "steps": 10000
+   },
+   "grid": {
+    "lr": [
+     0.001,
+     0.003
+    ],
+    "temperature": [
+     0.1,
+     1.0
+    ]
+   }
   }
+ }
 }

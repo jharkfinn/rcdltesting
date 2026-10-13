@@ -6,7 +6,35 @@ Sources reproduced:
 - Code: `rcdl_tutorial_torch.ipynb` and `rcdl_tutorial_JAX.ipynb` in this repository (single-pass CIFAR-10).
 - X article by J. von Oswald, 9 Oct 2026 (x.com/oswaldjoh/status/2108669918883230177). It also describes an unpublished language experiment (synthetic biographies on a Gemma 3 backbone).
 
-Status: PENDING SECTIONS ARE MARKED. Numbers come from `results/` (not committed) and `experiments/summarize.py`.
+Status: PENDING SECTIONS ARE MARKED. Numbers come from `results/` (not committed) and `experiments/summarize.py`. Figures: `python -m experiments.plots` writes `docs/figures/`.
+
+## 0. Claims and verdicts
+
+Budget: about 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU. "Reproduced" means the same number within the stated spread, or the same qualitative result where the paper gives only a plot.
+
+| # | Claim (source) | Verdict | Evidence |
+|---|---|---|---|
+| 1 | A linear layer trained by SGD is linear attention over its training inputs and gradients (Sec. 2) | Reproduced (exact) | §3 |
+| 2 | Growing a PDK layer by (x_t, -η g_t) is SGD in the RKHS (Sec. 3.1, App. A) | Reproduced (exact) | §3 |
+| 3 | A Gaussian-mixture weight function induces the discrete weighted softmax (Sec. 3.2) | Reproduced (exact) | §3 |
+| 4 | Functional gradient descent equals appending one tuple (App. C) | Reproduced (exact), but the experiments run a different rule (no 1/D_t; free β, η) | §3, §8.1 |
+| 5 | Gauge invariance and locality of the gauge-fixed update (App. C.6) | Reproduced (exact) | §3 |
+| 6 | Closed form of momentum and weight decay per stored row (App. D) | Reproduced (exact); the notebooks implement an approximation and two bugs | §3, §8.2 |
+| 7 | The mesa layer over the dual form is the FOOF optimizer (Sec. 4) | Reproduced (exact) | §3 |
+| 8 | Single pass on CIFAR-10: GWS 59.4 ± 0.4, RBF 58.8 ± 0.2, gauge 58.4 ± 0.4; all above Muon, Adam, SGD, Mesa, Delta (Fig. 2 right, App. F.2) | Reproduced | §4 |
+| 9 | Kernel ridge regression (~58.5) and kNN (~35.5) on pixels (Fig. 2 right) | Reproduced; GWS is only 0.9 points above kernel ridge regression | §6 |
+| 10 | Teacher-student: GWS far below the parametric softmax; MLP student best (Fig. 3) | PENDING | §7 |
+| 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | PENDING (L = 0 only; L = 2 needs > 150 GB) | §7 |
+| 12 | Training loss falls much faster for GWS and RBF (Fig. 2 middle) | PENDING | §7 |
+| 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | PENDING | §7 |
+| 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | PENDING | §7 |
+| 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | PENDING (reduced scale) | §7 |
+| 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | PENDING | §5 |
+| 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | PENDING | §5 |
+| 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Not attempted: about 2 × 5 A100-hours | - |
+| 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it; GeGLU has a lower ceiling | PENDING (minimal version) | §7 |
+| 20 | Article: parametric FFNs forget under fine-tuning; RCDL layers "unforget" without replay | PENDING (minimal version) | §7 |
+| 21 | Article: RCDL matches but does not beat strong baselines, at much higher cost | PENDING | - |
 
 ## 1. How to run
 
