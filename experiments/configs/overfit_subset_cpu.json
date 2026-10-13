@@ -1,0 +1,72 @@
+{
+ "_comment": "Reduced-scale version of paper Fig. 5 (parametric softmax vs growing weighted softmax: train-test gap) on a CPU, since the A100 run was lost. 5,000 training images (first 5,000 of the Hugging Face order), augmentation, batch 64, L = 0 (one readout layer on RMSNorm'd pixels). GWS: 40 epochs (199,744 stored rows; eta = 0.003, beta = 10, T = 10 as in multi_epoch.json). Parametric softmax: 10,000 trained keys and values (2 per training image), Adam 1e-3, 100 epochs, T = 1 and 0.1. Paper: 2.56M trained keys for 50,000 images, 2,000 epochs; GWS 50 epochs. Train accuracy is measured on the first 2,000 (non-augmented) training images, test accuracy on the first 2,000 test images (final: all 10,000). The parametric softmax uses fixed equal weights (plain softmax), as the paper reports for this baseline (App. E.4: learned weights 'lead to severe training instabilities'); with learned weights the T = 1 run diverged at step ~1,500 here.",
+ "experiments": {
+  "gws_L0_T10_sub5k_40ep": {
+   "run": {
+    "eval_subset": 2000,
+    "eval_batch_size": 64,
+    "train_eval_subset": 2000,
+    "train_subset": 5000,
+    "eval_every": 312
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 40,
+    "db_size": 199744
+   }
+  },
+  "psm_L0_N10k_T1_sub5k_100ep": {
+   "run": {
+    "eval_subset": 2000,
+    "eval_batch_size": 64,
+    "train_eval_subset": 2000,
+    "train_subset": 5000,
+    "eval_every": 780
+   },
+   "cfg": {
+    "kernel_type": "parametric_softmax",
+    "hidden_dim": 3072,
+    "num_layers": 0,
+    "temperature": 1.0,
+    "db_size": 10000,
+    "full_epoch_capacity": 10000,
+    "optimizer": "adam",
+    "learning_rate": 0.001,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 100,
+    "learn_parametric_weights": false
+   }
+  },
+  "psm_L0_N10k_T0.1_sub5k_100ep": {
+   "run": {
+    "eval_subset": 2000,
+    "eval_batch_size": 64,
+    "train_eval_subset": 2000,
+    "train_subset": 5000,
+    "eval_every": 780
+   },
+   "cfg": {
+    "kernel_type": "parametric_softmax",
+    "hidden_dim": 3072,
+    "num_layers": 0,
+    "temperature": 0.1,
+    "db_size": 10000,
+    "full_epoch_capacity": 10000,
+    "optimizer": "adam",
+    "learning_rate": 0.001,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 100,
+    "learn_parametric_weights": false
+   }
+  }
+ }
+}

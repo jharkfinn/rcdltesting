@@ -164,17 +164,21 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
                         eval_subset: Optional[int] = None, eval_batch_size: int = 500, input_grad: bool = False,
                         train_u8: Optional[np.ndarray] = None, max_steps: Optional[int] = None,
                         log_every: int = 100, keep_model: bool = False, linearize_eval: bool = False,
-                        train_eval_subset: Optional[int] = None) -> Dict[str, Any]:
+                        train_eval_subset: Optional[int] = None, train_subset: Optional[int] = None) -> Dict[str, Any]:
   """Online CIFAR-10 runner for all model kinds, with the notebook's stream order (torch.randperm, seed = init seed).
 
   data: (train_x, train_y, test_x, test_y) tensors. eval_subset: intermediate evaluations on the first `eval_subset`
   test images (the final evaluation always uses the full test set). train_u8: raw images, required if cfg.augment.
   linearize_eval: after training, also evaluate with exp(z) replaced by 1 + z in every weighted-softmax layer (paper
   Fig. 4 right). train_eval_subset: at every evaluation, also measure accuracy on the first `train_eval_subset`
-  (non-augmented) training images (paper Fig. 5).
+  (non-augmented) training images (paper Fig. 5). train_subset: train on the first `train_subset` training images only
+  (reduced-scale overfitting runs).
   Writes config.json, evals.jsonl, train_curve.npz and summary.json to out_dir if given.
   """
   train_x, train_y, test_x, test_y = data
+  if train_subset:
+    train_x, train_y = train_x[:train_subset], train_y[:train_subset]
+    train_u8 = None if train_u8 is None else train_u8[:train_subset]
   torch.manual_seed(cfg.global_init_seed)
   model = build_model(cfg).to(train_x.device)
   opt = create_rcdl_optimizer(model, cfg)
@@ -182,6 +186,7 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, 'config.json'), 'w') as f:
       json.dump(dc.asdict(cfg) | {'eval_every': eval_every, 'eval_subset': eval_subset, 'input_grad': input_grad,
+                                  'train_subset': train_subset,
                                   'max_steps': max_steps, 'torch': torch.__version__,
                                   'threads': torch.get_num_threads(), 'device': str(train_x.device)}, f, indent=1)
     eval_log = open(os.path.join(out_dir, 'evals.jsonl'), 'w')
