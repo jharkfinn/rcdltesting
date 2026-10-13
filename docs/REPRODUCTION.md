@@ -201,8 +201,8 @@ GPU note: one GWS step at 200,000 steps scans 12.8 million rows for only 64 quer
 ### 8.1 Method as derived vs method as run
 
 1. **The density factor is dropped.** The functional-gradient step scales the new weight and value by 1/D_t (section 3 above). The experiments drop it (App. E.3, "for numerical stability"). Every row then gets the same step size, wherever the existing rows are dense or sparse.
-2. **Two free step sizes replace one.** The derivation fixes the ratio of the value step to the weight step (σ_v^2). The code uses independent β and η. The best single-pass setting has η = 0.003 and β = 3. With η that small, the denominator hardly grows (the 16 initial rows have weight 1/16 each), so the layer is close to an unnormalized exponential-kernel layer. The ablation `gws_eta0` (η = 0) tests this.
-3. **An undocumented clip.** The code clips <s_t, ḡ_t> to [-1, 1] before the max(0, ·) clip, with ḡ_t the batch-mean gradient. This equals clipping <s_t, g_t> to [-B, B], with B the batch size. The paper's Algorithm 2 does not mention it (the notebook does). The ablation `gws_noclip` tests it.
+2. **Two free step sizes replace one.** The derivation fixes the ratio of the value step to the weight step (σ_v^2). The code uses independent β and η. Only their ratio matters (section 7.1), so the layer has one effective step-size parameter, β/η, and the paper's grids over both waste most of their points. The learned denominator is essential: with η = 0 (all new rows get w = 0, so only the 16 initial rows normalize) single-pass accuracy falls from 59.4% to 27% (section 5).
+3. **An undocumented clip.** The code clips <s_t, ḡ_t> to [-1, 1] before the max(0, ·) clip, with ḡ_t the batch-mean gradient. This equals clipping <s_t, g_t> to [-B, B], with B the batch size. The paper's Algorithm 2 does not mention it (the notebook does). It has no measurable effect in the single-pass setting: without the clip, seeds 1 and 2 give 59.07% and 59.57% (section 5).
 4. **Decay and momentum reach only the values.** Paper App. D says weight decay and momentum scale both the stored weights w and the weighted values ṽ. The notebooks scale only ṽ (numerator), not w (denominator). The port reproduces the notebook by default (`decay_scope='values'`) and offers the paper's version (`'values_and_weights'`).
 5. **Momentum and decay are combined approximately.** The notebook multiplies the separate decay factor and momentum factor. This equals the paper's closed form (App. D.3) only if one of them is zero. The port has both (`age_rule='notebook' | 'exact'`).
 
@@ -233,33 +233,33 @@ The port fixes both by storing the write step of each row.
 
 ## 9. Extensions
 
-Each direction lists what it tests and the questions it answers. The infrastructure in this repo supports A, B, C, D and F directly. E needs a new language-model harness.
+Each direction states what it tests, the evidence from this reproduction that motivates it, and the questions it answers. Cost estimates are for the Colab GPUs used here.
 
 ### A. What does the single-pass result measure?
-- Compare GWS with exact kernel ridge regression using the same kernel as its first layer (section 6), and with the Nadaraya-Watson vote (no learning).
-- Ablate the denominator (η = 0), depth (L = 0, 1, 2) and temperature.
-- Measure feature learning: kernel alignment or CKA between each layer's stored keys and the labels. The notebook's analysis already shows weak class purity of the retrieved rows (28% at layer 0, 36% at the readout, chance = 10%).
-- Questions: How much of the 2-point margin over Muon and the margin over parametric nets is the kernel machine itself? Does depth add more than a better kernel? Is the "weighted softmax" doing anything that an unnormalized exponential kernel does not?
+- Evidence: exact kernel ridge regression on raw pixels reaches 58.55%, only 0.9 points below single-pass GWS (section 6). The Nadaraya-Watson vote with the GWS kernel reaches 44.6%.
+- Experiments: kernel ridge regression with the GWS layer-0 kernel on the features of a trained GWS layer 0 (does depth learn a better kernel?); kernel alignment or CKA between each layer's stored keys and the labels; the class purity of the rows each query retrieves.
+- Questions: Is the margin over parametric MLPs a property of kernel machines on CIFAR pixels, or of the growing rule? Does a second GWS layer compute a better kernel, or only add capacity? Why do 43-65% of the stored rows end with w = 0, and what do these numerator-only rows contribute?
 
 ### B. From the theory to better learning rules
-- B1. **Exact functional gradient.** Keep the 1/D_t factor, computed in log space, and tie β = η σ_v^2. Does the rule the paper derives beat the heuristic it runs?
-- B2. **A second-order RCDL layer.** Sec. 4 maps the mesa layer to the FOOF optimizer for linear layers. The kernel analogue of the mesa layer is kernel recursive least squares (Engel, Mannor and Meir, 2004). Its approximate-linear-dependence test adds a row only when the new key is not well represented by the stored keys. That is a principled version of the hybrid layer's distance threshold τ. This answers the paper's open question, how to derive advanced optimizers for RCDL, and it gives sublinear growth from the same principle.
-- B3. **Positive weights without clipping.** Update w multiplicatively (exponentiated gradient, i.e. mirror descent on the mixture weights). Is the paper's gauge trick a special case?
+- B1. **Exact functional gradient.** Keep the 1/D_t factor (in log space) and tie β = η σ_v^2. Evidence: only β/η matters in the rule the paper runs (sections 7.1 and 7.3), so the derived rule removes one free parameter at no cost. Question: does the rule the paper derives beat the heuristic it runs, and does it remove the need to tune β/η per temperature?
+- B2. **A second-order RCDL layer.** Sec. 4 maps the mesa layer to the FOOF optimizer. The kernel analogue of the mesa layer is kernel recursive least squares (Engel, Mannor and Meir, 2004). Its approximate-linear-dependence test adds a row only when the new key is not well represented by the stored keys, a principled form of the hybrid layer's distance threshold τ. Questions: does it give sublinear growth and better accuracy from one principle? Is the hybrid layer's need for per-τ tuning (section 5) a symptom of the missing second-order term?
+- B3. **Positive weights without clipping.** Update w multiplicatively (exponentiated gradient, i.e. mirror descent on the mixture weights). Question: does it keep the rows that max(0, ·) now zeroes, and does that matter?
 
 ### C. Memory and compute
-- C1. **Sparse retrieval.** The notebook shows that test-time top-K retrieval loses accuracy fast: 37.5% with the top 1,000 of 50,016 rows, against 59.2% dense. Train with top-K retrieval so that the model adapts, then use an approximate nearest-neighbour index.
-- C2. **Budget methods from online kernel learning:** NORMA truncation (Kivinen, Smola and Williamson, 2004), the Projectron (Orabona et al., 2008), budgeted SGD with merging (Wang, Crammer and Vucetic, 2012). Plot accuracy against stored rows for these and for the paper's hybrid layer.
-- C3. **Distill the table into a parametric layer** (k-means keys plus least-squares values) and measure the loss.
+- C1. **Sparse retrieval.** The notebook shows that test-time top-K retrieval loses accuracy fast (37.5% with the top 1,000 of 50,016 rows, 59.2% dense). Train with top-K retrieval so that the model adapts, then serve with an approximate nearest-neighbour index.
+- C2. **Kernels for the few-query regime.** The split-key kernel (section 7.3) shows that the cost profile of RCDL (few queries, millions of rows) does not fit the attention kernels of deep-learning libraries. The backward pass of the fused attention stalled the GWS-ViT run at 2M rows (section 5). Question: what does a full forward and backward split-key implementation change in the cost comparison of claim 21?
+- C3. **Budget methods from online kernel learning:** NORMA truncation (Kivinen, Smola and Williamson, 2004), the Projectron (Orabona et al., 2008), budgeted SGD with merging (Wang, Crammer and Vucetic, 2012). Plot accuracy against stored rows for these and for the paper's hybrid layer.
+- C4. **Distill the table into a parametric layer** (k-means keys plus least-squares values) and measure the loss.
 
 ### D. Continual learning (the article's "unforget" claim)
-- Class-incremental split CIFAR-10 (5 tasks of 2 classes), single pass: GWS and RBF against MLP+Adam, with and without replay. This is cheap on an L4.
-- Questions: Do new rows overwhelm old ones through the shared denominator? Can a test-time temperature change recover old classes, as in the "silent memory" analogy (paper Sec. 6)?
+- Class-incremental split CIFAR-10 (5 tasks of 2 classes), single pass: GWS and RBF against MLP+Adam, with and without replay. Cheap on an L4 (one GWS pass takes 44 s).
+- Questions: Do new rows overwhelm old ones through the shared denominator? Can a test-time temperature change recover old classes, as in the "silent memory" analogy (paper Sec. 6)? In the fact task (section 7.5), does the growing layer keep old facts because their rows stay unchanged, or does it lose them to the new rows' share of the softmax?
 
-### E. Language: the biography experiment from the article (unpublished)
-- Rebuild the synthetic biography task of Zucchet et al. (arXiv 2503.21676, built on Allen-Zhu and Li, arXiv 2309.14316) with a 2-layer transformer. Replace the feed-forward layers by a growing RBF layer, a wide random-Fourier-feature ("Cos Bochner") layer, or GeGLU. Measure the plateau length against population size, then forgetting under fine-tuning.
-- Question: the article reports that a wide random-feature layer trained by SGD approaches the growing RBF layer. If that holds, the gain comes from the kernel's locality, not from growth or retrieval. This is the cleanest test of what "retrieval-centric" adds.
+### E. Language: the biography experiment
+- Section 7.5 shows that the plateau needs rare individuals, multi-token names and varying positions; the two-token task had none. Next steps: the full Zucchet et al. biographies (templates, 6 attributes, 64k individuals); the attention patching test (does the growing layer change the plateau, or only the speed after the circuit forms?); the article's claim that wide random-feature layers approach the growing RBF layer.
+- Question: if a wide Cos-Bochner layer trained by SGD matches the growing layer, the benefit comes from the kernel's locality, not from growth or retrieval. This is the cleanest test of what "retrieval-centric" adds.
 
 ### F. Evaluation hygiene
 - Select hyperparameters on a validation split for every method. The paper selected on the test set.
-- Compare at matched inference compute: a GWS layer costs O(N d) per query and grows with the data.
+- Compare at matched inference compute and memory (section 7.6 gives the factors).
 - Strengthen the parametric softmax baseline. Its keys start with length about 1, while the queries have length √d ≈ 55, so its attention starts almost uniform (logits near 0.006). Initialize its keys from data or rescale them, and retune it.
