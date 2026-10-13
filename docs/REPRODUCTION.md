@@ -28,7 +28,7 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | 12 | Training loss falls much faster for GWS and RBF (Fig. 2 middle) | Reproduced for L = 2 (online loss 0.75 after 10 epochs; Muon 1.12, Adam 1.31) and in one pass (1.20 against Muon 1.26) | §7.4, figure |
 | 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Reproduced. Depth: one pass 53.5 / 58.5 / 59.4, 10 epochs 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2. Temperature (L = 0, 10 epochs): 53.5 / 58.6 / 51.3 for T = 3 / 10 / 30 | §5.1, §7.4 |
 | 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
-| 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Partly. Reproduced: GWS reaches much higher test accuracy (61.9 vs 49.1 at full scale) and the parametric model fits slowly; learned weights make it diverge. Not reproduced within the budget: the parametric model's overfitting needs ~2,000 epochs (at 50 it is still underfitting); and GWS has the larger train-test gap at every epoch (20 vs 3 points) | §7.7 |
+| 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Reproduced at 1/10 of the data with the paper's ratios (keys = GWS database size, 2,000 vs 50 epochs): the parametric model's test accuracy peaks at 43.3% (12.5% of training) and falls to 39.8% while its train accuracy rises to 93%; GWS ends at its best, 49.3%. Full scale, 50 epochs: GWS 61.9 vs 49.1. As in the paper's own figure, GWS also has a large final train-test gap; the claim holds in the sense that its test accuracy does not fall. Learned weights make the parametric model diverge (as the paper reports) | §7.7 |
 | 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Reproduced: 55.24 at the first setting and 58.41 at the best of four (all four 52.5-58.4) vs 49.62 for the best standard ViT; needed an exact two-call FlashAttention form because PyTorch's fused attention backward slows 50 times at 2^21 keys | §5.3 |
 | 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities within 4 points of the paper at every τ; accuracy within 1.2 points for τ ≥ 50 with the notebook setting (two seeds at τ = 50: 56.2, 56.5). At τ = 35 the notebook setting fails (49.5, 44.3), but the paper's per-τ tuning grid gives 58.25% at 89.2% of the rows (paper ~58.6% at ~88%) | §5.2 |
 | 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Reproduced: λ = 1e-5 reaches 74.0% (final 73.7%) against 68.3% for plain SGD; all five decay rates of the paper's figure match it within about 1-2 points in test and train accuracy | §7.8 |
@@ -440,7 +440,20 @@ Findings:
 | Parametric softmax: test / train acc (%) | 37.2 / 37.1 | 41.5 / 41.1 | 44.4 / 45.8 | 46.1 / 48.9 | 46.8 / 51.3 | **49.1 / 52.3** |
 | GWS, L = 0 (section 7.2): test / train acc (%) | 56.1 / 65.2 | 58.5 / 72.3 | 60.2 / 76.6 | 60.3 / 80.1 | 61.4 / 82.1 | **61.9 / 82.3** |
 
-  At 50 epochs the parametric model is still underfitting (train 52%) and its test accuracy is still rising; the gap is 3 points. The paper's widening gap appears after much longer training (2,000 epochs, 40 times this run, about 22 A100-hours at this table size), which was not attempted. GWS is 12.8 points ahead on test accuracy and fits much faster, as claimed, but its own gap (20 points) is larger at every epoch.
+  At 50 epochs the parametric model is still underfitting (train 52%) and its test accuracy is still rising; the gap is 3 points. The paper's widening gap appears after much longer training (2,000 epochs, 40 times this run, about 22 A100-hours at this table size). GWS is 12.8 points ahead on test accuracy and fits much faster, as claimed; its own gap (20 points) is larger, as is the gap in the paper's own figure (about 26 points).
+
+**Fig. 5 with the paper's ratios at 1/10 of the data (third round, `overfit_fig5_scaled.json`).** The paper's full-scale parametric model (2.56M trained keys of width 3,072) needs about 126 GB for parameters, gradients and Adam state. This version keeps the paper's two ratios on the first 5,000 training images: the parametric softmax has as many trained keys as the GWS database holds after 50 epochs (249,664, about 50 per image, as in the paper), and it trains for 2,000 epochs against 50 for GWS. Plain softmax (fixed equal weights), T = 1, Adam 3e-3 (the low end of the paper's rate grid), batch 64, augmentation. Train accuracy on 2,000 non-augmented training images, test accuracy on 2,000 test images (final row: all 10,000). Colab G4, 97 minutes.
+
+| Epoch (parametric) | 25 | 50 | 100 | 250 | 500 | 1,000 | 1,500 | 2,000 |
+|---|---|---|---|---|---|---|---|---|
+| Parametric softmax: test / train acc (%) | 41.2 / 45.6 | 41.6 / 51.1 | 42.6 / 58.9 | **43.3** / 69.7 | 43.0 / 79.5 | 40.8 / 87.5 | 40.6 / 91.5 | 39.8 / 93.2 |
+| Parametric softmax: test loss | 1.71 | **1.67** | 1.69 | 1.86 | 2.22 | 3.02 | 3.75 | 4.49 |
+
+| Epoch (GWS) | 5 | 10 | 20 | 30 | 40 | 50 |
+|---|---|---|---|---|---|---|
+| GWS: test / train acc (%) | 42.8 / 71.7 | 45.2 / 83.5 | 47.3 / 91.6 | 48.4 / 95.0 | 48.9 / 97.0 | **49.3** / 98.2 |
+
+  At equal training progress (x axis of the paper's figure) the parametric model's test accuracy peaks at 12.5% of training (epoch 250, 43.3%) and then falls to 39.8%, while its train accuracy keeps rising to 93% and its test loss rises 2.7 times from its minimum. GWS ends at its best test accuracy (49.3%), 6 points above the parametric model's peak and 9.5 points above its end. This is the shape of the paper's Fig. 5 (parametric: peak ~55.5%, end ~49%; GWS: rising to ~63%), at lower absolute accuracy because of the 10 times smaller training set. The GWS test loss is lowest at epoch 25 (1.579) and rises slightly to 1.629 at epoch 50, so GWS is not entirely free of overfitting in the loss.
 
 ### 7.8 SGD with DeltaNet-like decay, 10-block MLP, 2,000 epochs (paper App. E.3.1, claim 18)
 
