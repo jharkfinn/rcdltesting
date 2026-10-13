@@ -4,6 +4,7 @@ import dataclasses as dc
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -188,7 +189,8 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
       json.dump(dc.asdict(cfg) | {'eval_every': eval_every, 'eval_subset': eval_subset, 'input_grad': input_grad,
                                   'train_subset': train_subset,
                                   'max_steps': max_steps, 'torch': torch.__version__,
-                                  'threads': torch.get_num_threads(), 'device': str(train_x.device)}, f, indent=1)
+                                  'threads': torch.get_num_threads(), 'device': str(train_x.device),
+                                  'tf32': torch.backends.cuda.matmul.allow_tf32}, f, indent=1)
     eval_log = open(os.path.join(out_dir, 'evals.jsonl'), 'w')
 
   n, B = len(train_x), cfg.batch_size
@@ -220,11 +222,19 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
   evaluate_and_log(0, final=False)
   step, perm, order_gen = 0, None, torch.Generator().manual_seed(cfg.global_init_seed)
   aug_gen = np.random.default_rng(cfg.global_init_seed)
+  # Augmentation runs on the CPU (about 2.7 s per CIFAR epoch on a Colab VM). One worker thread prepares epoch e + 1
+  # while epoch e trains; it draws from aug_gen in the same order as a serial loop, so the images are identical.
+  augment = lambda: standardize(augment_epoch(train_u8, aug_gen), cfg.dataset)
+  aug_pool = ThreadPoolExecutor(max_workers=1) if cfg.augment else None
+  next_aug = aug_pool.submit(augment) if cfg.augment else None
   for epoch in range(cfg.num_epochs):
     perm = torch.randperm(n, generator=order_gen).to(train_x.device)
     epoch_x = train_x
     if cfg.augment:
-      epoch_x = torch.as_tensor(standardize(augment_epoch(train_u8, aug_gen), cfg.dataset), device=train_x.device)
+      epoch_np = next_aug.result()
+      if epoch + 1 < cfg.num_epochs and step < total_steps:
+        next_aug = aug_pool.submit(augment)
+      epoch_x = torch.as_tensor(epoch_np, device=train_x.device)
     for batch_idx in range(steps_per_epoch):
       if step >= total_steps:
         break
@@ -240,6 +250,8 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
               flush=True)
       if step % eval_every == 0 and step != total_steps:
         evaluate_and_log(step)
+  if aug_pool is not None:
+    aug_pool.shutdown(wait=False)
   evaluate_and_log(step, final=True)
 
   elapsed = time.time() - start_time

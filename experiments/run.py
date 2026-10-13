@@ -16,6 +16,10 @@ import os
 
 import torch
 
+if os.environ.get('RCDL_TF32') == '1':     # TF32 tensor cores for fp32 matmuls (A100/L4); default: exact fp32
+  torch.backends.cuda.matmul.allow_tf32 = True
+  torch.backends.cudnn.allow_tf32 = True
+
 from rcdl.data import load_cifar10_tensors
 from rcdl.layers import RCDLConfig
 from rcdl.train import run_rcdl_experiment
