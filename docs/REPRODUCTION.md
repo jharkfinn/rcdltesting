@@ -263,6 +263,15 @@ Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L
 | MLP + Adam, L = 0 / L = 2, 10 epochs | 36.65 / 56.85 | | 0.5 / 0.5 |
 | MLP + Muon, L = 0 / L = 2, 10 epochs | 38.70 / 62.22 | | 0.5 / 2.7 |
 
+**GWS at L = 2 for 50 epochs (third round, bf16 tables).** With keys and values stored in bf16 (`store_dtype='bfloat16'`; weights, logits, exponentials and the denominator stay fp32) the three tables take 77 GB and fit one 96 GB GPU (RTX PRO 6000 Blackwell: Colab G4 for CIFAR-10, a marimo molab notebook for CIFAR-100). Check against fp32 storage at 10 epochs: 65.03% against 65.05% test accuracy, 23.63% against 23.69% after linearization. Same settings as above (T = 10, η = 0.003, β = 10, batch 64, augmentation), 2,499,264 rows per layer at the end.
+
+| Dataset | Test acc (%) | Train acc, 2,000-image subset (%) | exp(z) → 1 + z | Paper (read off plot) | Minutes |
+|---|---|---|---|---|---|
+| CIFAR-10 | **68.39** | 98.0 | 21.87 | between Adam (~65) and Muon (~69.5) (Fig. 2 left) | 93 (GPU shared with the DeltaNet run) |
+| CIFAR-100 | **38.80** | 99.6 | 3.20 | ~39.1 (Fig. 2 left) | 49 |
+
+Test accuracy over training (CIFAR-10, epochs 5 / 10 / 20 / 30 / 40 / 50): 61.7 / 64.3 / 66.9 / 68.7 / 67.9 / 68.4. CIFAR-100: 34.0 / 35.9 / 37.8 / 38.6 / 38.5 / 38.8 (best 39.4 at epoch 35). The test loss is lowest at epoch 35 (CIFAR-10, 0.964) and epoch 25 (CIFAR-100, 2.589) and rises slightly after that, while the train accuracy approaches 100%.
+
 Temperature at L = 0, 10 epochs (η = 0.003, β = 10, the best ratio at T = 10; Colab L4):
 
 | T | Test acc (%) | Train acc, 2,000-image subset (%) | exp(z) → 1 + z |
@@ -280,13 +289,14 @@ CIFAR-100, 50 epochs (second A100 session, TF32; one setting per method):
 | MLP + Muon, lr 1e-3 | **40.16** | ~39.2 |
 | MLP + Mesa, lr 3e-4 | 38.51 | ~40.4 (best in the paper) |
 | GWS, L = 0, T = 10 | 31.81 (linearized: 2.92) | ~39.1 for L = 2 |
+| GWS, L = 2, T = 10 (bf16 tables, third round) | 38.80 (linearized: 3.20) | ~39.1 |
 
 The paper's claim that Mesa is best on CIFAR-100 does not hold at these settings: Muon is 1.65 points ahead. The paper tuned Mesa over learning rate, γ and λ; this run uses one setting.
 
 Findings:
 - The Muon, Adam, Mesa and SGD baselines reproduce the paper's CIFAR-10 values (69.5, 64.7, 66.7 and 59.8% against about 69.5, 65, 67.8 and 61).
 - At equal training (10 epochs), GWS beats the MLPs at every depth: 58.6 vs 38.7 (L = 0, where the MLP is a linear model) and 65.1 vs 62.2 (L = 2, Muon) and 56.9 (Adam).
-- GWS at L = 0 after 50 epochs (61.9%) is below Adam (64.7%). GWS at L = 2 after only 10 epochs (65.1%) is already level with Adam after 50 epochs. The paper's claim (GWS above Adam, SGD and RMSprop, below Muon) refers to deeper GWS models at 50 epochs, which this budget cannot hold in memory.
+- GWS at L = 0 after 50 epochs (61.9%) is below Adam (64.7%). At the paper's depth (L = 2) and 50 epochs, GWS reaches 68.39%: above Adam (64.72), Mesa (66.72) and SGD (59.77), below Muon (69.51). This is the order the paper claims. On CIFAR-100, GWS at L = 2 reaches 38.80% against the paper's ~39.1%.
 - The linearization collapse holds at every depth (21-24% at 10 epochs).
 
 ### 7.3 Teacher-student regression (paper Fig. 3, App. E.1.2)
