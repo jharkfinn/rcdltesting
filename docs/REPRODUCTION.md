@@ -31,7 +31,7 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Partly. Reproduced: GWS reaches much higher test accuracy (61.9 vs 49.1 at full scale) and the parametric model fits slowly; learned weights make it diverge. Not reproduced within the budget: the parametric model's overfitting needs ~2,000 epochs (at 50 it is still underfitting); and GWS has the larger train-test gap at every epoch (20 vs 3 points) | §7.7 |
 | 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Reproduced: 55.24 at the first setting and 58.41 at the best of four (all four 52.5-58.4) vs 49.62 for the best standard ViT; needed an exact two-call FlashAttention form because PyTorch's fused attention backward slows 50 times at 2^21 keys | §5.3 |
 | 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced for τ ≥ 40 with the notebook setting (capacities within 4 points; accuracy within 1.2 points for τ ≥ 50, two seeds at τ = 50: 56.2, 56.5). The τ = 35 point fails with that setting on both seeds (49.5, 44.3; paper 58.6 after per-τ tuning) | §5.2 |
-| 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Not attempted: about 2 × 5 A100-hours | - |
+| 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Reproduced: λ = 1e-5 reaches 74.0% (final 73.7%) against 68.3% for plain SGD; all five decay rates of the paper's figure match it within about 1-2 points in test and train accuracy | §7.8 |
 | 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it "drastically"; Cos-Bochner improves with width, matching growing RBF; GeGLU has a lower ceiling | Reproduced (minimal version, 2-layer transformer): the plateau grows 4-7 times for 4 times more individuals; the growing RBF layer (η = 10) reaches 90% of the facts 3.8 times sooner than GeGLU-4096 and ends at 99.7% against 82-92% for GeGLU; Cos-Bochner improves monotonically with width (66% → 99% final, escape 5,500 → 2,500 steps) and matches the RBF layer at width 65,536. The onset of learning moves 35-45% earlier, so "drastic" applies to the time to knowledge more than to the onset | §7.5 |
 | 20 | Article: fine-tuning on new individuals makes FFNs forget; "in the fine-tuning setting, the RBF, and also the Cos Bochner, seem to do better than the GeGLU"; RCDL layers "can 'unforget' without replay" (no numbers given) | Reproduced (qualitative, as stated): all variants forget (old facts 99.6% → 16-30%); after 4,000 steps RBF and Cos-Bochner keep 2.5 and 1.9 times as many old facts as GeGLU (38.4% and 29.9% against 15.5%); only the growing RBF layer recovers old facts without replay (30.1% after 250 steps → 38.4% after 4,000). The recovery is small | §7.5 |
 | 21 | Article: RCDL matches but does not beat strong baselines, at much higher cost | Supported for multi-epoch training (400 times the memory, 7.6 points below Muon at L = 0). In one pass GWS is 2 points above Muon at 10 times the memory | §7.6 |
@@ -428,6 +428,29 @@ Findings:
 | GWS, L = 0 (section 7.2): test / train acc (%) | 56.1 / 65.2 | 58.5 / 72.3 | 60.2 / 76.6 | 60.3 / 80.1 | 61.4 / 82.1 | **61.9 / 82.3** |
 
   At 50 epochs the parametric model is still underfitting (train 52%) and its test accuracy is still rising; the gap is 3 points. The paper's widening gap appears after much longer training (2,000 epochs, 40 times this run, about 22 A100-hours at this table size), which was not attempted. GWS is 12.8 points ahead on test accuracy and fits much faster, as claimed, but its own gap (20 points) is larger at every epoch.
+
+### 7.8 SGD with DeltaNet-like decay, 10-block MLP, 2,000 epochs (paper App. E.3.1, claim 18)
+
+Setup (paper Table "DeltaNet-GD"; `experiments/deltanet_long.py`): CIFAR-10, Linear 3,072 → 512, 10 pre-LayerNorm residual blocks (MLP 512 → 2,048 → 512, GELU, dropout 0.1), final LayerNorm, Linear 512 → 10; batch 64; SGD with learning rate η_t = 1e-2 (5 epochs of linear warmup, then cosine annealing to 0), no momentum; 2,000 epochs (1,562,000 steps); the App. E.1.1 augmentation. Every linear layer W gets the paper's update
+
+  W_t = W_{t-1} (I - λ η_t X_t X_t^T) - η_t G_t X_t^T,
+
+where X_t (d_in × 64) holds the layer's inputs in the batch, G_t (d_out × 64) the gradients of the batch-mean loss with respect to the layer's outputs, η_t the learning rate at step t and λ the decay rate (λ = 0 is plain SGD). The five decay rates of the paper's figure train as one stack of five independent models on the same images in the same order (tests: `tests/test_deltanet.py` checks the update against this formula and the independence of the stacked models). Assumptions where the paper is silent: PyTorch default Linear initialization, exact GELU, dropout on the residual branch only, warmup from 0, per-channel standardization. One seed. Colab G4 (RTX PRO 6000), 2.7 hours with CUDA graphs, sharing the GPU with other runs (6 ms per step for all five models).
+
+| λ | Test acc, epoch 2,000 (best) (%) | Paper (read off plot) | Train acc, augmented batches with dropout, last 10 epochs (%) | Paper train acc | Train acc, 10,000 clean training images (%) |
+|---|---|---|---|---|---|
+| 0 | 68.3 (68.5) | ~67 | 100.0 | ~100 | 100.0 |
+| 7e-6 | **73.9** (73.9) | ~73 | 99.5 | ~99 | 100.0 |
+| 1e-5 | 73.7 (**74.0**) | ~74 | 98.4 | ~99 | 99.9 |
+| 2e-5 | 73.8 (73.8) | ~73 | 84.8 | ~89 | 90.6 |
+| 3e-5 | 72.0 (72.2) | ~71 | 76.3 | ~78 | 80.2 |
+
+Test accuracy over training (λ = 0 / 1e-5): epoch 100: 65.6 / 61.9; 300: 66.0 / 67.1; 500: 67.1 / 69.3; 1,000: 67.5 / 70.8; 1,500: 68.2 / 72.4; 2,000: 68.3 / 73.7.
+
+Findings:
+- **Reproduced.** Plain SGD memorizes the augmented training set by epoch ~500 (train 99.8%) and its test accuracy stays near 67-68%. Every decay rate in the paper's range ends higher (72.0-73.9%), and λ = 1e-5 reaches 74.0%, as the paper reports (74% against 67%). The ordering and the train curves match the paper's figure: larger λ fits the training set more slowly (λ = 3e-5: 76% train after 2,000 epochs) and still generalizes better than λ = 0.
+- The decay works only along the directions of the current inputs (W X X^T), so it is a data-dependent regularizer: in gradient form it is the gradient of (λ/2) Σ_b ||W x_b||² with the inputs held fixed, an activation penalty on each layer's pre-bias output. A useful control that this run does not include: an explicit activation-norm penalty with the same λ, and the paper's multiplicative weight decay (its Fig. "WeightDecay": test accuracy improves only to about 66%).
+- The gain appears late: at epoch 300 the λ > 0 models are only 1-3 points ahead, at epoch 1,000 3-3.5 points, and the curves are still rising at 2,000 epochs for λ ≥ 2e-5.
 
 ## 8. Discrepancies between paper, notebooks and article
 
