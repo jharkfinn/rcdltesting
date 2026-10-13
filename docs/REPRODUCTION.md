@@ -260,6 +260,26 @@ Findings:
 
 GPU note: one GWS step at 200,000 steps scans 12.8 million rows for only 64 queries. PyTorch's fused attention runs this on a single GPU block (50 times slower than the dense path on an A100), and the dense path needs about 90 A100-minutes. `rcdl/splitk_attention.py` adds a split-key Triton kernel (each program takes a chunk of rows; the chunk maxima are merged afterwards). It matches the dense path to fp32 rounding (`tests/test_splitk.py`) and is 2.3 times (tf32x3) to 6.6 times (tf32) faster. End-to-end check on the best GWS setting, 10,000 steps on the L4: test MSE 4.2175794e-4 (dense), 4.2175796e-4 (tf32x3), 4.2197e-4 (tf32, 0.05% higher). The 200,000-step run uses tf32.
 
+### 7.5 Synthetic facts (the article's biography experiment, minimal version)
+
+PENDING.
+
+### 7.6 Cost (article: RCDL "matches but does not beat" strong baselines at much higher cost)
+
+Memory is the stored table (keys, values, weights; fp32) or the parameters; compute is per test input at the end of training. Times are wall-clock training times on the GPU named.
+
+| Setting | Model | Test acc (%) | Memory | FLOPs per input | Training time |
+|---|---|---|---|---|---|
+| Single pass, batch 16 (L4) | GWS, L = 2 (3 layers × 50,016 rows) | 59.4 | 3.1 GB | 1.5 G | 44 s |
+| | ResNet-MLP L = 8 + Muon | 57.4 | 0.30 GB | 0.15 G | 916 s |
+| | ResNet-MLP L = 8 + AdamW | 50.0 | 0.30 GB | 0.15 G | 101 s |
+| 50 epochs, batch 64 (A100) | GWS, L = 0 (2.5M rows) | 61.9 | 31 GB | 15.4 G | 22.6 min |
+| | ResNet-MLP L = 2 + Muon | 69.5 | 0.08 GB | 0.04 G | 9.7 min |
+| Teacher-student, 200k steps | GWS (12.8M rows of width 100) | PENDING | 5.2 GB | 2.6 G | PENDING |
+| | MLP, width 1,024 | PENDING | 4.6 MB | 2.3 M | PENDING |
+
+Reading: in one pass, GWS is both the most accurate and among the fastest to train (no optimizer state, one write per sample), at 10 times the memory and inference compute of the 8-layer MLP. Over 50 epochs the picture reverses: the L = 0 GWS layer uses 400 times the memory and compute of the 2-layer MLP and is 7.6 points below it. At 10 epochs, the L = 2 GWS model (65.1%) needs 3 × 0.5M rows, about 31 GB. The article's summary ("matches but does not beat strong baselines, at much higher cost") fits the multi-epoch results. In the single-pass regime GWS beats the strongest baseline measured here by 2 points.
+
 ## 8. Discrepancies between paper, notebooks and article
 
 ### 8.1 Method as derived vs method as run
