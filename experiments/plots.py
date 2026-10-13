@@ -203,6 +203,12 @@ def fig_hybrid(runs, out):
           linewidth=1.2, label='Paper Fig. 6 (read off plot)', zorder=2)
   for tau, x, yv in pts:
     ax.annotate(f'τ={tau}', (x, yv), textcoords='offset points', xytext=(4, -10), fontsize=7, color=INK2)
+  tuned = [rs[0] for k, rs in runs.items() if k.startswith('hybrid_tau35_T')]   # hybrid_tau35_tuning.json
+  if tuned:
+    b = max(tuned, key=lambda r: r['final_test_acc'])
+    ax.scatter([100 * b['final_db_size'] / b['total_full_capacity']], [100 * b['final_test_acc']], marker='*', s=140,
+               color=SERIES[2], edgecolor=SURFACE, linewidth=1.0, zorder=4,
+               label=f'τ=35, best of {len(tuned) + 1} settings (paper grid): {100 * b["final_test_acc"]:.1f}')
   style(ax, 'Hybrid layer, one pass: test accuracy vs final capacity', 'final capacity (% of one row per sample)',
         'test accuracy (%)')
   ax.legend(fontsize=8, frameon=False, loc='lower right')
@@ -212,8 +218,8 @@ def fig_hybrid(runs, out):
 
 
 def fig_multi_epoch(runs, out):
-  panels = [('CIFAR-10', [k for k in runs if k.endswith('_50ep')]),
-            ('CIFAR-100', [k for k in runs if k.endswith('_50ep_c100')])]
+  panels = [('CIFAR-10', [k for k in runs if k.endswith(('_50ep', '_50ep_bf16'))]),
+            ('CIFAR-100', [k for k in runs if k.endswith(('_50ep_c100', '_50ep_c100_bf16'))])]
   panels = [(t, ks) for t, ks in panels if ks]
   if not panels:
     return
@@ -234,8 +240,8 @@ def fig_multi_epoch(runs, out):
 
 
 def fig_overfit(runs, out):
-  """Reduced-scale paper Fig. 5: train (dashed) and test (solid) accuracy against epoch on a 5,000-image subset."""
-  keys = sorted(k for k in runs if 'sub5k' in k)
+  """Reduced-scale paper Fig. 5 (CPU runs): train (dashed) and test (solid) accuracy against epoch, 5,000 images."""
+  keys = sorted(k for k in runs if 'sub5k' in k and k.endswith(('_40ep', '_100ep')))
   if not keys:
     return
   fig, ax = new_fig(7.0, 4.2)
@@ -251,6 +257,56 @@ def fig_overfit(runs, out):
   ax.legend(fontsize=7, frameon=False)
   fig.tight_layout()
   fig.savefig(os.path.join(out, 'overfit_subset.png'), dpi=150, facecolor=SURFACE)
+  plt.close(fig)
+
+
+def fig_fig5_scaled(runs, out):
+  """Paper Fig. 5 with the paper's ratios at 1/10 of the data: x = training progress (%), parametric softmax 2,000
+  epochs, GWS 50 epochs; train (dashed) and test (solid) accuracy."""
+  keys = sorted(k for k in runs if k.endswith(('sub5k_50ep', 'sub5k_2000ep')))
+  if not keys:
+    return
+  fig, ax = new_fig(7.0, 4.2)
+  for c, k in zip(SERIES, keys):
+    r = max(runs[k], key=lambda r: len(r['evals']))
+    ev = [e for e in r['evals'] if e['step'] > 0 and 'train_acc' in e]
+    total = max(e['step'] for e in ev)
+    x = [100 * e['step'] / total for e in ev]
+    ep = r['config'].get('num_epochs')
+    name = ('Weighted softmax (GWS)' if k.startswith('gws') else
+            f"Parametric softmax, Adam {r['config'].get('learning_rate'):g}") + f', {ep} epochs'
+    ax.plot(x, [100 * e['test_acc'] for e in ev], '-', linewidth=1.8, color=c,
+            label=f'{name}: test (final {100 * r["final_test_acc"]:.1f})')
+    ax.plot(x, [100 * e['train_acc'] for e in ev], '--', linewidth=1.4, color=c, label=f'{name}: train')
+  style(ax, 'Fig. 5 at 1/10 scale (5,000 images): train (dashed) and test (solid)', 'training progress (%)',
+        'accuracy (%)')
+  ax.legend(fontsize=7, frameon=False)
+  fig.tight_layout()
+  fig.savefig(os.path.join(out, 'fig5_scaled.png'), dpi=150, facecolor=SURFACE)
+  plt.close(fig)
+
+
+def fig_deltanet(roots, out):
+  """Paper App. E.3.1 figure: train and test accuracy against epoch for each Delta-rule decay rate λ."""
+  logs = [f for root in roots for f in glob.glob(os.path.join(root, '**', 'deltanet', 'log.jsonl'), recursive=True)]
+  if not logs:
+    return
+  recs = [json.loads(l) for l in open(max(logs, key=os.path.getsize))]
+  lams, ep = recs[0]['lams'], [r['epoch'] for r in recs]
+  fig, axes = new_fig(12.0, 4.2, ncols=2)
+  for i, lam in enumerate(lams):
+    lab = f'λ = {lam:g}'
+    axes[0].plot(ep, [100 * r['run_train_acc'][i] for r in recs], color=SERIES[i], linewidth=1.6, label=lab)
+    axes[1].plot(ep, [100 * r['test_acc'][i] for r in recs], color=SERIES[i], linewidth=1.6,
+                 label=f'{lab}: final {100 * recs[-1]["test_acc"][i]:.1f}, best {100 * max(r["test_acc"][i] for r in recs):.1f}')
+  style(axes[0], 'Train accuracy (augmented batches, dropout on)', 'epoch', 'accuracy (%)')
+  style(axes[1], 'Test accuracy', 'epoch', 'accuracy (%)')
+  for ax in axes:
+    ax.legend(fontsize=7, frameon=False)
+  fig.suptitle('10-block residual MLP, SGD with Delta-rule decay (paper: λ = 0 → ~67%, λ = 1e-5 → ~74%)',
+               color=INK, fontsize=10, x=0.01, ha='left')
+  fig.tight_layout()
+  fig.savefig(os.path.join(out, 'deltanet_long.png'), dpi=150, facecolor=SURFACE)
   plt.close(fig)
 
 
@@ -329,7 +385,8 @@ def fig_facts(facts, out):
 
 def main():
   p = argparse.ArgumentParser()
-  p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/cpu_overfit', 'results/colab_a2'])
+  p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/cpu_overfit',
+                                                  'results/colab_a2', 'results/colab_g4'])
   p.add_argument('--recovered', default='docs/data/singlepass_recovered.json')
   p.add_argument('--out', default='docs/figures')
   args = p.parse_args()
@@ -359,6 +416,8 @@ def main():
   fig_hybrid(runs, args.out)
   fig_multi_epoch(runs, args.out)
   fig_overfit(runs, args.out)
+  fig_fig5_scaled(runs, args.out)
+  fig_deltanet(args.results, args.out)
   fig_facts(facts, args.out)
   fig_train_loss(args.results + ['results/hf', 'results/cpu_binary'], args.out)
   print('figures:', sorted(os.listdir(args.out)))
