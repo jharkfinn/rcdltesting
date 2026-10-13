@@ -228,6 +228,12 @@ def fig_multi_epoch(runs, out):
   fig, axes = new_fig(6.4 * len(panels), 4.2, ncols=len(panels))
   for ax, (title, keys) in zip(np.atleast_1d(axes), panels):
     best = {k: max(runs[k], key=lambda r: r['final_test_acc']) for k in keys}   # gws_L0_T10_50ep: eta 1 and 0.003 runs
+    method = lambda k: '_'.join(k.split('_')[:2])          # mlp_mesa, mlp_muon, gws_L2, ...: one curve per method
+    top = {}
+    for k in keys:
+      if method(k) not in top or best[k]['final_test_acc'] > best[top[method(k)]]['final_test_acc']:
+        top[method(k)] = k
+    keys = list(top.values())                              # tuning runs: docs/REPRODUCTION.md tables
     for c, k in zip(SERIES * 2, sorted(keys, key=lambda k: -best[k]['final_test_acc'])):
       r = best[k]
       spe = 781

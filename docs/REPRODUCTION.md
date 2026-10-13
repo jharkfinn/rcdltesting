@@ -24,17 +24,17 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | 8 | Single pass on CIFAR-10: GWS 59.4 ± 0.4, RBF 58.8 ± 0.2, gauge 58.4 ± 0.4; all above Muon, Adam, SGD, Mesa, Delta (Fig. 2 right, App. F.2) | Reproduced: 59.41 ± 0.22, 59.10 ± 0.62, 58.62 ± 0.44; best baseline Muon 57.41 ± 0.52 | §4 |
 | 9 | Kernel ridge regression (~58.5) and kNN (~35.5) on pixels (Fig. 2 right) | Reproduced (58.55, 35.64); GWS is only 0.9 points above exact kernel ridge regression | §6 |
 | 10 | Teacher-student: GWS far below the parametric softmax; MLP student best (Fig. 3) | Reproduced at the paper's endpoint (200k steps): MLP 1.81e-4 < GWS 1.99e-4 < parametric softmax 1.95e-3 (paper ~1.7e-4 / ~2.6e-4 / ~4e-3). Nuance: the parametric softmax is the best student up to ~80k steps (1.9e-4), then degrades without a learning-rate schedule | §7.3 |
-| 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | Partly. Baselines reproduce (CIFAR-10: Muon 69.5, Mesa 66.7, Adam 64.7, SGD 59.8; CIFAR-100: Muon 40.2). GWS at L = 0 (61.9) beats SGD only; L = 2 at 50 epochs needs about 154 GB, but at equal 10 epochs GWS L = 2 (65.1) beats Muon (62.2) and Adam (56.9). Not reproduced: Mesa (38.5) is 1.7 points below Muon on CIFAR-100 at one setting | §7.2, §7.4 |
+| 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | Reproduced for GWS and Mesa. CIFAR-10: GWS at the paper's depth (L = 2, bf16 tables) reaches 68.39%, above Adam (64.7), Mesa (66.7) and SGD (59.8), below Muon (69.5). CIFAR-100: GWS L = 2 38.80% (paper ~39.1); after tuning on the paper's grid, Mesa 40.83% > Muon 40.16% (one seed, margin 0.7 points). Not run: RBF at L = 2 for 50 epochs (the bf16 path does not support RBF distances), AdamW and RMSprop at 50 epochs | §7.4 |
 | 12 | Training loss falls much faster for GWS and RBF (Fig. 2 middle) | Reproduced for L = 2 (online loss 0.75 after 10 epochs; Muon 1.12, Adam 1.31) and in one pass (1.20 against Muon 1.26) | §7.4, figure |
 | 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Reproduced. Depth: one pass 53.5 / 58.5 / 59.4, 10 epochs 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2. Temperature (L = 0, 10 epochs): 53.5 / 58.6 / 51.3 for T = 3 / 10 / 30 | §5.1, §7.4 |
 | 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
 | 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Reproduced at 1/10 of the data with the paper's ratios (keys = GWS database size, 2,000 vs 50 epochs): the parametric model's test accuracy peaks at 43.3% (12.5% of training) and falls to 39.8% while its train accuracy rises to 93%; GWS ends at its best, 49.3%. Full scale, 50 epochs: GWS 61.9 vs 49.1. As in the paper's own figure, GWS also has a large final train-test gap; the claim holds in the sense that its test accuracy does not fall. Learned weights make the parametric model diverge (as the paper reports) | §7.7 |
 | 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Reproduced: 55.24 at the first setting and 58.41 at the best of four (all four 52.5-58.4) vs 49.62 for the best standard ViT; needed an exact two-call FlashAttention form because PyTorch's fused attention backward slows 50 times at 2^21 keys | §5.3 |
-| 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities within 4 points of the paper at every τ; accuracy within 1.2 points for τ ≥ 50 with the notebook setting (two seeds at τ = 50: 56.2, 56.5). At τ = 35 the notebook setting fails (49.5, 44.3), but the paper's per-τ tuning grid gives 58.25% at 89.2% of the rows (paper ~58.6% at ~88%) | §5.2 |
+| 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities within 4 points of the paper at every τ; accuracy within 1.2 points for τ ≥ 50 with the notebook setting (two seeds at τ = 50: 56.2, 56.5). At τ = 35 the notebook setting fails (49.5, 44.3), but the paper's per-τ tuning grid (27 settings) gives 58.29% at 89.0% of the rows (paper ~58.6% at ~88%) | §5.2 |
 | 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Reproduced: λ = 1e-5 reaches 74.0% (final 73.7%) against 68.3% for plain SGD; all five decay rates of the paper's figure match it within about 1-2 points in test and train accuracy | §7.8 |
 | 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it "drastically"; Cos-Bochner improves with width, matching growing RBF; GeGLU has a lower ceiling | Reproduced (minimal version, 2-layer transformer): the plateau grows 4-7 times for 4 times more individuals; the growing RBF layer (η = 10) reaches 90% of the facts 3.8 times sooner than GeGLU-4096 and ends at 99.7% against 82-92% for GeGLU; Cos-Bochner improves monotonically with width (66% → 99% final, escape 5,500 → 2,500 steps) and matches the RBF layer at width 65,536. The onset of learning moves 35-45% earlier, so "drastic" applies to the time to knowledge more than to the onset | §7.5 |
 | 20 | Article: fine-tuning on new individuals makes FFNs forget; "in the fine-tuning setting, the RBF, and also the Cos Bochner, seem to do better than the GeGLU"; RCDL layers "can 'unforget' without replay" (no numbers given) | Reproduced (qualitative, as stated): all variants forget (old facts 99.6% → 16-30%); after 4,000 steps RBF and Cos-Bochner keep 2.5 and 1.9 times as many old facts as GeGLU (38.4% and 29.9% against 15.5%); only the growing RBF layer recovers old facts without replay (30.1% after 250 steps → 38.4% after 4,000). The recovery is small | §7.5 |
-| 21 | Article: RCDL matches but does not beat strong baselines, at much higher cost | Supported for multi-epoch training (400 times the memory, 7.6 points below Muon at L = 0). In one pass GWS is 2 points above Muon at 10 times the memory | §7.6 |
+| 21 | Article: RCDL matches but does not beat strong baselines, at much higher cost | Supported. Multi-epoch: at L = 0, 7.6 points below Muon with 400 times the memory; at the paper's depth (L = 2), 1.1 points below Muon (68.4 vs 69.5) with 77 GB of stored rows in bf16 against 75 MB of MLP weights (about 1,000 times). In one pass GWS is 2 points above Muon at 10 times the memory | §7.6 |
 
 ## 1. How to run
 
@@ -165,14 +165,17 @@ The capacities match the paper within 4 points at every τ, so the growth rule i
 
 | T, β \ Adam rate | 3e-4 | 1e-3 | 3e-3 |
 |---|---|---|---|
-| T = 5, β = 30 | **58.25** (89.2% of rows) | 49.47 / 44.32 (notebook setting, seeds 1 / 2) | 25.60 |
+| T = 5, β = 60 | **58.29** (89.0% of rows) | 57.05 (89.9%) | 46.99 |
+| T = 5, β = 30 | 58.25 (89.2%) | 49.47 / 44.32 (notebook setting, seeds 1 / 2) | 25.60 |
 | T = 5, β = 10 | 55.60 | 53.73 | 23.58 |
+| T = 10, β = 60 | 55.39 (88.7%) | 53.83 | 50.95 |
 | T = 10, β = 30 | 54.73 (88.7%) | 53.76 | 50.85 |
 | T = 10, β = 10 | 53.29 | 52.86 | 12.17 |
+| T = 1, β = 60 | 18.44 | 20.95 | 20.45 |
 | T = 1, β = 30 | 21.10 | 21.76 | 18.24 |
 | T = 1, β = 10 | 28.39 | 25.85 | 19.79 |
 
-With the paper's tuning, τ = 35 reaches **58.25% at 89.2% of the rows**, against the paper's ~58.6% at ~88%. The Adam rate of the trained keys, values and weights decides the result: at T = 5, β = 30, the rate 3e-4 gives 58.25% and the notebook's 1e-3 gives 44-49%. T = 1 fails at every rate (training loss 11-43). The β = 60 row ran on molab after this table was written (see the results files).
+With the paper's full tuning grid (27 settings, 26 run here plus the notebook setting from above), τ = 35 reaches **58.29% at 89.0% of the rows** (T = 5, β = 60, Adam 3e-4), against the paper's ~58.6% at ~88%. Two settings are within 0.04 points of each other (β = 30 and 60 at T = 5, Adam 3e-4). The Adam rate of the trained keys, values and weights decides the result: at T = 5, β = 30, the rate 3e-4 gives 58.25% and the notebook's 1e-3 gives 44-49%. T = 1 fails at every rate (training loss 11-43). One seed per setting, so the best of 27 is an optimistic estimate, as is the paper's.
 
 
 ### 5.3 ViT with growing FFN layers (paper Sec. 5, App. E.9)
@@ -299,12 +302,18 @@ CIFAR-100, 50 epochs (second A100 session, TF32; one setting per method):
 
 | Model | Test acc (%) | Paper (Fig. 2 left, CIFAR-100 panel, read off plot) |
 |---|---|---|
-| MLP + Muon, lr 1e-3 | **40.16** | ~39.2 |
-| MLP + Mesa, lr 3e-4 | 38.51 | ~40.4 (best in the paper) |
+| MLP + Muon, lr 1e-3 | 40.16 | ~39.2 |
+| MLP + Muon, lr 3e-3 (third round) | 38.94 | |
+| MLP + Mesa, lr 3e-4 (γ = 0.99, λ = 0.01) | 38.51 | ~40.4 (best in the paper) |
+| MLP + Mesa, lr 1e-4 (third round) | **40.83** | |
+| MLP + Mesa, lr 1e-3 (third round) | 37.00 | |
+| MLP + Mesa, lr 3e-4, γ = 1 (third round) | 38.25 | |
+| MLP + Mesa, lr 3e-4, λ = 0.1 (third round) | 36.85 | |
+| MLP + Mesa, lr 3e-4, L = 4 (third round) | 38.93 | |
 | GWS, L = 0, T = 10 | 31.81 (linearized: 2.92) | ~39.1 for L = 2 |
 | GWS, L = 2, T = 10 (bf16 tables, third round) | 38.80 (linearized: 3.20) | ~39.1 |
 
-The paper's claim that Mesa is best on CIFAR-100 does not hold at these settings: Muon is 1.65 points ahead. The paper tuned Mesa over learning rate, γ and λ; this run uses one setting.
+With one Mesa setting (second round), Muon was 1.65 points ahead. The third round tuned both on the paper's grids (Mesa: 5 more settings over the rate, γ, λ and depth; Muon: one more rate, molab GPU): the best Mesa (Adam 1e-4, 40.83%) is then 0.67 points above the best Muon (40.16%), so the paper's ordering on CIFAR-100 holds after tuning. One seed per setting, and the margin is small: the paper reports 40.4 against 39.2.
 
 Findings:
 - The Muon, Adam, Mesa and SGD baselines reproduce the paper's CIFAR-10 values (69.5, 64.7, 66.7 and 59.8% against about 69.5, 65, 67.8 and 61).
@@ -442,7 +451,7 @@ Findings:
 
   At 50 epochs the parametric model is still underfitting (train 52%) and its test accuracy is still rising; the gap is 3 points. The paper's widening gap appears after much longer training (2,000 epochs, 40 times this run, about 22 A100-hours at this table size). GWS is 12.8 points ahead on test accuracy and fits much faster, as claimed; its own gap (20 points) is larger, as is the gap in the paper's own figure (about 26 points).
 
-**Fig. 5 with the paper's ratios at 1/10 of the data (third round, `overfit_fig5_scaled.json`).** The paper's full-scale parametric model (2.56M trained keys of width 3,072) needs about 126 GB for parameters, gradients and Adam state. This version keeps the paper's two ratios on the first 5,000 training images: the parametric softmax has as many trained keys as the GWS database holds after 50 epochs (249,664, about 50 per image, as in the paper), and it trains for 2,000 epochs against 50 for GWS. Plain softmax (fixed equal weights), T = 1, Adam 3e-3 (the low end of the paper's rate grid), batch 64, augmentation. Train accuracy on 2,000 non-augmented training images, test accuracy on 2,000 test images (final row: all 10,000). Colab G4, 97 minutes.
+**Fig. 5 with the paper's ratios at 1/10 of the data (third round, `overfit_fig5_scaled.json`).** The paper's full-scale parametric model (2.56M trained keys of width 3,072) needs about 126 GB for parameters, gradients and Adam state. This version keeps the paper's two ratios on the first 5,000 training images: the parametric softmax has as many trained keys as the GWS database holds after 50 epochs (249,664, about 50 per image, as in the paper), and it trains for 2,000 epochs against 50 for GWS. Plain softmax (fixed equal weights), T = 1, Adam 3e-3 and 1e-2 (the two lowest rates of the paper's grid), batch 64, augmentation. Train accuracy on 2,000 non-augmented training images, test accuracy on 2,000 test images (final row: all 10,000). Colab G4, 97 minutes.
 
 | Epoch (parametric) | 25 | 50 | 100 | 250 | 500 | 1,000 | 1,500 | 2,000 |
 |---|---|---|---|---|---|---|---|---|
@@ -453,7 +462,7 @@ Findings:
 |---|---|---|---|---|---|---|
 | GWS: test / train acc (%) | 42.8 / 71.7 | 45.2 / 83.5 | 47.3 / 91.6 | 48.4 / 95.0 | 48.9 / 97.0 | **49.3** / 98.2 |
 
-  At equal training progress (x axis of the paper's figure) the parametric model's test accuracy peaks at 12.5% of training (epoch 250, 43.3%) and then falls to 39.8%, while its train accuracy keeps rising to 93% and its test loss rises 2.7 times from its minimum. GWS ends at its best test accuracy (49.3%), 6 points above the parametric model's peak and 9.5 points above its end. This is the shape of the paper's Fig. 5 (parametric: peak ~55.5%, end ~49%; GWS: rising to ~63%), at lower absolute accuracy because of the 10 times smaller training set. The GWS test loss is lowest at epoch 25 (1.579) and rises slightly to 1.629 at epoch 50, so GWS is not entirely free of overfitting in the loss.
+  At equal training progress (x axis of the paper's figure) the parametric model's test accuracy peaks at 12.5% of training (epoch 250, 43.3%) and then falls to 39.8%, while its train accuracy keeps rising to 93% and its test loss rises 2.7 times from its minimum. GWS ends at its best test accuracy (49.3%), 6 points above the parametric model's peak and 9.5 points above its end. This is the shape of the paper's Fig. 5 (parametric: peak ~55.5%, end ~49%; GWS: rising to ~63%), at lower absolute accuracy because of the 10 times smaller training set. The GWS test loss is lowest at epoch 25 (1.579) and rises slightly to 1.629 at epoch 50, so GWS is not entirely free of overfitting in the loss. A second parametric run with Adam 1e-2 (molab GPU, 2.8 hours on a shared GPU) shows the same shape: test accuracy peaks at 40.7% at epoch 125 and falls to 37.7%, train accuracy rises to 84.2%, and the test loss rises from 1.73 to 5.73.
 
 ### 7.8 SGD with DeltaNet-like decay, 10-block MLP, 2,000 epochs (paper App. E.3.1, claim 18)
 
@@ -556,7 +565,7 @@ Each direction states what it tests, the evidence from this reproduction that mo
 | a2 | A100-40GB | 12:34 | 15:04, stopped | 2.50 | rerun of the lost A100 work (at the user's request, beyond the 12-hour target): GWS-ViT, 200k-step teacher-student, CIFAR-100, 50-epoch Mesa and parametric softmax, 10-epoch MLPs, hybrid seed 2 |
 | Subtotal, first two rounds | | | | 14.37 | |
 | g4 | Colab G4 (RTX PRO 6000 Blackwell, 96 GB) | 15:30 | 18:48, stopped | 3.30 (27.15 compute units at 8.90 per hour) | third round, at the user's go-ahead to exceed the target: GWS L = 2 for 50 epochs (CIFAR-10) with the bf16 check, DeltaNet 2,000 epochs (5 decay rates), Fig. 5 at 1/10 scale (GWS and parametric Adam 3e-3), hybrid τ = 35 grid for β = 30 |
-| molab | marimo molab notebook (RTX PRO 6000 Blackwell, 96 GB; no compute units) | 15:40 | running at the time of writing | - | third round: GWS L = 2 for 50 epochs (CIFAR-100), Mesa and Muon tuning on CIFAR-100, hybrid τ = 35 grid for β = 10 and 60, parametric Adam 1e-2 for Fig. 5, facts width and value-rate scans |
+| molab | marimo molab notebook (RTX PRO 6000 Blackwell, 96 GB; no compute units) | 15:40 | 19:18, jobs done | 3.63 (free) | third round: GWS L = 2 for 50 epochs (CIFAR-100), Mesa and Muon tuning on CIFAR-100, hybrid τ = 35 grid for β = 10 and 60, parametric Adam 1e-2 for Fig. 5, facts width and value-rate scans |
 | Total paid GPU time (Colab) | | | | 17.67 | |
 
 The first A100 session ended at about 07:25 without polling (Colab most likely reclaimed it as idle), and the runs after 06:59 were lost. The permission check of this agent first refused a new session; after the user asked to reconnect, a second A100 session reran all of them except the 50-epoch temperature runs at T = 3 and 30 (replaced by the 10-epoch sweep). The second session was polled every 3-4 minutes.
