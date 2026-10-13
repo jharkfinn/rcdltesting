@@ -29,7 +29,7 @@ Budget: about 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU. "Repro
 | 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Reproduced. Depth: one pass 53.5 / 58.5 / 59.4, 10 epochs 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2. Temperature (L = 0, 10 epochs): 53.5 / 58.6 / 51.3 for T = 3 / 10 / 30 | §5.1, §7.4 |
 | 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
 | 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Partly (reduced scale, CPU): GWS reaches higher test accuracy (48.8 vs 40.8) and the parametric model fits more slowly, as claimed; but GWS has the larger, widening train-test gap (48 vs 7 points). Learned weights diverge, as the paper reports. Full-scale A100 run: §7.8 | §7.7 |
-| 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Supported, not fully reproduced: standard ViT 49.6; GWS-ViT 5.5 points ahead at step 600 of 781 (online accuracy), but a kernel slowdown at 2^21 stored rows stopped both runs before the end | §5.3 |
+| 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Reproduced: 55.24 vs 49.62 (after replacing PyTorch's fused attention, whose backward pass slows 50 times at 2^21 keys, by an exact two-call FlashAttention form) | §5.3 |
 | 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities match within 4 points; accuracy within 1.2 points for τ ≥ 50 (τ = 35 is an outlier) | §5.2 |
 | 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Not attempted: about 2 × 5 A100-hours | - |
 | 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it; GeGLU has a lower ceiling | Mostly reproduced (minimal version): the plateau grows 4-7 times for 4 times more individuals; the growing RBF layer reaches 90% of facts 3 times sooner than GeGLU and ends at 99.8% against 82-92%; the plateau ends only 18-24% earlier than with GeGLU-512 | §7.5 |
@@ -164,7 +164,7 @@ ViT for CIFAR-10: 4 × 4 patches (64 tokens plus a CLS token), width 128, 2 bloc
 |---|---|---|---|
 | Standard ViT, FFN width 4 × 128 | Adam 3e-4 / 1e-3 / 3e-3 | 49.37 / **49.62** / 46.25 | best 48.4 |
 | Standard ViT, FFN width 16 × 128 | Adam 3e-4 / 1e-3 / 3e-3 | 49.24 / 49.20 / 39.75 | |
-| GWS-ViT, T = 1, η = 0.1, β = 30, fused bf16 attention | Adam 1e-3 | not reached (see below) | best 54.4 |
+| GWS-ViT, T = 1, η = 0.1, β = 30, two-call FlashAttention (bf16) | Adam 1e-3 | **55.24** (A100, 4.0 min) | best 54.4 |
 
 The standard ViT reproduces (49.6 against 48.4). Each dense run takes 5-7 s on the L4.
 
@@ -177,7 +177,9 @@ Online accuracy (each batch scored before the model learns from it; mean of the 
 | GWS-ViT (run 2; run 1 within 0.4 points) | 37.6 | 42.7 | 46.8 | 51.4 | **52.8** | - | - |
 | Best standard ViT (width 4 × 128, Adam 1e-3) | 33.5 | 37.7 | 42.0 | 46.1 | 47.3 | 50.4 | 49.62 |
 
-The GWS-ViT leads by 4.1 points at step 200 and by 4.8 to 5.5 points from step 300 on. For the standard ViT, the final online accuracy (50.4) is within 0.8 points of the test accuracy. **Verdict: supported, not fully reproduced.** The GWS-ViT is clearly ahead at equal steps, consistent with the paper's 54.4 vs 48.4, but the final test number was not reached within the budget.
+The GWS-ViT leads by 4.1 points at step 200 and by 4.8 to 5.5 points from step 300 on. For the standard ViT, the final online accuracy (50.4) is within 0.8 points of the test accuracy.
+
+**Fix and final run.** The weighted softmax is s = (P ṽ) / (P w), with P the softmax matrix over all stored rows, ṽ the stored values and w the stored weights. Both terms share P, so two FlashAttention calls (one with ṽ, one with w padded to the head width) give s exactly, and autograd gives the exact gradient (`attn_impl='flash2'`, `rcdl.layers.weighted_attention_flash`; GPU test in `tests/test_splitk.py`). FlashAttention has no slowdown at 2^21 keys: 164 ms per forward and backward pass at 2.1M keys and 254 ms at 3.25M keys, against 25.4 s for the memory-efficient kernel at 2.1M keys. With it, the full epoch takes 4.0 minutes on an A100 and gives **55.24%** test accuracy (paper: 54.4%), 5.6 points above the best standard ViT (49.62%; paper 48.4%, a 6.0-point gap). **Verdict: reproduced.**
 
 ## 6. Classical baselines (single pass over 50,000 training images, exact solvers, Colab A100)
 
