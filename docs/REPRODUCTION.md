@@ -220,10 +220,10 @@ ResNet-MLP baselines (L = 2, width 3,072, GELU, batch 64, augmentation, 50 epoch
 | Model | Test acc (%) | Online train loss (last 100 batches) | Minutes | Paper (Fig. 2 left, read off plot) |
 |---|---|---|---|---|
 | MLP + Muon, lr 1e-3 | **69.51** | 0.59 | 9.7 | ~69.5 |
-| MLP + Muon, lr 3e-3 | PENDING | | | |
+| MLP + Muon, lr 3e-3 | 69.54 | 0.49 | 9.7 | |
 | MLP + Adam, lr 3e-4 | 64.72 | 0.85 | 4.5 | ~65 |
 | MLP + Adam, lr 1e-4 | 64.37 | 0.87 | 4.5 | ~65 |
-| MLP + SGD, lr 1e-2 | PENDING | | | ~61 |
+| MLP + SGD, lr 1e-2 | 59.77 | 1.15 | 3.8 | ~61 |
 | MLP + Mesa, lr 3e-4 | PENDING | | | ~67.8 |
 | GWS, L = 0, T = 10 (section 7.2) | 61.86 | 0.81 | 22.6 | ~64 (L = 0 curve of Fig. 4) |
 
