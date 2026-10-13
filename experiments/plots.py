@@ -142,14 +142,15 @@ def fig_beta_eta(runs, out):
   plt.close(fig)
 
 
-def fig_teacher_student(ts, out):
+def fig_teacher_student(ts, out, partial=None):
   """Final 200k-step runs where present (sweeps otherwise: best grid point per student at 10k steps)."""
   ts = {p: r for p, r in ts.items() if 'precision_check' not in p}
+  is_long = lambda path: 'sweep' not in path.split(os.sep)[-2]       # experiment folder: *_sweep* = 10k-step grids
   curves = {}
   for path, r in ts.items():
-    st, final = r['cfg']['student'], '_final' in path
-    key = os.path.basename(os.path.dirname(path)) if final else st
-    if final or not any(st == r2['cfg']['student'] and '_final' in p2 for p2, r2 in ts.items()):
+    st, final = r['cfg']['student'], is_long(path)
+    key = path.split(os.sep)[-2] if final else st
+    if final or not any(st == r2['cfg']['student'] and is_long(p2) for p2, r2 in ts.items()):
       if key not in curves or r['final_test_mse'] < curves[key][1]['final_test_mse']:
         curves[key] = (path, r)
   if not curves:
@@ -166,6 +167,9 @@ def fig_teacher_student(ts, out):
     dashed = st == 'mlp' and r['cfg']['batch_size'] == 64
     label = f"{names[st]}, batch {r['cfg']['batch_size']}: {ys[-1]:.2e}"
     ax.plot(xs, ys, color=color[st], linewidth=2, linestyle='--' if dashed else '-', label=label)
+  if partial:                                                 # GWS 200k run stopped at 40k (log only)
+    ax.plot([q[0] for q in partial], [q[1] for q in partial], color=color['gws'], linewidth=2, linestyle=':',
+            label=f'{names["gws"]}, 200k run stopped at {partial[-1][0] // 1000}k: {partial[-1][1]:.2e}')
   for st in ('gws', 'mlp', 'psm'):
     ax.scatter([200000], [targets[st]], marker='D', s=36, color=color[st], edgecolor=SURFACE, linewidth=1.5,
                zorder=3, label=f'paper at 200k steps, {names[st]} (read off plot)')
@@ -275,8 +279,8 @@ def fig_facts(facts, out):
       K = items[0][1]['cfg']['n_values']
       ax.axhline(math.log(K), color=INK2, linewidth=0.8, linestyle=':')
       ax.axhline(0.9 * math.log(K), color=INK2, linewidth=0.6, linestyle='--')
-      style(ax, f'N = {N} individuals: fact loss (dotted: ln K; dashed: plateau end)', 'training step',
-            'cross-entropy on facts')
+      style(ax, f'N = {N} individuals: fact loss', 'training step',
+            'cross-entropy (dotted: ln K; dashed: 0.9 ln K)')
       ax.legend(fontsize=7, frameon=False)
     fig.tight_layout()
     fig.savefig(os.path.join(out, 'facts_plateau.png'), dpi=150, facecolor=SURFACE)
@@ -320,7 +324,13 @@ def main():
         runs[k] = [{'final_test_acc': a} for a in accs]
   fig_singlepass(runs, baselines, args.out)
   fig_beta_eta(runs, args.out)
-  fig_teacher_student(ts, args.out)
+  partial = []                           # (step, test MSE) of the stopped 200k GWS run, from its log
+  for root in args.results:
+    for f in glob.glob(os.path.join(root, '**', 'ts_final_gws_partial.log'), recursive=True):
+      lines = open(f).read().split('=== gws_final')[-1].splitlines()
+      partial = [(int(l.split('step=')[1].split()[0]), float(l.split('test=')[1].split()[0]))
+                 for l in lines if l.startswith('[ts:gws] step=')]
+  fig_teacher_student(ts, args.out, partial)
   fig_hybrid(runs, args.out)
   fig_multi_epoch(runs, args.out)
   fig_facts(facts, args.out)

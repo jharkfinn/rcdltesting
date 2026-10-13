@@ -26,14 +26,14 @@ Budget: about 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU. "Repro
 | 10 | Teacher-student: GWS far below the parametric softmax; MLP student best (Fig. 3) | PENDING (200k steps). At 10k steps GWS (rel. MSE 0.095) is ahead of the best MLP (0.120) | §7.3 |
 | 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | Partly: Muon 69.5 and Adam 64.7 reproduce. GWS at L = 0 (61.9) is below Adam; L = 2 at 50 epochs needs about 154 GB, but L = 2 at 10 epochs (65.1) already equals Adam at 50. CIFAR-100: PENDING | §7.2, §7.4 |
 | 12 | Training loss falls much faster for GWS and RBF (Fig. 2 middle) | Reproduced for L = 2 (online loss 0.75 after 10 epochs; Muon 1.12, Adam 1.31) and in one pass (1.20 against Muon 1.26) | §7.4, figure |
-| 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Depth reproduced (one pass: 53.5 / 58.5 / 59.4; 10 epochs: 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2). Temperature: PENDING | §5.1, §7.4 |
+| 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Reproduced. Depth: one pass 53.5 / 58.5 / 59.4, 10 epochs 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2. Temperature (L = 0, 10 epochs): 53.5 / 58.6 / 51.3 for T = 3 / 10 / 30 | §5.1, §7.4 |
 | 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
 | 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | PENDING (reduced scale) | §7.4 |
 | 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Supported, not fully reproduced: standard ViT 49.6; GWS-ViT 5.5 points ahead at step 600 of 781 (online accuracy), but a kernel slowdown at 2^21 stored rows stopped both runs before the end | §5.3 |
 | 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities match within 4 points; accuracy within 1.2 points for τ ≥ 50 (τ = 35 is an outlier) | §5.2 |
 | 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Not attempted: about 2 × 5 A100-hours | - |
-| 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it; GeGLU has a lower ceiling | PENDING (minimal version; the two-token task has no plateau, the redesigned task has one that grows with N) | §7.5 |
-| 20 | Article: parametric FFNs forget under fine-tuning; RCDL layers "unforget" without replay | PENDING (minimal version) | §7.5 |
+| 19 | Article: plateau grows with N; growing RBF and wide Cos-Bochner shorten it; GeGLU has a lower ceiling | Mostly reproduced (minimal version): the plateau grows 4-7 times for 4 times more individuals; the growing RBF layer reaches 90% of facts 3 times sooner than GeGLU and ends at 99.8% against 82-92%; the plateau ends only 18-24% earlier than with GeGLU-512 | §7.5 |
+| 20 | Article: parametric FFNs forget under fine-tuning; RCDL layers "unforget" without replay | Weakly supported: all variants forget (old facts 99.6% → 16-30%); only the growing layer recovers part of them without replay (30.1% → 38.4%) | §7.5 |
 | 21 | Article: RCDL matches but does not beat strong baselines, at much higher cost | Supported for multi-epoch training (400 times the memory, 7.6 points below Muon at L = 0). In one pass GWS is 2 points above Muon at 10 times the memory | §7.6 |
 
 ## 1. How to run
@@ -296,7 +296,35 @@ GPU note: one GWS step at 200,000 steps scans 12.8 million rows for only 64 quer
 
 ### 7.5 Synthetic facts (the article's biography experiment, minimal version)
 
-PENDING.
+The article trains a Gemma 3 backbone on the synthetic biographies of Zucchet et al. (arXiv 2503.21676) and gives no code. This is a small stand-in (`rcdl/facts.py`, `experiments/configs/facts.json`): N individuals with 4 attributes of 32 values each (fact (i, a) uniform at random), a 2-layer transformer (width 128, 4 heads), online training with batch 128 and Adam 1e-3, and evaluation on a fixed set of 4,096 facts. Variants of the feed-forward layers: GeGLU (width 512 or 4,096, all trained), Cos-Bochner (16,384 fixed random Fourier features, trained readout), and a growing RBF layer as the last FFN (value rate η = 1 or 0.3; the first FFN is GeGLU-512).
+
+**Task design matters.** The first version (sequence = name token, attribute token) had no plateau: GeGLU learned all 4,096 facts of N = 1,024 within 500 steps, because the attribute position attends half to the name from the start. Zucchet et al. tie the plateau to rare individuals, multi-token names and varying name positions. The task used here has all three: a two-token name (unique pairs from 256 × 256 name parts) at a random position among 10 distractor tokens, then the attribute token, and N = 4,096 or 16,384.
+
+Steps until the fact loss first falls below 0.9 ln K ("plateau end"), and until 50% / 90% of the facts are correct (evaluation every 250 steps):
+
+| FFN | Trained params | N = 4,096: plateau end / 50% / 90% / final acc (8k steps) | N = 16,384: plateau end / 50% / 90% / final acc (16k steps) |
+|---|---|---|---|
+| GeGLU, width 512 | 0.61M | 750 / 1,250 / 2,500 / 98.2% | 4,250 / 8,250 / not reached / 82.3% |
+| GeGLU, width 4,096 | 3.38M | 750 / 1,250 / 2,000 / 98.7% | 5,000 / 7,000 / 14,250 / 91.6% |
+| Cos-Bochner, width 16,384 | 4.41M | 750 / 1,250 / 1,750 / 100% | 3,250 / 4,750 / 6,750 / 97.8% |
+| Growing RBF (last FFN), η = 1 | 0.41M + table | 750 / 1,000 / 1,250 / 99.7% | 3,500 / **4,250 / 5,000** / **99.8%** |
+| Growing RBF (last FFN), η = 0.3 | 0.41M + table | 750 / 1,500 / 2,500 / 98.9% | 5,000 / 9,000 / 10,500 / 98.8% |
+
+Findings:
+- **The plateau grows with N** for every variant: 750 steps at N = 4,096; 3,250-5,000 steps at N = 16,384 (4.3-6.7 times longer for 4 times more individuals). This matches Zucchet et al. ("nearly proportional") and the article.
+- **The escape from the plateau is not much earlier** for the growing RBF or Cos-Bochner layers (3,500 and 3,250 steps, against 4,250 for GeGLU-512). **Learning after the escape is much faster**: the growing RBF layer (η = 1) reaches 90% at 5,000 steps, Cos-Bochner at 6,750, GeGLU-4096 at 14,250, and GeGLU-512 not within 16,000 steps. So the article's "drastically shorter plateau" holds for the time to knowledge (about 3 times shorter than GeGLU), not for the onset.
+- **Lower ceiling for GeGLU**: within the same step budget GeGLU ends at 82.3% (width 512) and 91.6% (width 4,096), against 99.8% for the growing RBF layer, which has fewer trained parameters. Whether this is a ceiling or slower learning is not separable at 16,000 steps.
+- The growing layer's value rate matters: η = 0.3 is slower than GeGLU-4096 to escape and to reach 50%.
+
+**Fine-tuning (forgetting).** After 8,000 steps on N = 4,096 (99.5-99.6% of facts correct), 4,000 steps on 1,024 new individuals only, no replay:
+
+| FFN | Old facts: before / after 250 steps / after 4,000 steps | New facts after 500 steps |
+|---|---|---|
+| GeGLU, width 512 | 99.6% / 15.9% / 15.5% | 100% |
+| Cos-Bochner, width 16,384 | 99.6% / 28.6% / 29.9% | 100% |
+| Growing RBF (last FFN), η = 1 | 99.5% / 30.1% / **38.4%** | 100% |
+
+All three forget most old facts within 250 steps. Only the growing layer recovers a part of them without replay (30.1% → 38.4%, rising steadily over the 4,000 steps); GeGLU does not recover. This is the direction of the article's "unforget" claim, but the effect here is small. In this model the first FFN (GeGLU) and the attention layers still drift on the new individuals, so the old rows of the growing layer receive shifted queries.
 
 ### 7.6 Cost (article: RCDL "matches but does not beat" strong baselines at much higher cost)
 
