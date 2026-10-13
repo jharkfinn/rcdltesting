@@ -141,7 +141,7 @@ def test_vit_with_growing_ffn_trains_and_grows():
   assert loss == loss                             # finite
 
 
-@pytest.mark.parametrize('kind', ['gws', 'gauge'])
+@pytest.mark.parametrize('kind', ['gws', 'gauge', 'rbf'])
 def test_bf16_storage_matches_fp32_on_same_database(kind):
   """store_dtype='bfloat16' (used for L = 2 at 50 epochs): a bf16 model trains and grows like the fp32 model, and on
   the same database (fp32 rows rounded to bf16) its outputs and input gradients agree within 2% (relative L2).
@@ -150,7 +150,9 @@ def test_bf16_storage_matches_fp32_on_same_database(kind):
   from any perturbation, so they say nothing about the precision of the layer. The CIFAR check is a 10-epoch L = 2
   run against the fp32 run (docs/REPRODUCTION.md, section 7.4).
   """
-  kw = small_cfg(kernel_type=kind, hidden_dim=64, temperature=10.0, eta=0.003, beta=10.0)
+  kw = small_cfg(kernel_type=kind, hidden_dim=64, temperature=10.0, eta=0.3 if kind == 'rbf' else 0.003, beta=10.0)
+  if kind == 'rbf':
+    kw['db_size'] = 48                                   # RBF has no D_0 rows: 12 steps x 4 samples
   ref = CifarRCDLClassifier(RCDLConfig(**kw))
   low = CifarRCDLClassifier(RCDLConfig(**kw, store_dtype='bfloat16'))
   for x, y in batches(12, d=64):
@@ -160,6 +162,8 @@ def test_bf16_storage_matches_fp32_on_same_database(kind):
     assert b.keys.dtype == torch.bfloat16 and b.weights.dtype == torch.get_default_dtype() and a.size == b.size, name
     b.keys.copy_(a.keys), b.values.copy_(a.values), b.weights.copy_(a.weights)
     b.valid_rows.copy_(a.valid_rows)
+    if hasattr(b, 'key_sq'):
+      b.key_sq.copy_(b.keys.float().pow(2).sum(-1))
   tx = torch.randn(16, 64, generator=torch.Generator().manual_seed(5), requires_grad=True)
   rel = lambda u, v: ((u - v).norm() / u.norm()).item()
   ref.eval(), low.eval()
@@ -174,9 +178,22 @@ def test_bf16_storage_matches_fp32_on_same_database(kind):
     assert rel(ref(tx), low(tx)) < 2e-2
 
 
-def test_bf16_storage_rejects_rbf():
-  with pytest.raises(ValueError):
-    CifarRCDLClassifier(RCDLConfig(**small_cfg(kernel_type='rbf', db_size=48, store_dtype='bfloat16')))
+def test_bf16_storage_rejects_unsupported_options():
+  with pytest.raises(ValueError):                        # W_slow (frozen random projection) is not supported
+    CifarRCDLClassifier(RCDLConfig(**small_cfg(kernel_type='rbf', db_size=48, store_dtype='bfloat16',
+                                               freeze_init_out=False)))
+  with pytest.raises(ValueError):                        # age coefficients would copy the whole table to fp32
+    CifarRCDLClassifier(RCDLConfig(**small_cfg(kernel_type='gws', store_dtype='bfloat16', model_momentum=0.9)))
+
+
+def test_bf16_rbf_keeps_key_norms():
+  """The stored ||k_j||^2 of a bf16 RBF layer equals the norm of the stored (rounded) key after training."""
+  m = CifarRCDLClassifier(RCDLConfig(**small_cfg(kernel_type='rbf', db_size=48, store_dtype='bfloat16')))
+  for x, y in batches(5):
+    rcdl_train_step(m, None, x.clone(), y)
+  for layer in m.rcdl_layers().values():
+    n = layer.size
+    assert n == 20 and torch.allclose(layer.key_sq[:n], layer.keys[:n].float().pow(2).sum(-1))
 
 
 def test_eval_is_independent_of_batch_size():

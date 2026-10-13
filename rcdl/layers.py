@@ -178,10 +178,14 @@ def linearized_weighted_attention(q, keys, values, weights, temperature: float):
   return _mm(lin, values) / (lin @ weights)
 
 
-def rbf_attention(q, keys, values, temperature: float):
-  """Unnormalized Gaussian RBF kernel attention: s_D(q) = Σ_j exp(-||q - k_j||^2 / (2 T sqrt(d_in))) v_j."""
-  dist_sq = (q.pow(2).sum(-1, keepdim=True) + keys.pow(2).sum(-1) - 2.0 * q @ keys.T).clamp_min(0.0)
-  return torch.exp(-dist_sq / (2.0 * temperature * math.sqrt(q.shape[-1]))) @ values
+def rbf_attention(q, keys, values, temperature: float, key_sq: Optional[torch.Tensor] = None):
+  """Unnormalized Gaussian RBF kernel attention: s_D(q) = Σ_j exp(-||q - k_j||^2 / (2 T sqrt(d_in))) v_j.
+
+  key_sq: stored ||k_j||^2 (fp32), used for bf16 tables so that no fp32 copy of the keys is made; the two large matmuls
+  then run in bf16 with fp32 accumulation (as in weighted_attention_lowp)."""
+  ksq = keys.pow(2).sum(-1) if key_sq is None else key_sq
+  dist_sq = (q.pow(2).sum(-1, keepdim=True) + ksq - 2.0 * _mm(q, keys.T)).clamp_min(0.0)
+  return _mm(torch.exp(-dist_sq / (2.0 * temperature * math.sqrt(q.shape[-1]))), values)
 
 
 def age_coefficients(birth: torch.Tensor, step: int, momentum: float, weight_decay: float, rule: str) -> torch.Tensor:
@@ -227,9 +231,12 @@ class RCDLLayer(nn.Module):
              else torch.get_default_dtype())
     if cfg.store_dtype not in ('float32', 'bfloat16'):
       raise ValueError(f'unknown store_dtype {cfg.store_dtype!r}')
-    if store == torch.bfloat16 and (self.kind == 'rbf' or cfg.model_momentum > 0.0 or cfg.model_weight_decay > 0.0):
-      raise ValueError('store_dtype bfloat16 supports gws/gauge without momentum or weight decay only '
-                       '(RBF distances and age coefficients would make fp32 copies of the whole table)')
+    if store == torch.bfloat16 and (cfg.model_momentum > 0.0 or cfg.model_weight_decay > 0.0 or
+                                    (self.kind == 'rbf' and not cfg.freeze_init_out)):
+      raise ValueError('store_dtype bfloat16 supports gws/gauge/rbf without momentum, weight decay or W_slow only '
+                       '(age coefficients would make fp32 copies of the whole table)')
+    if store == torch.bfloat16 and self.kind == 'rbf':     # ||k_j||^2 of the stored (bf16-rounded) keys
+      self.register_buffer('key_sq', torch.zeros(n, device=dev, dtype=torch.float32))
     keys = torch.zeros(n, d_in, dtype=store, device=dev)
     values = torch.zeros(n, d_out, dtype=store, device=dev)
     weights = torch.zeros(n, 1, device=dev)
@@ -283,7 +290,7 @@ class RCDLLayer(nn.Module):
         if cfg.decay_scope == 'values_and_weights' and self.kind != 'rbf':
           weights = weights * coef
       if self.kind == 'rbf':
-        s = rbf_attention(q, keys, values, self.T)
+        s = rbf_attention(q, keys, values, self.T, self.key_sq[:m] if hasattr(self, 'key_sq') else None)
       elif self.linearize and not self.training:
         s = linearized_weighted_attention(q, keys, values, weights, self.T)
       elif keys.dtype != q.dtype:            # bf16 storage (cfg.store_dtype)
@@ -356,5 +363,7 @@ class RCDLLayer(nn.Module):
       self.next_row = (self.next_row + len(k)) % len(self.keys)
       self.size = min(len(self.keys), self.size + len(k))
     self.keys[idx], self.values[idx], self.weights[idx] = k.to(self.keys.dtype), v.to(self.values.dtype), w
+    if hasattr(self, 'key_sq'):
+      self.key_sq[idx] = self.keys[idx].float().pow(2).sum(-1)
     self.birth[idx] = self.step
     self.valid_rows[idx] = (k != 0).any(-1) | (w[:, 0] != 0)

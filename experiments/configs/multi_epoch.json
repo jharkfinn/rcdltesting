@@ -1,5 +1,5 @@
 {
- "_comment": "Multi-epoch CIFAR-10 (augmentation, batch 64). Growing layers use eta=0.003, beta=10 (best beta/eta ratio of sweep_L0_5ep; only the ratio matters). gws_L0_*_50ep: paper Fig. 4 left (L=0 curve) and Fig. 4 right (linearize_eval). gws_L*_10ep: depth at 10 epochs, since L>=1 at 50 epochs needs >150 GB. mlp_*_50ep: parametric baselines of Fig. 2 left (L=2, GELU; the paper grid is L in [2,4], lr in [1e-4 .. 1e-2], batch [16, 64]). psm: Fig. 5 at reduced scale (N = 250k rows instead of 2.56M, 50 instead of 2000 epochs). eval batch 64 keeps the logit matrix small.",
+ "_comment": "Multi-epoch CIFAR-10 (augmentation, batch 64). Growing layers use eta=0.003, beta=10 (best beta/eta ratio of sweep_L0_5ep; only the ratio matters). gws_L0_*_50ep: paper Fig. 4 left (L=0 curve) and Fig. 4 right (linearize_eval). gws_L*_10ep: depth at 10 epochs, since L>=1 at 50 epochs needs >150 GB. mlp_*_50ep: parametric baselines of Fig. 2 left (L=2, GELU; the paper grid is L in [2,4], lr in [1e-4 .. 1e-2], batch [16, 64]). psm: Fig. 5 at reduced scale (N = 250k rows instead of 2.56M, 50 instead of 2000 epochs). eval batch 64 keeps the logit matrix small. AdamW and RMSprop at 50 epochs (third round; paper grid: lr [1e-4 .. 1e-2], AdamW weight decay [1e-4, 0.01], momentum 0).",
  "defaults": {
   "eval_every": 3905,
   "eval_subset": 2000,
@@ -326,6 +326,64 @@
     "augment": true,
     "num_epochs": 50,
     "learn_parametric_weights": false
+   }
+  },
+  "mlp_adamw_lr0.0003_wd0.01_50ep": {
+   "paper_acc": "below GWS (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "adamw",
+    "learning_rate": 0.0003,
+    "weight_decay": 0.01
+   }
+  },
+  "mlp_adamw_lr0.0001_wd0.01_50ep": {
+   "paper_acc": "below GWS (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "adamw",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01
+   }
+  },
+  "mlp_rmsprop_lr0.0001_50ep": {
+   "paper_acc": "below GWS (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "rmsprop",
+    "learning_rate": 0.0001
+   }
+  },
+  "mlp_rmsprop_lr0.0003_50ep": {
+   "paper_acc": "below GWS (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "rmsprop",
+    "learning_rate": 0.0003
    }
   }
  }
