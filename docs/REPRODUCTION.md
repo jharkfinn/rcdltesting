@@ -361,6 +361,25 @@ Memory is the stored table (keys, values, weights; fp32) or the parameters; comp
 
 Reading: in one pass, GWS is both the most accurate and among the fastest to train (no optimizer state, one write per sample), at 10 times the memory and inference compute of the 8-layer MLP. Over 50 epochs the picture reverses: the L = 0 GWS layer uses 400 times the memory and compute of the 2-layer MLP and is 7.6 points below it. At 10 epochs, the L = 2 GWS model (65.1%) needs 3 × 0.5M rows, about 31 GB. The article's summary ("matches but does not beat strong baselines, at much higher cost") fits the multi-epoch results. In the single-pass regime GWS beats the strongest baseline measured here by 2 points.
 
+### 7.7 Train-test gap of the parametric softmax and GWS (paper Fig. 5)
+
+Paper: a parametric softmax with 2.56M trained keys, trained for 2,000 epochs, shows a widening train-test gap that "is not present" in GWS (50 epochs), and GWS reaches much higher test accuracy. The paper also reports that learned weights make the parametric baseline unstable, so it uses a plain softmax (App. E.4).
+
+Reduced scale on the CPU (`experiments/configs/overfit_subset_cpu.json`): the first 5,000 CIFAR-10 training images, augmentation, batch 64, L = 0. GWS: 40 epochs (199,744 stored rows; T = 10, η = 0.003, β = 10). Parametric softmax: 10,000 trained keys and values (2 per image), plain softmax, Adam 1e-3, 100 epochs. Train accuracy on 2,000 non-augmented training images; test accuracy on 2,000 test images during training and on all 10,000 at the end.
+
+| Model | Epochs | Final test acc (%) | Final train acc (%) | Train-test gap (points), early → end | Test accuracy trend |
+|---|---|---|---|---|---|
+| GWS | 40 | **48.82** | 97.0 | 27 (epoch 4) → 48 | rises slowly to the end (41.4 → 48.8); test loss lowest at epoch 32 (1.581), then 1.626 |
+| Parametric softmax, T = 1 | 100 | 40.77 | 47.7 | 0 (epoch 10) → 7 | rises to 41.1 (epoch 90), then 40.8 |
+| Parametric softmax, T = 0.1 | 100 | 40.58 | 48.8 | 1 (epoch 10) → 8 | rises to 40.6 |
+| Parametric softmax, T = 1, learned weights | - | diverged at step ~1,500 (training loss 2.3 → 9.5) | | | |
+
+Findings:
+- GWS reaches higher test accuracy (48.8% against 40.8%), as in the paper, and the parametric baseline is "slower to fit the training data", as the paper says.
+- The paper's other statement does not hold here: GWS has by far the larger train-test gap (48 points against 7), and its gap widens. GWS memorizes the training set (97%) while its test accuracy keeps rising slowly. The parametric softmax shows only a small widening gap. At this scale, the difference between the two models is how fast they fit, not whether they overfit.
+- The instability of learned weights reproduces.
+- A full-scale run (all 50,000 images, 250,000 trained keys, 50 epochs, A100) is in section 7.8 when it finishes.
+
 ## 8. Discrepancies between paper, notebooks and article
 
 ### 8.1 Method as derived vs method as run

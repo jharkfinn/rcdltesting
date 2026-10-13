@@ -229,6 +229,27 @@ def fig_multi_epoch(runs, out):
   plt.close(fig)
 
 
+def fig_overfit(runs, out):
+  """Reduced-scale paper Fig. 5: train (dashed) and test (solid) accuracy against epoch on a 5,000-image subset."""
+  keys = sorted(k for k in runs if 'sub5k' in k)
+  if not keys:
+    return
+  fig, ax = new_fig(7.0, 4.2)
+  for c, k in zip(SERIES, keys):
+    r = runs[k][0]
+    spe = r['config'].get('train_subset', 50000) // r['config'].get('batch_size', 64)
+    ev = [e for e in r['evals'] if e['step'] > 0]
+    ep = [e['step'] / spe for e in ev]
+    ax.plot(ep, [100 * e['test_acc'] for e in ev], '-o', markersize=3, linewidth=1.8, color=c,
+            label=f'{k}: test {100 * r["final_test_acc"]:.1f}')
+    ax.plot(ep, [100 * e['train_acc'] for e in ev], '--', linewidth=1.4, color=c, label=f'{k}: train')
+  style(ax, 'CIFAR-10, 5,000 training images: train (dashed) vs test (solid) accuracy', 'epoch', 'accuracy (%)')
+  ax.legend(fontsize=7, frameon=False)
+  fig.tight_layout()
+  fig.savefig(os.path.join(out, 'overfit_subset.png'), dpi=150, facecolor=SURFACE)
+  plt.close(fig)
+
+
 def fig_train_loss(roots, out, names=('gws', 'rbf', 'gauge', 'mlp_muon', 'mlp_adamw', 'mlp_adam', 'mlp_sgd'),
                    prefixes=('mesa_L4', 'delta_L4'), window=100):
   """Online (prequential) training loss of single-pass runs: each batch is scored before the model learns from it."""
@@ -304,7 +325,7 @@ def fig_facts(facts, out):
 
 def main():
   p = argparse.ArgumentParser()
-  p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b'])
+  p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/cpu_overfit'])
   p.add_argument('--recovered', default='docs/data/singlepass_recovered.json')
   p.add_argument('--out', default='docs/figures')
   args = p.parse_args()
@@ -333,6 +354,7 @@ def main():
   fig_teacher_student(ts, args.out, partial)
   fig_hybrid(runs, args.out)
   fig_multi_epoch(runs, args.out)
+  fig_overfit(runs, args.out)
   fig_facts(facts, args.out)
   fig_train_loss(args.results + ['results/hf', 'results/cpu_binary'], args.out)
   print('figures:', sorted(os.listdir(args.out)))
