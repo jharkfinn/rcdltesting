@@ -24,7 +24,7 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | 8 | Single pass on CIFAR-10: GWS 59.4 ± 0.4, RBF 58.8 ± 0.2, gauge 58.4 ± 0.4; all above Muon, Adam, SGD, Mesa, Delta (Fig. 2 right, App. F.2) | Reproduced: 59.41 ± 0.22, 59.10 ± 0.62, 58.62 ± 0.44; best baseline Muon 57.41 ± 0.52 | §4 |
 | 9 | Kernel ridge regression (~58.5) and kNN (~35.5) on pixels (Fig. 2 right) | Reproduced (58.55, 35.64); GWS is only 0.9 points above exact kernel ridge regression | §6 |
 | 10 | Teacher-student: GWS far below the parametric softmax; MLP student best (Fig. 3) | Reproduced at the paper's endpoint (200k steps): MLP 1.81e-4 < GWS 1.99e-4 < parametric softmax 1.95e-3 (paper ~1.7e-4 / ~2.6e-4 / ~4e-3). Nuance: the parametric softmax is the best student up to ~80k steps (1.9e-4), then degrades without a learning-rate schedule | §7.3 |
-| 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | Reproduced for GWS and Mesa. CIFAR-10: GWS at the paper's depth (L = 2, bf16 tables) reaches 68.39%, above Adam (64.7), Mesa (66.7) and SGD (59.8), below Muon (69.5). CIFAR-100: GWS L = 2 38.80% (paper ~39.1); after tuning on the paper's grid, Mesa 40.83% > Muon 40.16% (one seed, margin 0.7 points). Not run: RBF at L = 2 for 50 epochs (the bf16 path does not support RBF distances), AdamW and RMSprop at 50 epochs | §7.4 |
+| 11 | 50 epochs: GWS and RBF beat Adam/AdamW/RMSprop/SGD, below Muon; Mesa best on CIFAR-100 (Fig. 2 left) | Reproduced. CIFAR-10 at the paper's depth (L = 2, bf16 tables): GWS 68.39% and RBF 66.92%, both above Adam (64.7), AdamW (64.5), RMSprop (64.7) and SGD (59.8), both below Muon (69.5). CIFAR-100: GWS L = 2 38.80% (paper ~39.1); after tuning on the paper's grid, Mesa 40.51% vs Muon 40.18% (mean of 2 seeds each; margin inside the seed spread) | §7.4 |
 | 12 | Training loss falls much faster for GWS and RBF (Fig. 2 middle) | Reproduced for L = 2 (online loss 0.75 after 10 epochs; Muon 1.12, Adam 1.31) and in one pass (1.20 against Muon 1.26) | §7.4, figure |
 | 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Reproduced. Depth: one pass 53.5 / 58.5 / 59.4, 10 epochs 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2. Temperature (L = 0, 10 epochs): 53.5 / 58.6 / 51.3 for T = 3 / 10 / 30 | §5.1, §7.4 |
 | 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
@@ -288,7 +288,16 @@ Depth at 10 epochs (GWS, T = 10, η = 0.003, β = 10, batch 64, augmentation). L
 | CIFAR-10 | **68.39** | 98.0 | 21.87 | between Adam (~65) and Muon (~69.5) (Fig. 2 left) | 93 (GPU shared with the DeltaNet run) |
 | CIFAR-100 | **38.80** | 99.6 | 3.20 | ~39.1 (Fig. 2 left) | 49 |
 
-Test accuracy over training (CIFAR-10, epochs 5 / 10 / 20 / 30 / 40 / 50): 61.7 / 64.3 / 66.9 / 68.7 / 67.9 / 68.4. CIFAR-100: 34.0 / 35.9 / 37.8 / 38.6 / 38.5 / 38.8 (best 39.4 at epoch 35). The test loss is lowest at epoch 35 (CIFAR-10, 0.964) and epoch 25 (CIFAR-100, 2.589) and rises slightly after that, while the train accuracy approaches 100%.
+GWS test accuracy over training (CIFAR-10, epochs 5 / 10 / 20 / 30 / 40 / 50): 61.7 / 64.3 / 66.9 / 68.7 / 67.9 / 68.4. CIFAR-100: 34.0 / 35.9 / 37.8 / 38.6 / 38.5 / 38.8 (best 39.4 at epoch 35). The test loss is lowest at epoch 35 (CIFAR-10, 0.964) and epoch 25 (CIFAR-100, 2.589) and rises slightly after that, while the train accuracy approaches 100%.
+
+**RBF at L = 2 for 50 epochs (third round, molab).** The growing RBF layer (s(q) = Σ_j exp(-||q - k_j||² / (2T√d)) v_j, v_j = -η B ḡ_j, no denominator; ḡ_j is the gradient of the batch-mean loss with respect to the layer output for sample j, B = 64 the batch size, η the value rate) with bf16 keys and values and stored fp32 key norms (`store_dtype`; tests/test_layers.py). Value rate scanned at 10 epochs (T = 10): η = 1 / 3 / 10 gives 60.45 / 63.34 / 63.39% (single-pass value: η = 10). With η = 10 for 50 epochs (2,499,200 rows per layer, 81 minutes on a shared GPU):
+
+| Epoch | 5 | 10 | 20 | 30 | 40 | 50 |
+|---|---|---|---|---|---|---|
+| RBF L = 2: test / train acc (%) | 60.9 / 77.5 | 63.7 / 87.5 | 66.0 / 95.2 | 66.2 / 98.2 | **67.5** / 99.2 | 66.9 / 99.7 |
+| RBF L = 2: test loss | 1.140 | 1.131 | 1.141 | 1.172 | 1.179 | 1.215 |
+
+RBF ends at **66.92%**: above Adam (64.72), AdamW (64.49), RMSprop (64.74) and SGD (59.77), level with Mesa (66.72), 2.6 points below Muon (69.51) and 1.5 points below GWS (68.39). This is the paper's ordering for RBF. Its test loss is lowest at epoch 10-15 and rises while the train accuracy approaches 100%, so RBF overfits in the loss earlier than GWS (lowest test loss at epoch 35). At 10 epochs RBF (63.4%) is 1.2 points above Muon (62.2%); Muon overtakes it later. A second seed is reported below if it finished.
 
 Temperature at L = 0, 10 epochs (η = 0.003, β = 10, the best ratio at T = 10; Colab L4):
 
