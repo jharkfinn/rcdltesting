@@ -210,3 +210,30 @@ def test_notebook_age_rule_differs_from_exact_when_both_active():
   assert not torch.allclose(a, e, rtol=1e-3)
   assert torch.allclose(age_coefficients(b, 10, 0.9, 0.0, 'notebook'), age_coefficients(b, 10, 0.9, 0.0, 'exact'),
                         rtol=1e-4)
+
+
+def test_mesa_low_rank_solve_equals_full_solve():
+  """MesaOptimizer: G (Psi + lam I)^{-1} via B right-hand sides (G = D^T X) equals the full d_out-column solve."""
+  import copy
+  from rcdl.layers import RCDLConfig
+  from rcdl.models import build_model
+  from rcdl.train import MesaOptimizer
+  torch.manual_seed(0)
+  cfg = RCDLConfig(kernel_type='standard', hidden_dim=64, num_layers=2, nonlinearity='gelu', num_classes=10,
+                   batch_size=16, optimizer='mesa', learning_rate=1e-3)
+  m_low = build_model(cfg).double()
+  m_full = copy.deepcopy(m_low)
+  o_low, o_full = MesaOptimizer(m_low, 1e-3, 0.99, 0.01), MesaOptimizer(m_full, 1e-3, 0.99, 0.01)
+  for _ in range(3):
+    x, y = torch.randn(16, 64, dtype=torch.float64), torch.randint(0, 10, (16,))
+    for model, opt, full in ((m_low, o_low, False), (m_full, o_full, True)):
+      opt.zero_grad()
+      torch.nn.functional.cross_entropy(model(x), y).backward()
+      if full:
+        for lin in opt.linears:
+          lin._last_output_grad = None          # forces the d_out-column solve
+      else:
+        assert all(getattr(lin, '_last_output_grad', None) is not None for lin in opt.linears[:-1])
+      opt.step()
+  for p_low, p_full in zip(m_low.parameters(), m_full.parameters()):
+    assert torch.allclose(p_low, p_full, atol=1e-10, rtol=1e-8)

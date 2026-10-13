@@ -37,6 +37,12 @@ def _store_input(module, inputs):
     module._last_input = inputs[0].detach()
 
 
+def _store_output_grad(module, inputs, output):
+  """Forward hook: keeps D = dL/d(output) of an nn.Linear (B x d_out), so that G = D^T X (Mesa's low-rank solve)."""
+  if module.training and torch.is_grad_enabled() and output.requires_grad:
+    output.register_hook(lambda g: setattr(module, '_last_output_grad', g.detach()))
+
+
 class MesaOptimizer:
   """Mesa-layer / FOOF optimizer (paper Sec. 4 and App. E.2, 'Algorithm B') for the nn.Linear weights W (d_out × d_in).
 
@@ -45,6 +51,8 @@ class MesaOptimizer:
   and replaces G by G (Ψ_T + λ I)^{-1} before the base step. The paper's table lists 'Optimizer: Adam, momentum 0.85',
   read here as Adam with β1 = 0.85 on the preconditioned gradient (base='adam'); base='sgd' is plain SGD. The
   inverse is solved exactly (Cholesky); the paper reports the same accuracy for 10 Newton-Schulz steps.
+  Low-rank solve: G = D^T X with D = dL/d(output) (B x d_out), so G (Ψ + λ I)^{-1} = D^T ((Ψ + λ I)^{-1} X^T)^T needs
+  B right-hand sides instead of d_out (64 instead of 3,072 for the 3,072-wide MLP; same result up to rounding).
   """
 
   def __init__(self, model, lr: float, gamma: float, lam: float, base: str = 'adam', b1: float = 0.85):
@@ -52,9 +60,12 @@ class MesaOptimizer:
     self.linears = [m for m in model.modules() if isinstance(m, torch.nn.Linear)]
     for m in self.linears:
       m.register_forward_pre_hook(_store_input)
+      m.register_forward_hook(_store_output_grad)
     self.stats = {m: [0.0, torch.zeros(m.in_features, m.in_features, device=m.weight.device)] for m in self.linears}
     params = [p for p in model.parameters() if p.requires_grad]
-    self.base = torch.optim.Adam(params, lr=lr, betas=(b1, 0.999)) if base == 'adam' else torch.optim.SGD(params, lr=lr)
+    fused = os.environ.get('RCDL_FUSED_ADAM') == '1' and all(p.is_cuda for p in params)
+    self.base = (torch.optim.Adam(params, lr=lr, betas=(b1, 0.999), fused=fused or None) if base == 'adam'
+                 else torch.optim.SGD(params, lr=lr))
 
   def zero_grad(self, set_to_none: bool = True):
     self.base.zero_grad(set_to_none=set_to_none)
@@ -69,7 +80,14 @@ class MesaOptimizer:
       psi.mul_(self.gamma * g_prev / g_new).add_(X.T @ X, alpha=1.0 / (B * d * g_new))
       self.stats[m][0] = g_new
       A = psi + self.lam * torch.eye(d, device=psi.device)
-      m.weight.grad = torch.cholesky_solve(m.weight.grad.T.contiguous(), torch.linalg.cholesky(A)).T
+      chol = torch.linalg.cholesky_ex(A).L                   # no host synchronization for the error check
+      D = getattr(m, '_last_output_grad', None)
+      if D is not None and D.reshape(-1, m.out_features).shape[0] == B and B < m.out_features:
+        Z = torch.cholesky_solve(X.T.contiguous(), chol)     # (Ψ + λ I)^{-1} X^T: B right-hand sides
+        m.weight.grad = D.reshape(-1, m.out_features).T @ Z.T
+      else:
+        m.weight.grad = torch.cholesky_solve(m.weight.grad.T.contiguous(), chol).T
+      m._last_output_grad = None
     self.base.step()
 
 
@@ -124,11 +142,12 @@ def create_rcdl_optimizer(model: CifarRCDLClassifier, cfg: RCDLConfig):
 
 
 def rcdl_train_step(model: CifarRCDLClassifier, opt, images: torch.Tensor, labels: torch.Tensor,
-                    input_grad: bool = False):
+                    input_grad: bool = False, as_tensors: bool = False):
   """Single online training step for all RCDL models and baselines.
 
   input_grad=True reproduces the notebook literally (images.requires_grad_), which also backpropagates through the
   first layer's retrieval. The default skips that unused input gradient; the stored tuples are identical (tests).
+  as_tensors=True returns the loss and accuracy as device tensors (no host synchronization per step).
   """
   model.train()
   logits = model(images.requires_grad_(True) if input_grad else images)
@@ -140,7 +159,10 @@ def rcdl_train_step(model: CifarRCDLClassifier, opt, images: torch.Tensor, label
     opt.step()
   for layer in model.rcdl_layers().values():
     layer.commit()                              # ... which are appended to the databases at the end of the step
-  return loss.item(), (logits.argmax(-1) == labels).float().mean().item()
+  acc = (logits.argmax(-1) == labels).float().mean()
+  if as_tensors:
+    return loss.detach(), acc
+  return loss.item(), acc.item()
 
 
 @torch.no_grad()
@@ -226,6 +248,15 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
   aug_gen = np.random.default_rng(cfg.global_init_seed)
   # Augmentation runs on the CPU (about 2.7 s per CIFAR epoch on a Colab VM). One worker thread prepares epoch e + 1
   # while epoch e trains; it draws from aug_gen in the same order as a serial loop, so the images are identical.
+  pending = []                            # (loss, acc) device tensors not yet copied to the host
+
+  def flush():
+    if pending:
+      vals = torch.stack([torch.stack(p) for p in pending]).cpu().tolist()
+      train_losses.extend(v[0] for v in vals)
+      train_accs.extend(v[1] for v in vals)
+      pending.clear()
+
   augment = lambda: standardize(augment_epoch(train_u8, aug_gen), cfg.dataset)
   aug_pool = ThreadPoolExecutor(max_workers=1) if cfg.augment else None
   next_aug = aug_pool.submit(augment) if cfg.augment else None
@@ -243,10 +274,10 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
       if step >= total_steps:
         break
       idx = perm[batch_idx * B:(batch_idx + 1) * B]
-      loss, acc = rcdl_train_step(model, opt, epoch_x[idx], train_y[idx], input_grad=input_grad)
+      pending.append(rcdl_train_step(model, opt, epoch_x[idx], train_y[idx], input_grad=input_grad, as_tensors=True))
       step += 1
-      train_losses.append(loss)
-      train_accs.append(acc)
+      if step % log_every == 0 or step % eval_every == 0 or step == total_steps:
+        flush()                             # one host synchronization per logging interval instead of two per step
       if step % log_every == 0:
         el = time.time() - start_time
         print(f'[train] step={step}/{total_steps} loss(avg{log_every})={np.mean(train_losses[-log_every:]):.4f} '
@@ -254,6 +285,7 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
               flush=True)
       if step % eval_every == 0 and step != total_steps:
         evaluate_and_log(step)
+  flush()
   if aug_pool is not None:
     aug_pool.shutdown(wait=False)
   evaluate_and_log(step, final=True)
