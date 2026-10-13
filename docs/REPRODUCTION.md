@@ -253,6 +253,17 @@ Sweep at 10,000 steps (one seed; grids of the paper's App. tables; Colab A100):
 | MLP (residual ReLU, width 1,024, SGD) | lr ∈ {0.003 ... 0.3}, momentum ∈ {0, 0.9}, batch ∈ {64, 256} (20) | lr 0.3, momentum 0.9, batch 256 | 5.3e-4 | 0.120 |
 | MLP, batch 64 (same samples per step as GWS) | as above | lr 0.1, momentum 0.9 | 6.4e-4 | 0.145 |
 
+Final runs at the paper's 200,000 steps (test MSE; relative MSE in brackets):
+
+| Student | 10k steps | 50k | 100k | 200k | Paper at 200k (plot) |
+|---|---|---|---|---|---|
+| MLP, batch 256, lr 0.3 | 5.33e-4 | 2.98e-4 | 2.56e-4 | **1.81e-4** (0.041) | ~1.7e-4 |
+| MLP, batch 64, lr 0.1 | 6.42e-4 | 3.62e-4 | 3.41e-4 | 2.86e-4 (0.065) | |
+| GWS (β = 1, η = 30, T = 1, momentum 0.9) | 4.22e-4 | PENDING | | PENDING | ~2.6e-4 |
+| Parametric softmax, 640,064 trained keys, Adam 1e-3, T = 0.1 | 2.5e-4 | PENDING | | PENDING | ~4e-3 |
+
+Parametric softmax at 10,000 steps (`psm_sweep_small`, 640,064 trained keys, Adam): lr 1e-3 with T = 0.1 gives 2.5e-4 (relative 0.056), T = 1 gives 1.3e-3; lr 3e-3 with T = 0.1 becomes unstable (4.6e-4 at 5k steps, 3.2e-3 at 10k). At 10,000 steps the best parametric softmax is therefore ahead of both GWS (4.2e-4) and the MLP (5.3e-4). This contradicts the paper's ordering. Differences from the paper: 640,064 instead of 10.24M trained keys, Adam β1 = 0.9 instead of 0.85, keys initialized N(0, 1/d) (the paper does not state its initialization). An earlier partial 200k-step GWS run on the L4 (stopped at 40,000 steps to move it to the A100) gave 3.0e-4 at 20k, 2.7e-4 at 30k and 2.5e-4 at 40k steps (relative 0.069, 0.062, 0.058).
+
 Relative MSE of GWS at 10,000 steps, momentum 0.9, by β/η and T ("div" = diverged):
 
 | β/η | (β, η) | T = 0.1 | T = 1 | T = 3 | T = 10 |
