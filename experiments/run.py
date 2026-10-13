@@ -41,6 +41,7 @@ def main():
   p.add_argument('--source', default='auto')
   p.add_argument('--threads', type=int, default=None)
   p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+  p.add_argument('--dataset', default=None, help="'cifar10' | 'cifar100' (default: the config file's 'dataset' key)")
   p.add_argument('--skip-done', action='store_true', help='skip runs whose summary.json exists')
   args = p.parse_args()
 
@@ -48,7 +49,8 @@ def main():
     torch.set_num_threads(args.threads)
   with open(args.config) as f:
     spec = json.load(f)
-  data, train_u8 = load_cifar10_tensors(args.data, args.source, args.device)
+  dataset = args.dataset or spec.get('dataset', 'cifar10')
+  data, train_u8 = load_cifar10_tensors(args.data, args.source, args.device, dataset)
   names = args.only or list(spec['experiments'])
   overrides = dict(kv.split('=', 1) for kv in args.set)
   run_overrides = dict(kv.split('=', 1) for kv in args.run_set)
@@ -57,7 +59,7 @@ def main():
     cfg_kwargs = dict(exp['cfg']) | {k: _parse_value(v) for k, v in overrides.items()}
     run_kwargs = dict(spec.get('defaults', {})) | exp.get('run', {}) | {k: _parse_value(v) for k, v in run_overrides.items()}
     for seed in (args.seeds or [cfg_kwargs.get('global_init_seed', 1)]):
-      cfg = RCDLConfig(**(cfg_kwargs | {'global_init_seed': seed}))
+      cfg = RCDLConfig(**(cfg_kwargs | {'global_init_seed': seed, 'dataset': dataset}))
       out_dir = os.path.join(args.out, name + (f'_{args.tag}' if args.tag else ''), f'seed{seed}')
       if args.skip_done and os.path.exists(os.path.join(out_dir, 'summary.json')):
         print(f'skip {out_dir}')

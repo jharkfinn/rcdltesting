@@ -48,9 +48,12 @@ class RCDLConfig:
   # --- Data & Optimization ---
   num_classes: int = 10
   batch_size: int = 16
-  optimizer: str = 'adam'            # 'adam' | 'adamw' | 'sgd' | 'rmsprop' | 'muon'
+  optimizer: str = 'adam'            # 'adam' | 'adamw' | 'sgd' | 'rmsprop' | 'muon' | 'mesa' | 'mesa_sgd' | 'delta'
   weight_decay: float = 0.0
   learning_rate: float = 3e-4        # optimizer (e.g. Adam) learning rate for parametric parameters
+  mesa_gamma: float = 0.99           # Mesa / FOOF forgetting factor γ (paper grid [0.9, 0.99, 1.0])
+  mesa_lambda: float = 0.01          # Mesa / FOOF ridge λ (paper grid [0.001, 0.01, 0.1])
+  delta_lambda: float = 1e-5         # DeltaNet decay rate λ (paper grid [3e-7 ... 3e-4])
   num_epochs: int = 1
   global_init_seed: int = 1
   # --- Extension knobs (defaults = notebook behaviour) ---
@@ -58,6 +61,13 @@ class RCDLConfig:
   age_rule: str = 'notebook'         # 'notebook': (1-γ)^a (1-μ^(a+1))/(1-μ+1e-6) | 'exact': paper Eq. (combined)
   decay_scope: str = 'values'        # 'values' (notebook) | 'values_and_weights' (paper App. D)
   augment: bool = False              # multi-epoch runs: paper App. E.1.1 augmentation
+  attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' (fused, memory-efficient; 'gws'/'gauge' only)
+  dataset: str = 'cifar10'           # 'cifar10' | 'cifar100'
+  # --- ViT (paper Sec. 5 'Mixing retrieval-centric and parametric layers', App. E.9) ---
+  arch: str = 'resmlp'               # 'resmlp' | 'vit' (num_layers = ViT blocks, hidden_dim = token width)
+  vit_patch: int = 4
+  vit_heads: int = 8
+  vit_ffn_blowup: int = 4            # dense FFN width = blowup x hidden_dim (kernel_type 'standard')
 
   @property
   def ref_capacity(self) -> int:
@@ -87,6 +97,31 @@ def weighted_attention(q, keys, values, weights, temperature: float, db_size: Op
   denom = exp_qk @ weights
   sign = torch.where(denom < 0, -torch.ones_like(denom), torch.ones_like(denom))
   return (exp_qk @ values) / (denom.abs().clamp_min(1e-8) * sign)
+
+
+def weighted_attention_sdpa(q, keys, values, weights, temperature: float):
+  """Memory-efficient weighted softmax attention via fused scaled-dot-product attention.
+
+  With z_j = <q, k_j> / (T sqrt(d_in)) and softmax over all rows, s_D(q) = Σ_j e^{z_j} ṽ_j / Σ_m w_m e^{z_m}
+  = (softmax(z) @ ṽ) / (softmax(z) @ w). One fused call over the columns [ṽ, w] gives both terms without building the
+  query x rows logit matrix. Empty rows (k = 0, ṽ = 0, w = 0) add nothing to either term, so no mask is needed.
+  """
+  d_out = values.shape[1]
+  V = torch.cat([values, weights], -1)
+  pad = (-V.shape[1]) % 8
+  if pad:
+    V = torch.nn.functional.pad(V, (0, pad))
+  out = torch.nn.functional.scaled_dot_product_attention(
+      q[None, None], keys[None, None], V[None, None], scale=1.0 / (temperature * math.sqrt(q.shape[-1])))[0, 0]
+  denom = out[:, d_out:d_out + 1]
+  sign = torch.where(denom < 0, -torch.ones_like(denom), torch.ones_like(denom))
+  return out[:, :d_out] / (denom.abs().clamp_min(1e-30) * sign)
+
+
+def linearized_weighted_attention(q, keys, values, weights, temperature: float):
+  """Paper Fig. 4 (right), post-training ablation: exp(z) replaced by its first-order expansion 1 + z."""
+  lin = 1.0 + q @ keys.T / (temperature * math.sqrt(q.shape[-1]))
+  return (lin @ values) / (lin @ weights)
 
 
 def rbf_attention(q, keys, values, temperature: float):
@@ -156,7 +191,7 @@ class RCDLLayer(nn.Module):
     self.register_buffer('birth', torch.zeros(n, dtype=torch.long))      # write step of each row (D_0: 0)
     self.register_buffer('valid_rows', torch.zeros(n, dtype=torch.bool))  # cached mask (growing layers)
     self.valid_rows[:self.size] = (keys[:self.size] != 0).any(-1) | (weights[:self.size, 0] != 0)
-    self.step, self.wrapped = 0, False
+    self.step, self.wrapped, self.linearize = 0, False, False   # linearize: eval-time exp(z) -> 1 + z (Fig. 4 right)
     self.next_row, self.pending = self.size, None
 
   def _active(self) -> int:
@@ -180,6 +215,10 @@ class RCDLLayer(nn.Module):
           weights = weights * coef
       if self.kind == 'rbf':
         s = rbf_attention(q, keys, values, self.T)
+      elif self.linearize and not self.training:
+        s = linearized_weighted_attention(q, keys, values, weights, self.T)
+      elif cfg.attn_impl == 'sdpa':
+        s = weighted_attention_sdpa(q, keys, values, weights, self.T)
       else:
         s = weighted_attention(q, keys, values, weights, self.T, valid=self.valid_rows[:m])
     if self.training and torch.is_grad_enabled():

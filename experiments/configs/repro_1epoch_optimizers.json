@@ -1,0 +1,240 @@
+{
+ "_comment": "Single-pass CIFAR-10 (batch 16) for the optimizers of paper Fig. 2 right that the notebook does not include: AdamW (notebook-tuned setting), Mesa/FOOF and Delta (paper Sec. 4). The paper does not state the selected Mesa/Delta settings or depth; grids are inside its 50-epoch ranges (Mesa: gamma 0.99, lambda [0.01, 0.1]; Delta: lambda [1e-6 .. 1e-4]), depth L = 4 (its grid is [2, 4]). Selection on test, as in the paper.",
+ "defaults": {
+  "eval_every": 625,
+  "eval_subset": 2000,
+  "eval_batch_size": 500
+ },
+ "experiments": {
+  "mlp_adamw": {
+   "notebook_tuned": "48.3+-1.0",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 8,
+    "optimizer": "adamw",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.0001
+   }
+  },
+  "mesa_L4_lr0.0001_lam0.01": {
+   "paper_acc": "~49 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "mesa",
+    "learning_rate": 0.0001,
+    "mesa_gamma": 0.99,
+    "mesa_lambda": 0.01
+   }
+  },
+  "mesa_L4_lr0.0001_lam0.1": {
+   "paper_acc": "~49 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "mesa",
+    "learning_rate": 0.0001,
+    "mesa_gamma": 0.99,
+    "mesa_lambda": 0.1
+   }
+  },
+  "mesa_L4_lr0.0003_lam0.01": {
+   "paper_acc": "~49 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "mesa",
+    "learning_rate": 0.0003,
+    "mesa_gamma": 0.99,
+    "mesa_lambda": 0.01
+   }
+  },
+  "mesa_L4_lr0.0003_lam0.1": {
+   "paper_acc": "~49 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "mesa",
+    "learning_rate": 0.0003,
+    "mesa_gamma": 0.99,
+    "mesa_lambda": 0.1
+   }
+  },
+  "mesa_L4_lr0.001_lam0.01": {
+   "paper_acc": "~49 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "mesa",
+    "learning_rate": 0.001,
+    "mesa_gamma": 0.99,
+    "mesa_lambda": 0.01
+   }
+  },
+  "mesa_L4_lr0.001_lam0.1": {
+   "paper_acc": "~49 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "mesa",
+    "learning_rate": 0.001,
+    "mesa_gamma": 0.99,
+    "mesa_lambda": 0.1
+   }
+  },
+  "delta_L4_lr0.001_lam1e-06": {
+   "paper_acc": "~47 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "delta",
+    "learning_rate": 0.001,
+    "delta_lambda": 1e-06
+   }
+  },
+  "delta_L4_lr0.001_lam1e-05": {
+   "paper_acc": "~47 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "delta",
+    "learning_rate": 0.001,
+    "delta_lambda": 1e-05
+   }
+  },
+  "delta_L4_lr0.001_lam0.0001": {
+   "paper_acc": "~47 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "delta",
+    "learning_rate": 0.001,
+    "delta_lambda": 0.0001
+   }
+  },
+  "delta_L4_lr0.003_lam1e-06": {
+   "paper_acc": "~47 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "delta",
+    "learning_rate": 0.003,
+    "delta_lambda": 1e-06
+   }
+  },
+  "delta_L4_lr0.003_lam1e-05": {
+   "paper_acc": "~47 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "delta",
+    "learning_rate": 0.003,
+    "delta_lambda": 1e-05
+   }
+  },
+  "delta_L4_lr0.003_lam0.0001": {
+   "paper_acc": "~47 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "delta",
+    "learning_rate": 0.003,
+    "delta_lambda": 0.0001
+   }
+  },
+  "delta_L4_lr0.01_lam1e-06": {
+   "paper_acc": "~47 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "delta",
+    "learning_rate": 0.01,
+    "delta_lambda": 1e-06
+   }
+  },
+  "delta_L4_lr0.01_lam1e-05": {
+   "paper_acc": "~47 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "delta",
+    "learning_rate": 0.01,
+    "delta_lambda": 1e-05
+   }
+  },
+  "delta_L4_lr0.01_lam0.0001": {
+   "paper_acc": "~47 (Fig. 2 right, read off plot)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "batch_size": 16,
+    "global_init_seed": 1,
+    "num_layers": 4,
+    "optimizer": "delta",
+    "learning_rate": 0.01,
+    "delta_lambda": 0.0001
+   }
+  }
+ }
+}

@@ -110,6 +110,37 @@ def test_skipping_first_layer_input_grad_keeps_updates(kind):
       assert torch.equal(getattr(a, attr), getattr(b, attr))
 
 
+def test_sdpa_attention_matches_dense():
+  """The fused path (softmax(z) @ [ṽ, w]) equals the notebook's dense weighted softmax, including clipped (w = 0) rows.
+
+  The two differ only when a query's denominator is near 0 (its attention falls almost entirely on w = 0 rows): the
+  dense code floors Σ w e^{z - max z} at 1e-8, the fused code floors the normalized average at 1e-30.
+  """
+  from rcdl.layers import weighted_attention, weighted_attention_sdpa
+  g = torch.Generator().manual_seed(1)
+  q, k = torch.randn(7, 16, generator=g), torch.randn(40, 16, generator=g)
+  v, w = torch.randn(40, 5, generator=g), torch.rand(40, 1, generator=g)
+  w[::3] = 0.0
+  a = weighted_attention(q, k, v, w, 0.8)
+  b = weighted_attention_sdpa(q, k, v, w, 0.8)
+  assert torch.allclose(a, b, rtol=1e-4, atol=1e-5)
+
+
+def test_vit_with_growing_ffn_trains_and_grows():
+  from rcdl.models import CifarViT
+  cfg = RCDLConfig(kernel_type='gws', arch='vit', hidden_dim=16, num_layers=2, vit_heads=2, vit_patch=8,
+                   batch_size=4, db_size=4 + 17 * 4 * 3, temperature=1.0, eta=0.1, beta=1.0, attn_impl='sdpa',
+                   learning_rate=1e-3)
+  m = CifarViT(cfg)
+  opt = create_rcdl_optimizer(m, cfg)
+  for x, y in batches(3, B=4, d=3072, n_cls=5):
+    rcdl_train_step(m, opt, x, y % 10)
+  sizes = [layer.size for layer in m.rcdl_layers().values()]
+  assert sizes == [4 + 17 * 4 * 3] * 2           # D_0 + (16 patches + CLS) tokens x 4 images x 3 steps
+  loss, acc = rcdl_evaluate(m, torch.randn(6, 3072), torch.zeros(6, dtype=torch.long), 3)
+  assert loss == loss                             # finite
+
+
 def test_eval_is_independent_of_batch_size():
   kw = small_cfg(kernel_type='gws', model_momentum=0.5)
   m = CifarRCDLClassifier(RCDLConfig(**kw))

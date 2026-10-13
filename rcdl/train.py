@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 from rcdl.data import augment_epoch, standardize
 from rcdl.layers import RCDLConfig
-from rcdl.models import CifarRCDLClassifier
+from rcdl.models import CifarRCDLClassifier, build_model
 
 
 class MultiOptimizer:
@@ -30,6 +30,70 @@ class MultiOptimizer:
       o.step()
 
 
+def _store_input(module, inputs):
+  """Forward pre-hook: keeps the batch input X of an nn.Linear for the Mesa / Delta preconditioners."""
+  if module.training and torch.is_grad_enabled():
+    module._last_input = inputs[0].detach()
+
+
+class MesaOptimizer:
+  """Mesa-layer / FOOF optimizer (paper Sec. 4 and App. E.2, 'Algorithm B') for the nn.Linear weights W (d_out × d_in).
+
+  With X the layer's batch input (B × d_in), G = ∇_W L, forgetting factor γ and ridge λ, it keeps
+    Γ_T = γ Γ_{T-1} + 1,   Ψ_T = (γ Γ_{T-1} / Γ_T) Ψ_{T-1} + X^T X / (B d_in Γ_T)   (Γ_0 = 0, Ψ_0 = 0),
+  and replaces G by G (Ψ_T + λ I)^{-1} before the base step. The paper's table lists 'Optimizer: Adam, momentum 0.85',
+  read here as Adam with β1 = 0.85 on the preconditioned gradient (base='adam'); base='sgd' is plain SGD. The
+  inverse is solved exactly (Cholesky); the paper reports the same accuracy for 10 Newton-Schulz steps.
+  """
+
+  def __init__(self, model, lr: float, gamma: float, lam: float, base: str = 'adam', b1: float = 0.85):
+    self.gamma, self.lam = gamma, lam
+    self.linears = [m for m in model.modules() if isinstance(m, torch.nn.Linear)]
+    for m in self.linears:
+      m.register_forward_pre_hook(_store_input)
+    self.stats = {m: [0.0, torch.zeros(m.in_features, m.in_features, device=m.weight.device)] for m in self.linears}
+    params = [p for p in model.parameters() if p.requires_grad]
+    self.base = torch.optim.Adam(params, lr=lr, betas=(b1, 0.999)) if base == 'adam' else torch.optim.SGD(params, lr=lr)
+
+  def zero_grad(self, set_to_none: bool = True):
+    self.base.zero_grad(set_to_none=set_to_none)
+
+  @torch.no_grad()
+  def step(self):
+    for m in self.linears:
+      X = m._last_input.reshape(-1, m.in_features)
+      B, d = X.shape
+      g_prev, psi = self.stats[m]
+      g_new = self.gamma * g_prev + 1.0
+      psi.mul_(self.gamma * g_prev / g_new).add_(X.T @ X, alpha=1.0 / (B * d * g_new))
+      self.stats[m][0] = g_new
+      A = psi + self.lam * torch.eye(d, device=psi.device)
+      m.weight.grad = torch.cholesky_solve(m.weight.grad.T.contiguous(), torch.linalg.cholesky(A)).T
+    self.base.step()
+
+
+class DeltaOptimizer:
+  """DeltaNet-style decay (paper Sec. 4, App. E.3): W <- W (I - λ η X^T X) - η G, i.e. SGD on G + λ W X^T X, with X
+  the layer's batch input (B × d_in), G = ∇_W L, step size η and decay rate λ. Other parameters get plain SGD."""
+
+  def __init__(self, model, lr: float, lam: float):
+    self.lam = lam
+    self.linears = [m for m in model.modules() if isinstance(m, torch.nn.Linear)]
+    for m in self.linears:
+      m.register_forward_pre_hook(_store_input)
+    self.base = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=lr)
+
+  def zero_grad(self, set_to_none: bool = True):
+    self.base.zero_grad(set_to_none=set_to_none)
+
+  @torch.no_grad()
+  def step(self):
+    for m in self.linears:
+      X = m._last_input.reshape(-1, m.in_features)
+      m.weight.grad.add_((m.weight @ X.T) @ X, alpha=self.lam)
+    self.base.step()
+
+
 def create_rcdl_optimizer(model: CifarRCDLClassifier, cfg: RCDLConfig):
   """Optimizer over all nn.Parameters: the dense weights ('standard') or the stored tables ('hybrid', 'parametric_softmax').
 
@@ -39,6 +103,10 @@ def create_rcdl_optimizer(model: CifarRCDLClassifier, cfg: RCDLConfig):
   if not params:
     return None
   opt_name, lr = cfg.optimizer.lower(), cfg.learning_rate
+  if opt_name in ('mesa', 'mesa_sgd'):
+    return MesaOptimizer(model, lr, cfg.mesa_gamma, cfg.mesa_lambda, base='sgd' if opt_name == 'mesa_sgd' else 'adam')
+  if opt_name == 'delta':
+    return DeltaOptimizer(model, lr, cfg.delta_lambda)
   if opt_name == 'muon':            # Muon on the weight matrices, Adam on the biases
     mats, rest = [p for p in params if p.ndim == 2], [p for p in params if p.ndim != 2]
     return MultiOptimizer([torch.optim.Muon(mats, lr=lr, weight_decay=cfg.weight_decay)]
@@ -104,7 +172,7 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
   """
   train_x, train_y, test_x, test_y = data
   torch.manual_seed(cfg.global_init_seed)
-  model = CifarRCDLClassifier(cfg).to(train_x.device)
+  model = build_model(cfg).to(train_x.device)
   opt = create_rcdl_optimizer(model, cfg)
   if out_dir:
     os.makedirs(out_dir, exist_ok=True)
@@ -144,7 +212,7 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
     perm = torch.randperm(n, generator=order_gen).to(train_x.device)
     epoch_x = train_x
     if cfg.augment:
-      epoch_x = torch.as_tensor(standardize(augment_epoch(train_u8, aug_gen)), device=train_x.device)
+      epoch_x = torch.as_tensor(standardize(augment_epoch(train_u8, aug_gen), cfg.dataset), device=train_x.device)
     for batch_idx in range(steps_per_epoch):
       if step >= total_steps:
         break

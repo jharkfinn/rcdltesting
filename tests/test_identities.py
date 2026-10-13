@@ -161,6 +161,47 @@ def test_momentum_and_decay_dual_exact_rule(mu, gamma):
     births.append(t + 1)
 
 
+def test_mesa_layer_dual_is_foof_recursion():
+  """Sec. 4 / App. E.2 'Algorithm A' (γ = 1, Λ = λ): the mesa layer W_T = argmin_W Σ_t ||v_t - W x_t||^2 + λ ||W||_F^2,
+  with gradient-corrected targets v_t = W_{t-1} x_t - η g_t, equals the recursion
+  Φ_T = Φ_{T-1} + x_T x_T^T (Φ_0 = λ I),  W_T = W_{T-1} - η g_T x_T^T Φ_T^{-1}  (W_0 = 0), i.e. the FOOF update."""
+  g = torch.Generator().manual_seed(5)
+  d_in, d_out, eta, lam = 4, 3, 0.2, 0.5
+  W, Phi, xs, vs = torch.zeros(d_out, d_in), lam * torch.eye(d_in), [], []
+  for _ in range(30):
+    x, y = torch.randn(d_in, generator=g), torch.randn(d_out, generator=g)
+    grad_out = W @ x - y                       # g_t = ∇_y L for L = ||W x - y||^2 / 2
+    xs.append(x)
+    vs.append(W @ x - eta * grad_out)          # v_t, computed with W_{t-1}
+    Phi = Phi + torch.outer(x, x)
+    W = W - eta * torch.outer(grad_out, x) @ torch.linalg.inv(Phi)
+  X, V = torch.stack(xs, 1), torch.stack(vs, 1)
+  W_closed = V @ X.T @ torch.linalg.inv(X @ X.T + lam * torch.eye(d_in))
+  assert torch.allclose(W, W_closed, atol=1e-10)
+
+
+def test_mesa_and_delta_optimizer_steps():
+  """One step of rcdl.train.MesaOptimizer (base SGD) and DeltaOptimizer against their defining formulas."""
+  from rcdl.train import DeltaOptimizer, MesaOptimizer
+  g = torch.Generator().manual_seed(6)
+  for kind in ('mesa', 'delta'):
+    lin = torch.nn.Linear(5, 3, bias=False)
+    W0 = lin.weight.detach().clone()
+    X = torch.randn(4, 5, generator=g)
+    opt = MesaOptimizer(lin, lr=0.1, gamma=0.9, lam=0.3, base='sgd') if kind == 'mesa' else DeltaOptimizer(lin, 0.1, 0.05)
+    lin.train()
+    loss = (lin(X) ** 2).sum()
+    opt.zero_grad()
+    loss.backward()
+    G = lin.weight.grad.clone()
+    opt.step()
+    if kind == 'mesa':                        # Γ_1 = 1, Ψ_1 = X^T X / (B d)
+      expect = W0 - 0.1 * G @ torch.linalg.inv(X.T @ X / (4 * 5) + 0.3 * torch.eye(5))
+    else:
+      expect = W0 @ (torch.eye(5) - 0.05 * 0.1 * X.T @ X) - 0.1 * G
+    assert torch.allclose(lin.weight.detach(), expect, atol=1e-8), kind
+
+
 def test_notebook_age_rule_differs_from_exact_when_both_active():
   """The notebook multiplies separate decay and momentum factors; this is exact only if μ = 0 or γ = 0."""
   b = torch.arange(10)
