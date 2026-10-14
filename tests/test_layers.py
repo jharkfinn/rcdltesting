@@ -207,6 +207,29 @@ def test_bf16_parametric_softmax_trains_like_fp32():
   assert rel < 0.1, rel
 
 
+def test_bf16_second_moment_stalls_and_fp32_adam_matches_reference():
+  """bf16 cannot track v <- 0.999 v + 0.001 g² (it never decreases); AdamFP32SecondMoment matches fp32 Adam closely."""
+  from rcdl.train import AdamFP32SecondMoment
+  v = torch.tensor([1.0], dtype=torch.bfloat16)
+  for _ in range(1000):
+    v = v * 0.999 + 0.001 * 0.25
+  assert v.item() == 1.0                                   # stuck; fp32 would reach 0.526
+  g = torch.Generator().manual_seed(0)
+  w0 = torch.randn(5, 7, generator=g)
+  grads = [torch.randn(5, 7, generator=g) * (0.5 ** k) for k in range(30)]   # shrinking gradients
+  ref = torch.nn.Parameter(w0.clone().bfloat16().float())          # same (bf16-rounded) start for all three
+  low, plain = (torch.nn.Parameter(w0.clone().bfloat16()) for _ in range(2))
+  o_ref, o_low = torch.optim.Adam([ref], lr=1e-2), AdamFP32SecondMoment([low], lr=1e-2, chunk_rows=2)
+  o_plain = torch.optim.Adam([plain], lr=1e-2)                     # bf16 m and v (torch default for bf16 params)
+  for gr in grads:
+    ref.grad, low.grad, plain.grad = gr.bfloat16().float(), gr.bfloat16(), gr.bfloat16()
+    o_ref.step(), o_low.step(), o_plain.step()
+  v_ref, v_low = o_ref.state[ref]['exp_avg_sq'], o_low.state[low]['v']
+  assert v_low.dtype == torch.float32 and torch.allclose(v_low, v_ref, rtol=1e-4, atol=1e-12)
+  err = lambda p: (p.float() - ref).norm().item()
+  assert err(low) < err(plain)                                     # closer to fp32 Adam than all-bf16 Adam
+
+
 def test_bf16_rbf_keeps_key_norms():
   """The stored ||k_j||^2 of a bf16 RBF layer equals the norm of the stored (rounded) key after training."""
   m = CifarRCDLClassifier(RCDLConfig(**small_cfg(kernel_type='rbf', db_size=48, store_dtype='bfloat16')))

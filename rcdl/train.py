@@ -31,6 +31,46 @@ class MultiOptimizer:
       o.step()
 
 
+class AdamFP32SecondMoment(torch.optim.Optimizer):
+  """Adam for bf16 parameters with the second moment v kept in fp32 (first moment m in the parameter dtype).
+
+  torch.optim.Adam stores m and v in the parameter dtype. In bf16 the update v <- β2 v + (1 - β2) g² with β2 = 0.999
+  changes v by at most 0.1% per step, below bf16's rounding step (~0.4%), so v can rise but never fall and the
+  effective step size m / sqrt(v) shrinks over training (tests/test_layers.py; this stalled the first full-scale Fig. 5
+  attempt). Here v is fp32 and the update is computed in fp32 in row chunks, so no full-size fp32 copy is made.
+  Memory for the 2.56M x 3072 table: 15.7 GB parameters + 15.7 gradients + 15.7 m + 31.5 v = 78.6 GB.
+  """
+
+  def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, chunk_rows=262144):
+    super().__init__(params, dict(lr=lr, betas=betas, eps=eps))
+    self.chunk_rows = chunk_rows
+
+  @torch.no_grad()
+  def step(self):
+    for group in self.param_groups:
+      b1, b2 = group['betas']
+      for p in group['params']:
+        if p.grad is None:
+          continue
+        st = self.state[p]
+        if not st:
+          st['step'] = 0
+          st['m'] = torch.zeros_like(p)
+          st['v'] = torch.zeros_like(p, dtype=torch.float32)
+        st['step'] += 1
+        t = st['step']
+        c1, c2 = 1.0 - b1 ** t, 1.0 - b2 ** t
+        P, G, M, V = (x.view(x.shape[0], -1) if x.dim() > 0 else x.view(1, 1) for x in (p, p.grad, st['m'], st['v']))
+        for i in range(0, P.shape[0], self.chunk_rows):
+          sl = slice(i, i + self.chunk_rows)
+          g = G[sl].float()
+          m = M[sl].float().mul_(b1).add_(g, alpha=1.0 - b1)
+          V[sl].mul_(b2).addcmul_(g, g, value=1.0 - b2)
+          upd = (m / c1) / (V[sl] / c2).sqrt_().add_(group['eps'])
+          M[sl] = m.to(M.dtype)
+          P[sl] = (P[sl].float() - group['lr'] * upd).to(P.dtype)
+
+
 def _store_input(module, inputs):
   """Forward pre-hook: keeps the batch input X of an nn.Linear for the Mesa / Delta preconditioners."""
   if module.training and torch.is_grad_enabled():
@@ -136,6 +176,8 @@ def create_rcdl_optimizer(model: CifarRCDLClassifier, cfg: RCDLConfig):
     return torch.optim.SGD(params, lr=lr, momentum=cfg.model_momentum)
   if opt_name == 'rmsprop':         # decay 0.9, eps 1e-8
     return torch.optim.RMSprop(params, lr=lr, alpha=0.9, eps=1e-8)
+  if any(p.dtype == torch.bfloat16 for p in params):   # bf16 tables (store_dtype): keep Adam's second moment in fp32
+    return AdamFP32SecondMoment(params, lr=lr)
   # RCDL_FUSED_ADAM=1: one fused CUDA kernel per step (same update; floating-point order differs slightly). Default off.
   fused = os.environ.get('RCDL_FUSED_ADAM') == '1' and all(p.is_cuda for p in params)
   return torch.optim.Adam(params, lr=lr, fused=fused or None)
