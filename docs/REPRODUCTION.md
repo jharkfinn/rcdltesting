@@ -10,7 +10,7 @@ Status: final. Numbers come from `results/` (not committed) and `experiments/sum
 
 ## 0. Claims and verdicts
 
-Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours were used, then 2.50 more A100-hours at the user's request to rerun work lost with the first A100 session (total 14.37). A third round, at the user's go-ahead to exceed the target, used 3.30 Colab G4 hours and a free marimo molab GPU for the claims still open (11, 15, 17, 18, 19); section 10 has the ledger. "Reproduced" means the same number within the stated spread, or the same qualitative result where the paper gives only a plot.
+Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours were used, then 2.50 more A100-hours at the user's request to rerun work lost with the first A100 session (total 14.37). A third round, at the user's go-ahead to exceed the target, used 3.30 Colab G4 hours and a free marimo molab GPU for the claims still open (11, 15, 17, 18, 19), and 1.42 more G4 hours for a full-scale Fig. 5 attempt that stalled (§7.7); section 10 has the ledger. "Reproduced" means the same number within the stated spread, or the same qualitative result where the paper gives only a plot.
 
 | # | Claim (source) | Verdict | Evidence |
 |---|---|---|---|
