@@ -35,6 +35,9 @@ class CifarRCDLClassifier(nn.Module):
       layer = lambda d_out, layer_id: dense(H, d_out, gen)
     elif cfg.kernel_type == 'cos':        # random-feature (Cos-Bochner) form of the growing RBF layer
       layer = lambda d_out, layer_id: CosBochnerLayer(cfg, H, d_out, gen, device=device)
+    elif cfg.kernel_type == 'bm25':       # growing RBF layer with sparse BM25 key matching
+      from rcdl.bm25 import BM25RBFLayer
+      layer = lambda d_out, layer_id: BM25RBFLayer(cfg, H, d_out, layer_id, gen, device=device)
     else:
       layer = lambda d_out, layer_id: RCDLLayer(cfg, H, d_out, layer_id, gen, device=device)
     self.layers = nn.ModuleList([layer(H, i) for i in range(cfg.num_layers)])

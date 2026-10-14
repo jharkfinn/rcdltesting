@@ -22,7 +22,7 @@ import torch.nn as nn
 class RCDLConfig:
   """Unified configuration for 'gws', 'gauge', 'rbf', 'hybrid', 'parametric_softmax', 'cos', and 'standard'."""
   # --- Architecture ---
-  kernel_type: str = 'gws'           # 'gws' | 'gauge' | 'rbf' | 'hybrid' | 'parametric_softmax' | 'cos' | 'standard'
+  kernel_type: str = 'gws'           # 'gws' | 'gauge' | 'rbf' | 'bm25' | 'hybrid' | 'parametric_softmax' | 'cos' | 'standard'
   hidden_dim: int = 3072
   num_layers: int = 2
   nonlinearity: str = 'none'         # 'none' | 'gelu' | 'relu'
@@ -64,6 +64,13 @@ class RCDLConfig:
   attn_impl: str = 'dense'           # 'dense' (notebook) | 'sdpa' | 'sdpa_bf16' (fused) | 'flash2' (2 flash calls,
                                      # bf16, value width = query width) | 'splitk' | 'splitk_tf32'
                                      # (Triton, few queries, forward-only: 'dense' is used when q needs a gradient)
+  # --- BM25-RBF ('bm25', rcdl/bm25.py): growing RBF layer with sparse Okapi BM25 key matching ---
+  bm25_m: int = 1024                 # m: terms per vector (top-m |coordinates| of R q, split by sign; vocabulary 2d)
+  bm25_k1: float = 1.2               # k1: term-frequency saturation
+  bm25_b: float = 0.75               # b: document-length normalization
+  bm25_idf: bool = True              # IDF from live document frequencies of the stored rows
+  bm25_rotate: bool = True           # terms over a fixed random rotation R q (False: over the coordinates of q)
+  bm25_gamma: Optional[float] = None # γ: contrast, κ(unmatched) = e^{-γ}; default sqrt(d) / T, the RBF's range
   # --- Cos-Bochner random-feature layer ('cos'; the article's finite-width form of the growing RBF layer) ---
   cos_width: int = 4096              # D: number of random Fourier features
   cos_train_features: bool = False   # False: frozen Ω, b (random features of the RBF kernel); True: train Ω, b too
