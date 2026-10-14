@@ -125,8 +125,10 @@ def weighted_attention_lowp(q, keys, values, weights, temperature: float, valid:
   fp32 accumulation; the logits, the softmax shift, the exponentials and the denominator stay in fp32.
 
   Error: rounding q and k_j to bf16 (relative 2^-9 per element) changes z_j = <q, k_j> / (T sqrt(d)) by about
-  2^-9 ||q * k_j||_2 / (T sqrt(d)) ~ 1e-4 for unit-RMS q, k_j at d = 3072, T = 10; rounding exp(z_j) for the numerator
-  adds a relative error of at most 2^-9 per row. tests/test_layers.py bounds the end-to-end difference.
+  2^-9 ||q * k_j||_2 / (T sqrt(d)) ~ 1e-4 for unit-RMS q, k_j at d = 3072, T = 10; but the matmul output itself is rounded
+  to bf16 (_mm), which adds up to 2^-9 |<q, k_j>| / (T sqrt(d)) <= 2^-9 sqrt(d) / T ~ 0.011 to z_j for near-duplicate rows
+  (a ~1% kernel error there, smaller for unrelated rows). Rounding exp(z_j) for the numerator adds at most 2^-9 per row.
+  Measured end to end: GWS L = 2, 10 epochs, 65.03% with bf16 tables against 65.05% with fp32 (docs/REPRODUCTION.md 7.4).
   """
   logits = _mm(q, keys.T) / (temperature * math.sqrt(q.shape[-1]))
   if valid is not None:
@@ -229,7 +231,9 @@ class CosBochnerLayer(nn.Module):
   A (D × d_out) starting at 0 (the empty table). One SGD step on the batch-mean loss with learning rate η B changes A by
   Σ_b phi(q_b) v_b^T with v_b = -η B ḡ_b, which is the growing RBF layer's write rule in feature space. So with frozen
   Ω, b (cos_train_features=False) and plain SGD at rate η B, the layer follows the growing RBF layer up to the
-  random-feature error (variance of phi(q) · phi(k) about 1 / (2D)). cos_train_features=True also trains Ω and b: a
+  random-feature error: each of the D terms of phi(q) · phi(k) is cos(ω·(q-k)) + cos(ω·(q+k) + 2b), so with κ the exact
+  kernel value Var[phi(q) · phi(k)] = (1 - κ² + κ⁴/2) / D: 1/D for unrelated pairs (κ ≈ 0) and 1/(2D) for q = k.
+  cos_train_features=True also trains Ω and b: a
   feed-forward layer with a cosine activation (the article's parametric Cos-Bochner layer).
   """
 

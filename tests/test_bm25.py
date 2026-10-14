@@ -78,6 +78,33 @@ def test_self_match_and_unmatched_rows():
     assert torch.allclose(kappa[none], torch.full_like(kappa[none], math.exp(-layer.gamma)))
 
 
+def test_forward_returns_the_specified_kernel():
+  """Read κ through forward(): with values = I, the output row of a query is its kernel row. A stored copy of the query
+  gives κ = 1 and a row with no shared term gives e^{-γ} (catches a sign-flipped or γ-less kernel in forward)."""
+  cfg = tiny_cfg(bm25_idf=False)
+  layer = CifarRCDLClassifier(cfg).output_layer
+  x = rms_norm(torch.randn(3, 8, generator=torch.Generator().manual_seed(4)) * 2)
+  f, length = layer.terms(x)
+  layer.values = torch.zeros(40, 3)
+  layer.pending = (f, length, torch.eye(3))
+  layer.commit()
+  layer.eval()
+  with torch.no_grad():
+    kappa = layer(x)                                         # B x 3 = κ(x_b, row j) because v_j = e_j
+  assert torch.allclose(kappa.diagonal(), torch.ones(3), atol=1e-5)
+  none = ~((f[:, None, :] > 0) & (f[None, :, :] > 0)).any(-1)
+  assert none.any()
+  assert torch.allclose(kappa[none], torch.full_like(kappa[none], math.exp(-layer.gamma)), rtol=1e-5)
+
+
+def test_quantized_inputs_still_give_exactly_m_terms():
+  """Tied |coordinates| (quantized pixels, identity basis) must not add terms beyond m."""
+  layer = CifarRCDLClassifier(tiny_cfg(bm25_m=3)).output_layer
+  x = torch.tensor([[1.0, 1.0, 1.0, 1.0, -1.0, 0.5, 0.5, 0.0]] * 2)
+  f, _ = layer.terms(x)
+  assert (f > 0).sum(-1).eq(3).all()
+
+
 def test_vocabulary_expansion_shapes_and_sparsity():
   cfg = tiny_cfg(bm25_vocab=64, bm25_m=4)
   m = CifarRCDLClassifier(cfg)

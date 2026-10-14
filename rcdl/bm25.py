@@ -72,9 +72,8 @@ class BM25RBFLayer(RCDLLayer):
   def terms(self, q: torch.Tensor):
     """Sparse term frequencies f (B x 2d) of the top-m sign-split coordinates of u = R q, and the lengths (B x 1)."""
     u = q @ self.R if self.R is not None else q
-    a = u.abs()
-    cut = a.detach().topk(self.m, dim=-1).values[:, -1:]
-    sel = (a.detach() >= cut).to(u.dtype)
+    # exactly m terms: a threshold at the m-th value would keep every tie, and quantized pixels (identity basis) tie often
+    sel = torch.zeros_like(u).scatter_(-1, u.detach().abs().topk(self.m, dim=-1).indices, 1.0)
     f = torch.cat([F.relu(u) * sel, F.relu(-u) * sel], dim=-1)
     return f, f.sum(-1, keepdim=True)
 

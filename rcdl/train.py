@@ -296,12 +296,13 @@ def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, ev
             'final_db_size': sum(final_dbs.values()), 'total_full_capacity': total_full_cap,
             'per_layer_db': final_dbs, 'elapsed': elapsed, 'steps': step,
             'final_train_loss_avg100': float(np.mean(train_losses[-100:]))}
-  if linearize_eval and model.rcdl_layers():
-    for layer in model.rcdl_layers().values():
+  lin_layers = [l for l in model.rcdl_layers().values() if l.kind in ('gws', 'gauge')]   # weighted-softmax layers only
+  if linearize_eval and lin_layers:
+    for layer in lin_layers:
       layer.linearize = True
     result['final_test_loss_linearized'], result['final_test_acc_linearized'] = rcdl_evaluate(
         model, test_x, test_y, eval_batch_size)
-    for layer in model.rcdl_layers().values():
+    for layer in lin_layers:
       layer.linearize = False
     print(f'[eval] linearized exp(z) -> 1 + z: acc={result["final_test_acc_linearized"]:.4f}', flush=True)
   print(f'--> Finished in {elapsed:.1f}s | Final Test Accuracy: {result["final_test_acc"] * 100:.2f}%', flush=True)

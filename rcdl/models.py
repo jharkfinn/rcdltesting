@@ -78,6 +78,8 @@ class CifarViT(nn.Module):
     self.ln1 = nn.ModuleList([nn.LayerNorm(d) for _ in range(L)])
     self.attn = nn.ModuleList([nn.MultiheadAttention(d, cfg.vit_heads, batch_first=True) for _ in range(L)])
     self.ln2 = nn.ModuleList([nn.LayerNorm(d) for _ in range(L)])
+    if cfg.kernel_type in ('cos', 'bm25', 'hybrid', 'parametric_softmax'):
+      raise ValueError(f"arch 'vit' supports kernel_type 'standard', 'gws', 'gauge' and 'rbf', not {cfg.kernel_type!r}")
     if cfg.kernel_type == 'standard':
       r = cfg.vit_ffn_blowup
       self.ffn = nn.ModuleList([nn.Sequential(nn.Linear(d, r * d), nn.GELU(), nn.Linear(r * d, d)) for _ in range(L)])
