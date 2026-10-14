@@ -297,7 +297,7 @@ GWS test accuracy over training (CIFAR-10, epochs 5 / 10 / 20 / 30 / 40 / 50): 6
 | RBF L = 2: test / train acc (%) | 60.9 / 77.5 | 63.7 / 87.5 | 66.0 / 95.2 | 66.2 / 98.2 | **67.5** / 99.2 | 66.9 / 99.7 |
 | RBF L = 2: test loss | 1.140 | 1.131 | 1.141 | 1.172 | 1.179 | 1.215 |
 
-RBF ends at **66.92%**: above Adam (64.72), AdamW (64.49), RMSprop (64.74) and SGD (59.77), level with Mesa (66.72), 2.6 points below Muon (69.51) and 1.5 points below GWS (68.39). This is the paper's ordering for RBF. Its test loss is lowest at epoch 10-15 and rises while the train accuracy approaches 100%, so RBF overfits in the loss earlier than GWS (lowest test loss at epoch 35). At 10 epochs RBF (63.4%) is 1.2 points above Muon (62.2%); Muon overtakes it later. A second seed is reported below if it finished.
+RBF ends at **66.92%**: above Adam (64.72), AdamW (64.49), RMSprop (64.74) and SGD (59.77), level with Mesa (66.72), 2.6 points below Muon (69.51) and 1.5 points below GWS (68.39). This is the paper's ordering for RBF. Its test loss is lowest at epoch 10-15 and rises while the train accuracy approaches 100%, so RBF overfits in the loss earlier than GWS (lowest test loss at epoch 35). At 10 epochs RBF (63.4%) is 1.2 points above Muon (62.2%); Muon overtakes it later. Second seed: 66.74% (mean of two seeds 66.83 ± 0.13).
 
 Temperature at L = 0, 10 epochs (η = 0.003, β = 10, the best ratio at T = 10; Colab L4):
 
@@ -499,6 +499,52 @@ Findings:
 - **Reproduced.** Plain SGD memorizes the augmented training set by epoch ~500 (train 99.8%) and its test accuracy stays near 67-68%. Every decay rate in the paper's range ends higher (72.0-73.9%), and λ = 1e-5 reaches 74.0%, as the paper reports (74% against 67%). The ordering and the train curves match the paper's figure: larger λ fits the training set more slowly (λ = 3e-5: 76% train after 2,000 epochs) and still generalizes better than λ = 0.
 - The decay works only along the directions of the current inputs (W X X^T), so it is a data-dependent regularizer: in gradient form it is the gradient of (λ/2) Σ_b ||W x_b||² with the inputs held fixed, an activation penalty on each layer's pre-bias output. A useful control that this run does not include: an explicit activation-norm penalty with the same λ, and the paper's multiplicative weight decay (its Fig. "WeightDecay": test accuracy improves only to about 66%).
 - The gain appears late: at epoch 300 the λ > 0 models are only 1-3 points ahead, at epoch 1,000 3-3.5 points, and the curves are still rising at 2,000 epochs for λ ≥ 2e-5.
+
+### 7.9 Extensions on CIFAR-10 (user requests): Cos-Bochner random features and BM25 key matching
+
+Both compare against the growing RBF layer (L = 2, 50 epochs: 66.83% over 2 seeds; one pass: 58.39% on the same GPU, 59.10 ± 0.62 over 5 seeds) and MLP + Muon (69.5% at 50 epochs, 62.2% at 10, 57.4% in one pass). One seed each, molab GPU (RTX PRO 6000).
+
+**Cos-Bochner** (`kernel_type='cos'`, `rcdl/layers.py` CosBochnerLayer; the X article's finite-width form of the growing RBF layer). φ(q) = sqrt(2/D) cos(Ω q + b) with Ω_ij ~ N(0, 1/(T sqrt(d))) and b ~ U[0, 2π), so E[φ(q)·φ(k)] equals the RBF kernel exp(-||q - k||²/(2T sqrt(d))); output s(q) = A^T φ(q). With Ω, b frozen and plain SGD on A at rate η B, one step adds Σ_b φ(q_b) v_b^T with v_b = -η B ḡ_b, which is the RBF write rule in feature space (exact test in `tests/test_cos_bochner.py`; on a small problem the remaining gap to the growing layer is the random-feature error alone, with variance (1 - κ² + κ⁴/2)/D per kernel value κ). L = 2, 50 epochs, T = 10, η = 10 (`experiments/configs/cos_bochner.json`):
+
+| Variant | Width D | Test acc (%) | Train acc, 2,000 images (%) | Minutes |
+|---|---|---|---|---|
+| Frozen features, SGD at η B = 640 | 3,072 | 25.30 (unstable, training loss 6.9) | 26.2 | 2.6 |
+| | 12,288 | 40.86 | 59.5 | 3.3 |
+| | 49,152 | 48.34 | 85.0 | 11.9 |
+| | 196,608 | 51.95 | 94.3 | 46.8 |
+| Trained Ω, b, A (Muon, lr 1e-3) | 3,072 | 65.37 | 81.1 | 22.2 |
+| | 12,288 | **67.14** | 89.8 | 52.9 |
+| Trained Ω, b, A (Adam, lr 3e-4) | 12,288 | 47.23 | 48.2 | 9.0 |
+
+Findings:
+- The frozen random-feature model approaches the growing RBF layer only slowly with width: 52% at 196,608 features against 66.8% for the growing table. At T = 10 and d = 3,072 the kernel between unrelated images is small (about e^{-3} to e^{-5.5}), so the random-feature noise (standard deviation about 1/sqrt(D) per kernel value) is of the same size; the model memorizes the training set through that noise (94% train, 52% test). Rudi and Rosasco (2017) predict D of order sqrt(N) log N (about 24k for N = 2.5M rows) for the generalization of random-feature ridge regression; this online, deep setting needs far more.
+- Trained Cos-Bochner layers with Muon match the growing RBF layer at width 12,288 (67.1% against 66.8%) as a fixed-size model (2 × 37.7M weights per hidden layer), but stay 2.4 points below the GELU MLP with Muon (69.5%). Adam at the MLP's rate fails (47%); its rate was not tuned.
+
+**BM25 key matching** (`kernel_type='bm25'`, `rcdl/bm25.py`; user specification: an RBF layer that uses sparse BM25 instead of the dot product for key matching). With RMS-normalized vectors the RBF kernel is exp(γ (<q, k> - <q, q>)/<q, q>) with γ = sqrt(d)/T. The BM25 layer keeps this form and the RBF write rule and replaces the dot product by an Okapi BM25 score S: κ(q, k_j) = exp(γ (S(q, k_j) - S(q, q))/S(q, q)), so a stored copy of the query gets κ = 1 and a row without shared terms gets e^{-γ}. Terms: the m largest |coordinates| of u = R q split by sign (R a fixed random rotation, or a Gaussian d × V/2 expansion), term frequency |u_i|, k1 = 1.2, b = 0.75, IDF from live document frequencies of the stored rows, query weights = query term frequencies. Tests check the score against a literal term-by-term Okapi BM25 and κ through the layer's forward pass. One pass (L = 2, batch 16, T = 10, η = 10; `experiments/configs/bm25_rbf.json`):
+
+| Variant | Test acc (%) |
+|---|---|
+| RBF (dot product), same GPU | **58.39** |
+| BM25, vocabulary 2d = 6,144, m = 1,024 terms per vector | 53.97 |
+| ... without IDF / without saturation (k1 → ∞, b = 0) / without rotation | 53.86 / **54.90** / 54.25 |
+| ... m = 256 / 3,072 | 51.96 / 49.85 |
+| ... T = 5 / 20 (γ = 11.1 / 2.8) | 49.97 / 38.57 |
+| ... η = 3 / 30 | 52.84 / 48.92 |
+| BM25, expanded vocabulary 16,384 terms, m = 32 / 128 / 512 | 44.45 / 48.56 / 52.23 |
+| ... m = 128 without IDF / without saturation | 48.70 / 11.61 (diverged) |
+| BM25, expanded vocabulary 65,536 terms, m = 32 / 128 / 512 | 43.53 / 47.09 / 49.69 |
+| ... m = 128 without IDF / without saturation | 47.24 / 46.81 |
+
+10 epochs (batch 64, augmentation, bf16 tables): BM25 m = 1,024: 61.32%; m = 256: 58.02%; m = 3,072: 58.52% (RBF 63.39%, Muon 62.22%).
+
+Findings:
+- BM25 key matching is 4.4 points below the dot product in one pass and 2.1 points below at 10 epochs (where it is also 0.9 points below Muon).
+- More sparsity hurts. Accuracy follows the number of active terms m, and at equal m a larger vocabulary is worse (m = 512: 52.2% with 16k terms, 49.7% with 64k). Text BM25 works at 0.1-1% of a Zipf-distributed vocabulary per document; here the terms come from random projections of normalized vectors, are used about equally often, and carry no more information per match as the vocabulary grows.
+- The BM25-specific parts do not help: IDF changes nothing (±0.15 points; with near-uniform term use every IDF is about the same), saturation hurts slightly (54.9% without it) and without it the sparse 16k-vocabulary run diverged.
+- A likely reason for the gap: the sign-split BM25 score only adds positive evidence. Coordinates where query and key have opposite signs add nothing, while the dot product subtracts them, so BM25 cannot penalize mismatches.
+- Not run: a vocabulary with structured, unevenly used terms (k-means visual words of image patches). A design agent measured on the CPU that exact kernel ridge regression on bag-of-visual-words features reaches 74.5% at 32,000 training images against 56.1% for the pixel RBF kernel, and that tf, tf-idf and BM25 weightings of those words give the same linear-ridge accuracy (about 68.5%). So the representation, not the BM25 weighting, would carry such a gain.
+
+Code review (14 agents, independent reviewers and refuting verifiers): one confirmed defect, fixed and rerun (ties at the top-m cut gave more than m terms for quantized pixels in the identity-basis ablation: 54.07% → 54.25% after the fix); two docstrings corrected (bf16 matmul output rounding, random-feature variance); guards added (ViT with these kernels; linearized evaluation only for weighted-softmax layers); a forward-level kernel test added. No other number changed.
 
 ## 8. Discrepancies between paper, notebooks and article
 
