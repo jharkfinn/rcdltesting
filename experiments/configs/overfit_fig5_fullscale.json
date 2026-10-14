@@ -1,0 +1,30 @@
+{
+ "_comment": "Claim 15 at the paper's full scale (Fig. 5; App. E.4 table): parametric softmax with 2,560,000 trained keys of width 3,072 and 10-dim values, all 50,000 CIFAR-10 training images with augmentation, batch 64, Adam 3e-3 (lowest rate of the paper's grid), T = 1, plain softmax (fixed equal weights). bf16 parameters and Adam moments (about 63 GB; fp32 would need about 126 GB). The paper trains 2,000 epochs (about 40 GPU-hours here); this run is stopped when its time budget is used, and the logged evaluations (every 5 epochs, 2,000 test and 2,000 non-augmented training images) cover the start of training, where the paper's test accuracy peaks (~3-5% of training) and starts to fall.",
+ "defaults": {
+  "eval_every": 3905,
+  "eval_subset": 2000,
+  "eval_batch_size": 64
+ },
+ "experiments": {
+  "psm_L0_N2560k_T1_lr0.003_fullscale": {
+   "run": {
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "parametric_softmax",
+    "hidden_dim": 3072,
+    "num_layers": 0,
+    "temperature": 1.0,
+    "db_size": 2560000,
+    "full_epoch_capacity": 2560000,
+    "optimizer": "adam",
+    "learning_rate": 0.003,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 2000,
+    "learn_parametric_weights": false,
+    "store_dtype": "bfloat16"
+   }
+  }
+ }
+}

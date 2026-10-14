@@ -186,6 +186,27 @@ def test_bf16_storage_rejects_unsupported_options():
     CifarRCDLClassifier(RCDLConfig(**small_cfg(kernel_type='gws', store_dtype='bfloat16', model_momentum=0.9)))
 
 
+def test_bf16_parametric_softmax_trains_like_fp32():
+  """store_dtype='bfloat16' for the parametric softmax (full-scale Fig. 5): bf16 parameters, same initial function up to
+  bf16 rounding, and training with Adam stays close to the fp32 model over a few steps."""
+  kw = small_cfg(kernel_type='parametric_softmax', db_size=40, learning_rate=1e-2, temperature=1.0,
+                 learn_parametric_weights=False, num_layers=0)
+  ref, low = (CifarRCDLClassifier(RCDLConfig(**kw, store_dtype=s)) for s in ('float32', 'bfloat16'))
+  assert low.output_layer.keys.dtype == torch.bfloat16 and low.output_layer.keys.requires_grad
+  tx = torch.randn(8, 24, generator=torch.Generator().manual_seed(4))
+  with torch.no_grad():
+    rel0 = ((ref(tx) - low(tx)).norm() / ref(tx).norm()).item()
+  assert rel0 < 2e-2, rel0
+  opts = [create_rcdl_optimizer(m, m.cfg) for m in (ref, low)]
+  for x, y in batches(6):
+    for m, o in zip((ref, low), opts):
+      rcdl_train_step(m, o, x.clone(), y)
+  ref.eval(), low.eval()
+  with torch.no_grad():
+    rel = ((ref(tx) - low(tx)).norm() / ref(tx).norm()).item()
+  assert rel < 0.1, rel
+
+
 def test_bf16_rbf_keeps_key_norms():
   """The stored ||k_j||^2 of a bf16 RBF layer equals the norm of the stored (rounded) key after training."""
   m = CifarRCDLClassifier(RCDLConfig(**small_cfg(kernel_type='rbf', db_size=48, store_dtype='bfloat16')))

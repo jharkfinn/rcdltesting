@@ -276,7 +276,7 @@ class RCDLLayer(nn.Module):
     self.cfg, self.kind, self.T = cfg, cfg.kernel_type, cfg.temperature
     n, B = cfg.db_size, cfg.batch_size
     dev = torch.device('cpu') if device is None else torch.device(device)
-    store = (torch.bfloat16 if cfg.store_dtype == 'bfloat16' and self.kind in ('gws', 'gauge', 'rbf')
+    store = (torch.bfloat16 if cfg.store_dtype == 'bfloat16' and self.kind in ('gws', 'gauge', 'rbf', 'parametric_softmax')
              else torch.get_default_dtype())
     if cfg.store_dtype not in ('float32', 'bfloat16'):
       raise ValueError(f'unknown store_dtype {cfg.store_dtype!r}')
@@ -289,7 +289,15 @@ class RCDLLayer(nn.Module):
     keys = torch.zeros(n, d_in, dtype=store, device=dev)
     values = torch.zeros(n, d_out, dtype=store, device=dev)
     weights = torch.zeros(n, 1, device=dev)
-    if self.kind == 'parametric_softmax':   # fixed-size random table, every entry active from the start
+    if self.kind == 'parametric_softmax' and store == torch.bfloat16:
+      # bf16 table (full-scale Fig. 5: 2.56M x 3072 keys), drawn in chunks straight into the device tensor so that no
+      # fp32 copy of the whole table is made; the trained parameters and their Adam moments are bf16 as well
+      for i in range(0, n, 65536):
+        keys[i:i + 65536] = (torch.randn(min(65536, n - i), d_in, generator=gen) / math.sqrt(d_in)).to(dev, store)
+      values = (torch.randn(n, d_out, generator=gen) * 0.02).to(dev, store)
+      weights = torch.ones(n, 1, device=dev)
+      self.size = n
+    elif self.kind == 'parametric_softmax':   # fixed-size random table, every entry active from the start
       keys = (torch.randn(n, d_in, generator=gen) / math.sqrt(d_in)).to(dev)
       values = (torch.randn(n, d_out, generator=gen) * 0.02).to(dev)
       weights = torch.ones(n, 1, device=dev)
@@ -315,7 +323,10 @@ class RCDLLayer(nn.Module):
     self.growing = self.kind in ('gws', 'gauge', 'rbf')
     self.register_buffer('birth', torch.zeros(n, dtype=torch.long, device=dev))      # write step of each row (D_0: 0)
     self.register_buffer('valid_rows', torch.zeros(n, dtype=torch.bool, device=dev))  # cached mask (growing layers)
-    self.valid_rows[:self.size] = (keys[:self.size] != 0).any(-1) | (weights[:self.size, 0] != 0)
+    if self.kind == 'parametric_softmax':   # random keys and unit weights: every row is valid (no N x d temporary)
+      self.valid_rows[:self.size] = True
+    else:
+      self.valid_rows[:self.size] = (keys[:self.size] != 0).any(-1) | (weights[:self.size, 0] != 0)
     self.step, self.wrapped, self.linearize = 0, False, False   # linearize: eval-time exp(z) -> 1 + z (Fig. 4 right)
     self.next_row, self.pending = self.size, None
 
@@ -326,6 +337,8 @@ class RCDLLayer(nn.Module):
   def forward(self, q: torch.Tensor) -> torch.Tensor:
     cfg = self.cfg
     if self.kind == 'parametric_softmax':   # cached mask: random keys never become all-zero rows, so every row stays
+      if self.keys.dtype != q.dtype:        # bf16 table (store_dtype): every row is valid, no mask needed
+        return weighted_attention_lowp(q, self.keys, self.values, self.weights, self.T)
       return weighted_attention(q, self.keys, self.values, self.weights, self.T, valid=self.valid_rows)  # valid
     if self.kind == 'hybrid':
       m = self.size
