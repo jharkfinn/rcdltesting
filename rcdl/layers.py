@@ -70,6 +70,8 @@ class RCDLConfig:
   bm25_b: float = 0.75               # b: document-length normalization
   bm25_idf: bool = True              # IDF from live document frequencies of the stored rows
   bm25_rotate: bool = True           # terms over a fixed random rotation R q (False: over the coordinates of q)
+  bm25_vocab: int = 0                # V > 0: expand to V terms (Gaussian d x V/2 projection, split by sign; fly-hash
+                                     # style sparse expansion); 0: V = 2d (rotation or identity)
   bm25_gamma: Optional[float] = None # γ: contrast, κ(unmatched) = e^{-γ}; default sqrt(d) / T, the RBF's range
   # --- Cos-Bochner random-feature layer ('cos'; the article's finite-width form of the growing RBF layer) ---
   cos_width: int = 4096              # D: number of random Fourier features

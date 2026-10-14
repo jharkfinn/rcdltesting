@@ -78,6 +78,17 @@ def test_self_match_and_unmatched_rows():
     assert torch.allclose(kappa[none], torch.full_like(kappa[none], math.exp(-layer.gamma)))
 
 
+def test_vocabulary_expansion_shapes_and_sparsity():
+  cfg = tiny_cfg(bm25_vocab=64, bm25_m=4)
+  m = CifarRCDLClassifier(cfg)
+  layer = m.output_layer
+  assert layer.R.shape == (8, 32) and layer.keys.shape[1] == 64 and layer.n_t.shape == (64,)
+  for x, y in batches(3):
+    rcdl_train_step(m, None, x, y)
+  assert (layer.keys[:layer.size] != 0).sum(1).eq(4).all()
+  assert layer.n_t.sum().item() == 4 * layer.size
+
+
 def test_deep_bm25_trains_and_eval_is_batch_independent():
   cfg = tiny_cfg(hidden_dim=16, num_layers=2, bm25_m=6, bm25_rotate=True, db_size=48)
   m = CifarRCDLClassifier(cfg)

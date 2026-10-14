@@ -1,5 +1,5 @@
 {
- "_comment": "BM25-RBF (rcdl/bm25.py): the growing RBF layer with sparse Okapi BM25 key matching in place of the dot product, kappa = exp(gamma (S(q,k) - S(q,q)) / S(q,q)), gamma = sqrt(d)/T (the RBF kernel exactly when S is the dot product). One pass, the paper's single-pass setting (L = 2, batch 16, T = 10, eta = 10; RBF 59.10 +- 0.62 over 5 seeds, Muon 57.41 +- 0.52). Defaults: m = 1024 terms per vector (top |coordinates| of a random rotation, split by sign), k1 = 1.2, b = 0.75, live IDF. Ablations: m, rotation, IDF, saturation (k1 -> inf, b = 0), temperature (gamma), value rate. *_10ep: 10 epochs, batch 64, augmentation (RBF 63.39, Muon 62.22).",
+ "_comment": "BM25-RBF (rcdl/bm25.py): the growing RBF layer with sparse Okapi BM25 key matching in place of the dot product, kappa = exp(gamma (S(q,k) - S(q,q)) / S(q,q)), gamma = sqrt(d)/T (the RBF kernel exactly when S is the dot product). One pass, the paper's single-pass setting (L = 2, batch 16, T = 10, eta = 10; RBF 59.10 +- 0.62 over 5 seeds, Muon 57.41 +- 0.52). Defaults: m = 1024 terms per vector (top |coordinates| of a random rotation, split by sign), k1 = 1.2, b = 0.75, live IDF. Ablations: m, rotation, IDF, saturation (k1 -> inf, b = 0), temperature (gamma), value rate. *_10ep: 10 epochs, batch 64, augmentation (RBF 63.39, Muon 62.22). Sparse expansion (second round): bm25_vocab V = 16k / 64k terms (Gaussian d x V/2 projection, split by sign) with m = 32 / 128 / 512 terms per vector (0.05-3% of the vocabulary, the regime of text BM25), plus IDF and saturation ablations at m = 128.",
  "defaults": {
   "eval_every": 1000000,
   "eval_subset": 2000,
@@ -185,6 +185,152 @@
     "augment": true,
     "num_epochs": 10,
     "store_dtype": "bfloat16"
+   }
+  },
+  "bm25_1ep_V16k_m32": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 32,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 16384
+   }
+  },
+  "bm25_1ep_V16k_m128": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 128,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 16384
+   }
+  },
+  "bm25_1ep_V16k_m512": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 512,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 16384
+   }
+  },
+  "bm25_1ep_V16k_m128_nosat": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 128,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 16384,
+    "bm25_k1": 1000000.0,
+    "bm25_b": 0.0
+   }
+  },
+  "bm25_1ep_V16k_m128_noidf": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 128,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 16384,
+    "bm25_idf": false
+   }
+  },
+  "bm25_1ep_V64k_m32": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 32,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 65536
+   }
+  },
+  "bm25_1ep_V64k_m128": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 128,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 65536
+   }
+  },
+  "bm25_1ep_V64k_m512": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 512,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 65536
+   }
+  },
+  "bm25_1ep_V64k_m128_nosat": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 128,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 65536,
+    "bm25_k1": 1000000.0,
+    "bm25_b": 0.0
+   }
+  },
+  "bm25_1ep_V64k_m128_noidf": {
+   "cfg": {
+    "kernel_type": "bm25",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "eta": 10.0,
+    "db_size": 50000,
+    "batch_size": 16,
+    "bm25_m": 128,
+    "store_dtype": "bfloat16",
+    "bm25_vocab": 65536,
+    "bm25_idf": false
    }
   }
  }

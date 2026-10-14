@@ -7,9 +7,11 @@ This layer keeps that form and the RBF write rule, and replaces the dot product 
 so a stored copy of the query itself gets κ ≈ 1 and a row that shares no term with the query gets e^{-γ}, the same range as
 the RBF. Replacing S by the dot product gives the RBF layer exactly.
 
-Terms. u = R q (R: fixed random orthogonal d x d matrix, or the identity), and the m coordinates of largest |u_i| become
-terms, split by sign: term i+ with frequency f_{i+} = max(u_i, 0) and term i- with f_{i-} = max(-u_i, 0). So each vector is
-a sparse "document" of m terms over a vocabulary of V = 2d terms, with length len = Σ_t f_t.
+Terms. u = R q (R: fixed random orthogonal d x d matrix, the identity, or with bm25_vocab = V a Gaussian d x V/2
+expansion with N(0, 1/d) entries), and the m coordinates of largest |u_i| become terms, split by sign: term i+ with frequency
+f_{i+} = max(u_i, 0) and term i- with f_{i-} = max(-u_i, 0). So each vector is a sparse "document" of m terms over a
+vocabulary of V = 2d (or bm25_vocab) terms, with length len = Σ_t f_t. Text BM25 works at about 0.1-1% of the vocabulary per
+document; the expansion (as in the fly hash of Dasgupta et al. 2017) reaches that regime without dropping information.
 
 Okapi BM25 (k1, b):
     S(q, j) = Σ_t w_t(q) IDF(t) f_t(k_j) (k1 + 1) / (f_t(k_j) + k1 (1 - b + b len(k_j) / avglen)),
@@ -49,17 +51,20 @@ class BM25RBFLayer(RCDLLayer):
     dev = torch.device('cpu') if device is None else torch.device(device)
     store = torch.bfloat16 if cfg.store_dtype == 'bfloat16' else torch.get_default_dtype()
     self.cfg, self.kind, self.T, self.d = cfg, 'bm25', cfg.temperature, d_in
-    self.m = min(cfg.bm25_m, d_in)
+    half = cfg.bm25_vocab // 2 if cfg.bm25_vocab > 0 else d_in      # projected coordinates; vocabulary V = 2 * half
+    self.m = min(cfg.bm25_m, half)
     self.gamma = cfg.bm25_gamma if cfg.bm25_gamma is not None else math.sqrt(d_in) / cfg.temperature
     n = cfg.db_size
-    if cfg.bm25_rotate:
-      g = torch.Generator().manual_seed(cfg.global_init_seed * 1000 + layer_id)
+    g = torch.Generator().manual_seed(cfg.global_init_seed * 1000 + layer_id)
+    if cfg.bm25_vocab > 0:                      # expansion: Gaussian d x half projection (unit-variance outputs)
+      self.register_buffer('R', (torch.randn(d_in, half, generator=g) / math.sqrt(d_in)).to(dev))
+    elif cfg.bm25_rotate:
       self.register_buffer('R', torch.linalg.qr(torch.randn(d_in, d_in, generator=g))[0].to(dev))
     else:
       self.R = None
-    self.register_buffer('keys', torch.zeros(n, 2 * d_in, dtype=store, device=dev))    # stored document-side tf
+    self.register_buffer('keys', torch.zeros(n, 2 * half, dtype=store, device=dev))    # stored document-side tf
     self.register_buffer('values', torch.zeros(n, d_out, dtype=store, device=dev))
-    self.register_buffer('n_t', torch.zeros(2 * d_in, dtype=torch.float64, device=dev))  # document frequencies
+    self.register_buffer('n_t', torch.zeros(2 * half, dtype=torch.float64, device=dev))  # document frequencies
     self.avglen = None
     self.size, self.step, self.pending, self.growing, self.linearize, self.wrapped = 0, 0, None, True, False, False
     self.next_row = 0
