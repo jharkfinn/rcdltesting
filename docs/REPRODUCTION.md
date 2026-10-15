@@ -572,7 +572,9 @@ Findings:
 - The forgetting has a different shape. The growing layer declines smoothly. Cos-Bochner and GeGLU with Muon drop and recover early (Cos-Bochner 49.4% at step 50, 94.2% at step 100) and then decline. GeGLU with Muon never collapses as GeGLU with AdamW does (lowest 48.0%, against 12.0% and 22.4%).
 - So the article's statement that the RBF layer "seems to do better" in fine-tuning holds against AdamW-trained FFNs. Under Muon the growing layer forgets about as much as GeGLU (one seed each). Runs H below test why.
 
-Figure: `docs/figures/bios_muon.png` (pre-training and fine-tuning with AdamW against Muon; colour = FFN, line style = optimizer; right: the fine-tuning branches of runs H).
+![Biographies: AdamW against Muon in pre-training and fine-tuning; fine-tuning branches of runs H](figures/bios_muon.png)
+
+Colour = FFN, line style = optimizer (dashed AdamW, solid Muon); right: the fine-tuning branches of runs H from one pre-trained state.
 
 **Why the growing layer forgets under Muon (runs H).** Two explanations fit runs G: (a) with Muon, the GeGLU layers below the table learn many of the facts during pre-training, and fine-tuning overwrites them; (b) the Muon fine-tuning steps move the layers below the table so far that the stored keys no longer match the queries of the old individuals. Runs H repeat the growing-layer runs (Muon: G; AdamW: seed 1 of §7.5b) and branch the fine-tuning from the same pre-trained state (`finetune_variants`): the original optimizer; every trained weight frozen (`finetune_lr` 0; only the table writes act); and, for the Muon run, a fresh AdamW at 3e-5 on every weight (`finetune_optimizer`). At the end of pre-training and of every branch they also measure the accuracy with the table read switched off (`eval_no_table`): the share of the facts that the other layers hold.
 
@@ -672,13 +674,15 @@ Findings:
 
   Round to nearest costs 4.6 points after 5 epochs; stochastic rounding is level with fp32 (43.96% against 42.95%; one seed each, so the 1-point difference was not compared with the seed-to-seed spread). The full-scale run uses stochastic rounding.
 
-**Full-scale run (fourth round; molab RTX PRO 6000, one seed).** The paper's setting: 2,560,000 trained keys of width 3,072 with 10-dimensional values, all 50,000 training images with augmentation, plain softmax (fixed equal weights), T = 1, Adam 3e-3 (the lowest rate of the paper's grid), batch 64. bf16 keys, values and first moment with stochastic rounding, fp32 second moment. Every 2 epochs: test accuracy on all 10,000 test images, train accuracy on the first 2,000 training images without augmentation. One epoch takes 113-115 s with the GPU alone and about 240 s while a biography run shares it. At the time of writing the run is at epoch 60 and still running; the paper trains 2,000 epochs. Figure: `docs/figures/fig5_fullscale.png` (GWS at L = 0 from §7.2 for comparison; its test accuracy uses 2,000 test images before the last evaluation).
+**Full-scale run (fourth round; molab RTX PRO 6000, one seed).** The paper's setting: 2,560,000 trained keys of width 3,072 with 10-dimensional values, all 50,000 training images with augmentation, plain softmax (fixed equal weights), T = 1, Adam 3e-3 (the lowest rate of the paper's grid), batch 64. bf16 keys, values and first moment with stochastic rounding, fp32 second moment. Every 2 epochs: test accuracy on all 10,000 test images, train accuracy on the first 2,000 training images without augmentation. One epoch takes 113-115 s with the GPU alone and about 240 s while a biography run shares it. At the time of writing the run is at epoch 60 and still running; the paper trains 2,000 epochs. Figure below (GWS at L = 0 from §7.2 for comparison; its test accuracy uses 2,000 test images before the last evaluation).
 
 | Epoch | 10 | 20 | 30 | 40 | 50 | 60 |
 |---|---|---|---|---|---|---|
 | Parametric softmax, 2.56M keys: test / train acc (%) | 39.6 / 39.5 | 44.5 / 45.3 | 47.3 / 50.8 | 49.0 / 52.8 | 49.7 / 54.1 | **51.1** / 57.3 |
 | Test / train loss | 1.69 / 1.69 | 1.58 / 1.56 | 1.51 / 1.42 | 1.47 / 1.36 | 1.45 / 1.31 | 1.43 / 1.23 |
 | 250k keys, fp32, Adam 1e-3 (above; test acc on 2,000 test images before epoch 50): test / train acc (%) | 41.5 / 41.1 | 44.4 / 45.8 | 46.1 / 48.9 | 46.8 / 51.3 | 49.1 / 52.3 | |
+
+![Fig. 5 at full scale: parametric softmax with 2.56M trained keys against GWS](figures/fig5_fullscale.png)
 
 Interim findings (epoch 60):
 - The fixed optimizer state trains: 51.1% test accuracy at epoch 60, against 27% for the stalled bf16 run (§7.7 above).
