@@ -78,6 +78,8 @@ class RCDLConfig:
   cos_train_features: bool = False   # False: frozen Ω, b (random features of the RBF kernel); True: train Ω, b too
   store_dtype: str = 'float32'       # 'float32' | 'bfloat16': stored keys and values of 'gws'/'gauge'/'rbf' (weights
                                      # stay fp32); bf16 halves the memory (L = 2, 50 epochs: 77 GB instead of 154 GB)
+  bf16_stochastic_rounding: bool = False  # bf16 trained tables ('parametric_softmax'): Adam writes p and m with
+                                     # unbiased stochastic rounding (rcdl/triton_adam.py); False: round to nearest
   dataset: str = 'cifar10'           # 'cifar10' | 'cifar100'
   # --- ViT (paper Sec. 5 'Mixing retrieval-centric and parametric layers', App. E.9) ---
   arch: str = 'resmlp'               # 'resmlp' | 'vit' (num_layers = ViT blocks, hidden_dim = token width)

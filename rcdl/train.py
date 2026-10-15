@@ -37,19 +37,27 @@ class AdamFP32SecondMoment(torch.optim.Optimizer):
   torch.optim.Adam stores m and v in the parameter dtype. In bf16 the update v <- β2 v + (1 - β2) g² with β2 = 0.999
   changes v by at most 0.1% per step, below bf16's rounding step (~0.4%), so v can rise but never fall and the
   effective step size m / sqrt(v) shrinks over training (tests/test_layers.py; this stalled the first full-scale Fig. 5
-  attempt). Here v is fp32 and the update is computed in fp32 in row chunks, so no full-size fp32 copy is made.
+  attempt). Here v is fp32 and the update is computed in fp32: on CUDA by one fused Triton kernel (rcdl/triton_adam.py,
+  no temporaries), elsewhere in row chunks, so no full-size fp32 copy is made.
   Memory for the 2.56M x 3072 table: 15.7 GB parameters + 15.7 gradients + 15.7 m + 31.5 v = 78.6 GB.
+
+  stochastic_rounding=True writes the bf16 p and m with unbiased stochastic rounding (rcdl/triton_adam.py), so steps
+  smaller than half the bf16 spacing of a parameter are kept on average instead of being rounded away.
   """
 
-  def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, chunk_rows=262144):
+  def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, chunk_rows=65536, stochastic_rounding=False,
+               seed=0, fused=None):
     super().__init__(params, dict(lr=lr, betas=betas, eps=eps))
-    self.chunk_rows = chunk_rows
+    self.chunk_rows, self.stochastic, self.fused, self.seed, self.gens = chunk_rows, stochastic_rounding, fused, seed, {}
 
   @torch.no_grad()
   def step(self):
+    from rcdl import triton_adam
+    k = -1
     for group in self.param_groups:
       b1, b2 = group['betas']
       for p in group['params']:
+        k += 1
         if p.grad is None:
           continue
         st = self.state[p]
@@ -60,15 +68,27 @@ class AdamFP32SecondMoment(torch.optim.Optimizer):
         st['step'] += 1
         t = st['step']
         c1, c2 = 1.0 - b1 ** t, 1.0 - b2 ** t
+        fused = triton_adam.available(p) and p.grad.is_contiguous() if self.fused is None else self.fused
+        if fused:
+          seed = (self.seed * 1_000_003 + t * 7919 + k * 104_729) % (2 ** 31 - 1)   # fresh Philox stream per step
+          triton_adam.adam_fp32v_step_(p, p.grad, st['m'], st['v'], group['lr'], b1, b2, c1, c2, group['eps'],
+                                       seed=seed, stochastic=self.stochastic)
+          continue
         P, G, M, V = (x.view(x.shape[0], -1) if x.dim() > 0 else x.view(1, 1) for x in (p, p.grad, st['m'], st['v']))
+        rnd = lambda x: x.to(P.dtype)
+        if self.stochastic and P.dtype == torch.bfloat16:
+          if P.device not in self.gens:
+            self.gens[P.device] = torch.Generator(P.device).manual_seed(self.seed)
+          gen = self.gens[P.device]
+          rnd = lambda x: triton_adam.stochastic_round_bf16(x, gen)
         for i in range(0, P.shape[0], self.chunk_rows):
           sl = slice(i, i + self.chunk_rows)
           g = G[sl].float()
           m = M[sl].float().mul_(b1).add_(g, alpha=1.0 - b1)
           V[sl].mul_(b2).addcmul_(g, g, value=1.0 - b2)
           upd = (m / c1) / (V[sl] / c2).sqrt_().add_(group['eps'])
-          M[sl] = m.to(M.dtype)
-          P[sl] = (P[sl].float() - group['lr'] * upd).to(P.dtype)
+          M[sl] = rnd(m) if M.dtype == torch.bfloat16 else m.to(M.dtype)
+          P[sl] = rnd(P[sl].float() - group['lr'] * upd)
 
 
 def _store_input(module, inputs):
@@ -177,7 +197,8 @@ def create_rcdl_optimizer(model: CifarRCDLClassifier, cfg: RCDLConfig):
   if opt_name == 'rmsprop':         # decay 0.9, eps 1e-8
     return torch.optim.RMSprop(params, lr=lr, alpha=0.9, eps=1e-8)
   if any(p.dtype == torch.bfloat16 for p in params):   # bf16 tables (store_dtype): keep Adam's second moment in fp32
-    return AdamFP32SecondMoment(params, lr=lr)
+    return AdamFP32SecondMoment(params, lr=lr, stochastic_rounding=cfg.bf16_stochastic_rounding,
+                                seed=cfg.global_init_seed)
   # RCDL_FUSED_ADAM=1: one fused CUDA kernel per step (same update; floating-point order differs slightly). Default off.
   fused = os.environ.get('RCDL_FUSED_ADAM') == '1' and all(p.is_cuda for p in params)
   return torch.optim.Adam(params, lr=lr, fused=fused or None)

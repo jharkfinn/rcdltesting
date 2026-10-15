@@ -248,3 +248,50 @@ def test_eval_is_independent_of_batch_size():
   tx, ty = torch.randn(12, 24), torch.randint(0, 5, (12,))
   a, b = rcdl_evaluate(m, tx, ty, 3), rcdl_evaluate(m, tx, ty, 12)
   assert abs(a[0] - b[0]) < 1e-5 and a[1] == b[1]
+
+
+def test_stochastic_rounding_is_unbiased_and_keeps_small_adam_steps():
+  """stochastic_round_bf16 returns a bf16 neighbour of x with mean x; with it, Adam steps below half the bf16 spacing
+  move the parameters on average (round to nearest leaves them at their start value)."""
+  from rcdl.train import AdamFP32SecondMoment
+  from rcdl.triton_adam import stochastic_round_bf16
+  x = torch.full((200_000,), 1.0 - 1e-3)                    # bf16 neighbours 1 - 2^-8 and 1
+  r = stochastic_round_bf16(x, torch.Generator().manual_seed(0)).float()
+  assert set(r.unique().tolist()) == {1.0 - 2 ** -8, 1.0}
+  assert abs(r.mean().item() - x[0].item()) < 4 * (2 ** -8) * 0.5 / math.sqrt(len(x))
+  assert x.bfloat16().float().unique().tolist() == [1.0]    # round to nearest: the offset is lost
+  w = {s: torch.nn.Parameter(torch.ones(100_000, 4, dtype=torch.bfloat16)) for s in (False, True)}
+  opts = {s: AdamFP32SecondMoment([w[s]], lr=1e-4, stochastic_rounding=s, seed=1) for s in (False, True)}
+  for _ in range(20):                                       # Adam moves each entry by ~lr = 1e-4 per step
+    for s in (False, True):
+      w[s].grad = torch.ones_like(w[s])
+      opts[s].step()
+  assert w[False].float().unique().tolist() == [1.0]
+  assert abs(w[True].float().mean().item() - (1.0 - 20 * 1e-4)) < 2e-4
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason='needs CUDA and Triton')
+def test_fused_triton_adam_matches_chunked_update():
+  """The fused kernel (rcdl/triton_adam.py) gives the chunked PyTorch update: v to fp32 rounding, p and m to one bf16
+  spacing (the two paths order the fp32 operations differently). With stochastic rounding it is unbiased on the GPU."""
+  from rcdl.train import AdamFP32SecondMoment
+  g = torch.Generator(device='cuda').manual_seed(0)
+  w0 = torch.randn(3001, 37, device='cuda', generator=g).bfloat16()
+  grads = [torch.randn(3001, 37, device='cuda', generator=g).bfloat16() * (0.7 ** k) for k in range(12)]
+  ws = [torch.nn.Parameter(w0.clone()) for _ in range(2)]
+  opts = [AdamFP32SecondMoment([w], lr=1e-2, fused=f) for w, f in zip(ws, (True, False))]
+  for gr in grads:
+    for w, o in zip(ws, opts):
+      w.grad = gr.clone()
+      o.step()
+  (a, b), (sa, sb) = ws, (opts[0].state[ws[0]], opts[1].state[ws[1]])
+  assert torch.allclose(sa['v'], sb['v'], rtol=1e-5, atol=1e-12)
+  for x, y in ((a, b), (sa['m'], sb['m'])):
+    ulp = 2.0 ** (torch.floor(torch.log2(y.float().abs().clamp_min(1e-30))) - 7)
+    assert ((x.float() - y.float()).abs() <= ulp + 1e-12).all()
+  p = torch.nn.Parameter(torch.ones(1_000_000, device='cuda', dtype=torch.bfloat16))
+  o = AdamFP32SecondMoment([p], lr=1e-4, stochastic_rounding=True, fused=True)
+  for _ in range(20):
+    p.grad = torch.ones_like(p)
+    o.step()
+  assert abs(p.float().mean().item() - (1.0 - 20 * 1e-4)) < 5e-5
