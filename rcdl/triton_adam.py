@@ -31,7 +31,7 @@ def stochastic_round_bf16(x: torch.Tensor, gen: torch.Generator = None) -> torch
 
 if triton is not None:
   @triton.jit(do_not_specialize=['seed'])
-  def _adam_fp32v_kernel(p_ptr, g_ptr, m_ptr, v_ptr, n, lr, b1, b2, c1, c2, eps, seed,
+  def _adam_fp32v_kernel(p_ptr, g_ptr, m_ptr, v_ptr, n, lr, b1, b2, omb1, omb2, c1, c2, eps, seed,
                          STOCHASTIC: tl.constexpr, BLOCK: tl.constexpr):
     offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK)   # int64: the table has 7.9e9 elements
     mask = offs < n
@@ -39,8 +39,8 @@ if triton is not None:
     m = tl.load(m_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     v = tl.load(v_ptr + offs, mask=mask, other=0.0)
     p = tl.load(p_ptr + offs, mask=mask, other=0.0).to(tl.float32)
-    m = b1 * m + (1.0 - b1) * g
-    v = b2 * v + (1.0 - b2) * g * g
+    m = b1 * m + omb1 * g      # omb = 1 - β computed in float64 on the host (1 - fp32(0.999) is off by 1.3e-5)
+    v = b2 * v + omb2 * g * g
     p = p - lr * (m / c1) / (tl.sqrt(v / c2) + eps)
     if STOCHASTIC:
       r = tl.randint4x(seed, offs)
@@ -63,6 +63,7 @@ def adam_fp32v_step_(p, g, m, v, lr, b1, b2, c1, c2, eps, seed: int = 0, stochas
   assert p.is_contiguous() and g.is_contiguous() and m.is_contiguous() and v.is_contiguous()
   assert v.dtype == torch.float32 and p.shape == g.shape == m.shape == v.shape
   n = p.numel()
-  _adam_fp32v_kernel[(triton.cdiv(n, block),)](p, g, m, v, n, float(lr), float(b1), float(b2), float(c1), float(c2),
+  _adam_fp32v_kernel[(triton.cdiv(n, block),)](p, g, m, v, n, float(lr), float(b1), float(b2), 1.0 - b1, 1.0 - b2,
+                                                float(c1), float(c2),
                                                 float(eps), int(seed), STOCHASTIC=stochastic, BLOCK=block,
                                                 num_warps=8)
