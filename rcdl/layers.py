@@ -293,7 +293,8 @@ class RCDLLayer(nn.Module):
     weights = torch.zeros(n, 1, device=dev)
     if self.kind == 'parametric_softmax' and store == torch.bfloat16:
       # bf16 table (full-scale Fig. 5: 2.56M x 3072 keys), drawn in chunks straight into the device tensor so that no
-      # fp32 copy of the whole table is made; the trained parameters and their Adam moments are bf16 as well
+      # fp32 copy of the whole table is made; the trained parameters and Adam's first moment are bf16 as well (with
+      # optimizer 'adam' the second moment is fp32: rcdl/train.py AdamFP32SecondMoment)
       for i in range(0, n, 65536):
         keys[i:i + 65536] = (torch.randn(min(65536, n - i), d_in, generator=gen) / math.sqrt(d_in)).to(dev, store)
       values = (torch.randn(n, d_out, generator=gen) * 0.02).to(dev, store)

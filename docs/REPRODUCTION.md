@@ -10,7 +10,7 @@ Status: final. Numbers come from `results/` (not committed) and `experiments/sum
 
 ## 0. Claims and verdicts
 
-Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours were used, then 2.50 more A100-hours at the user's request to rerun work lost with the first A100 session (total 14.37). A third round, at the user's go-ahead to exceed the target, used 3.30 Colab G4 hours and a free marimo molab GPU for the claims still open (11, 15, 17, 18, 19), and 1.42 more G4 hours for a full-scale Fig. 5 attempt that stalled (§7.7). A fourth round on a free molab GPU (one 12-hour session) fixed and ran the full-scale Fig. 5 (§7.7) and ran the article's biography experiment on a small Gemma 3 style decoder (§7.5b, §7.5c); section 10 has the ledger. "Reproduced" means the same number within the stated spread, or the same qualitative result where the paper gives only a plot.
+Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours were used, then 2.50 more A100-hours at the user's request to rerun work lost with the first A100 session (total 14.37). A third round, at the user's go-ahead to exceed the target, used 3.30 Colab G4 hours and a free marimo molab GPU for the claims still open (11, 15, 17, 18, 19), and 1.42 more G4 hours for a full-scale Fig. 5 attempt that stalled (§7.7). A fourth round on free molab GPUs (a 9-minute session that molab ended, then one session of up to 12 hours) fixed the full-scale Fig. 5 and ran its first epochs (§7.7) and ran the article's biography experiment on a small Gemma 3 style decoder (§7.5b, §7.5c); section 10 has the ledger. "Reproduced" means the same number within the stated spread, or the same qualitative result where the paper gives only a plot.
 
 | # | Claim (source) | Verdict | Evidence |
 |---|---|---|---|
@@ -28,7 +28,7 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | 12 | Training loss falls much faster for GWS and RBF (Fig. 2 middle) | Reproduced for L = 2 (online loss 0.75 after 10 epochs; Muon 1.12, Adam 1.31) and in one pass (1.20 against Muon 1.26) | §7.4, figure |
 | 13 | Depth helps up to 2 hidden layers; temperature effect is non-monotonic (Fig. 4 left) | Reproduced. Depth: one pass 53.5 / 58.5 / 59.4, 10 epochs 58.6 / 63.8 / 65.1 for L = 0 / 1 / 2. Temperature (L = 0, 10 epochs): 53.5 / 58.6 / 51.3 for T = 3 / 10 / 30 | §5.1, §7.4 |
 | 14 | Linearizing exp after training causes a large drop (Fig. 4 right) | Reproduced: 61.9 → 15.9 (50 epochs, L = 0); 21-24% at every depth after 10 epochs | §7.2, §7.4 |
-| 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Reproduced at 1/10 of the data with the paper's ratios (keys = GWS database size, 2,000 vs 50 epochs): the parametric model's test accuracy peaks at 43.3% (12.5% of training) and falls to 39.8% while its train accuracy rises to 93%; GWS ends at its best, 49.3%. Full scale, 50 epochs: GWS 61.9 vs 49.1. As in the paper's own figure, GWS also has a large final train-test gap; the claim holds in the sense that its test accuracy does not fall. Learned weights make the parametric model diverge (as the paper reports) | §7.7 |
+| 15 | The parametric softmax overfits with a widening gap; GWS does not (Fig. 5) | Reproduced at 1/10 of the data with the paper's ratios (keys = GWS database size, 2,000 vs 50 epochs): the parametric model's test accuracy peaks at 43.3% (12.5% of training) and falls to 39.8% while its train accuracy rises to 93%; GWS ends at its best, 49.3%. All 50,000 images with 250k keys (Adam 1e-3, below the paper's grid), 50 epochs: GWS 61.9 vs 49.1. The paper's full-scale model (2.56M keys, Adam 3e-3, one seed) reaches 51.1% test / 57.3% train at epoch 60 of 2,000 (§7.7; still running at the time of writing), below the paper's peak of about 55.5%, so overfitting at full scale is not yet shown. As in the paper's own figure, GWS also has a large final train-test gap; the claim holds in the sense that its test accuracy does not fall. Learned weights make the parametric model diverge (as the paper reports) | §7.7 |
 | 16 | ViT with GWS FFNs beats the parametric ViT after one epoch: 54.4 vs 48.4 (Sec. 5) | Reproduced: 55.24 at the first setting and 58.41 at the best of four (all four 52.5-58.4) vs 49.62 for the best standard ViT; needed an exact two-call FlashAttention form because PyTorch's fused attention backward slows 50 times at 2^21 keys | §5.3 |
 | 17 | The hybrid layer keeps accuracy with sublinear growth (Fig. 6) | Reproduced: capacities within 4 points of the paper at every τ; accuracy within 1.2 points for τ ≥ 50 with the notebook setting (two seeds at τ = 50: 56.2, 56.5). At τ = 35 the notebook setting fails (49.5, 44.3), but the paper's per-τ tuning grid (27 settings) gives 58.29% at 89.0% of the rows (three seeds of that setting: mean 58.27 ± 0.04; paper ~58.6% at ~88%) | §5.2 |
 | 18 | DeltaNet decay improves a 10-layer MLP over 2,000 epochs: 74% vs 67% (App. E.3.1) | Reproduced: λ = 1e-5 reaches 74.0% (final 73.7%) against 68.3% for plain SGD; all five decay rates of the paper's figure match it within about 1-2 points in test and train accuracy. Second seed: 73.7% against 67.5% | §7.8 |
@@ -54,7 +54,7 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | DeltaNet decay, 10-block MLP, 2,000 epochs, 5 decay rates at once | `python3 -m experiments.deltanet_long --out results/deltanet` | any GPU (3 GB) | about 2 h on an RTX PRO 6000 |
 | Fig. 5 at 1/10 scale; hybrid tuning at τ = 35 | `experiments/configs/overfit_fig5_scaled.json`, `hybrid_tau35_tuning.json` with `experiments.run` | 1 GPU (13-17 GB) | about 45 min per parametric run; 2-4 min per hybrid run |
 | All runs for the claims opened in the last round | `bash experiments/queue_open_claims.sh results/open data` | 1 GPU with 96 GB | about 4 h |
-| Synthetic biographies on the Gemma 3 style decoder (§7.5b) | `python3 -m experiments.bios experiments/configs/bios.json --only <name>` (`--set eval_seen_templates=true` adds the seen-template evaluation) | 1 GPU; growing-RBF runs need the Triton kernels | 10-20 min (GeGLU, Cos-Bochner) to 1.5-2 h (growing RBF, 2M rows) per run on an RTX PRO 6000 |
+| Synthetic biographies on the Gemma 3 style decoder (§7.5b) | `python3 -m experiments.bios experiments/configs/bios.json --only <name>` (`--set eval_seen_templates=true` adds the seen-template evaluation) | 1 GPU; growing-RBF runs need the Triton kernels | 10-20 min (GeGLU, Cos-Bochner) to 1-1.6 h (growing RBF, 2M rows, 6,000 pre-training steps; fine-tuning adds up to 0.2 h) per run on an RTX PRO 6000 shared with other jobs |
 | Fig. 5 at full scale (2.56M trained keys, bf16 table, fp32 Adam second moment, stochastic rounding) | `python3 -m experiments.run experiments/configs/overfit_fig5_fullscale.json --run-set eval_every=1562 eval_subset=10000 --set bf16_stochastic_rounding=true --tag sr` | 1 GPU with 96 GB (82 GB used) | 145 ms per step alone: 113 s per epoch |
 | Figures | `python3 -m experiments.plots` | any | seconds |
 
@@ -534,7 +534,7 @@ Findings:
 - The write-rate confound named in §7.5b does not explain the fast learning of new facts: with η scaled like the optimizer rate, the growing layer still reaches 96.6% at step 75 and 98.8% at step 100 (GeGLU: 99.8% at steps 500-525), and keeps the same share of old facts (89.0% against 88.8%). A likely reason is that every exposure of a new individual adds rows, so even small rows add up within a few exposures (about 6 by step 75); not tested.
 - The pre-training dips replicate (seed 2: 58.7% at step 1,100), and the seen-template and held-out accuracy differ by at most 5.2 points, so the growing layer's facts depend little on wording.
 
-**Muon** (Muon on every weight matrix except the tied embedding, AdamW 4e-4 on the embedding and the norm scales, the same cosine schedule; N = 8,192; one seed each; rates 1e-3 and 1e-2 chosen on the evaluation set; seen-template evaluation on):
+**Muon** (Muon on every weight matrix except the tied embedding, AdamW 4e-4 on the embedding, the norm scales and (Cos-Bochner) the phase offsets b; Ω, a matrix, is under Muon; the same cosine schedule; N = 8,192; one seed each; rates 1e-3 and 1e-2 chosen on the evaluation set; seen-template evaluation on):
 
 | FFN + optimizer | Plateau (reached → end) | 50% / 90% acc (step) | Final held-out / seen (%) | Training loss |
 |---|---|---|---|---|
@@ -554,7 +554,7 @@ Findings:
 - This bears on the article's claim that Cos-Bochner approaches the growing RBF layer: with Muon it does, at width 4,096 already.
 - Open: the growing layer with Muon on its other layers, and fine-tuning under Muon (runs G below). The Muon rate grid had two points and was chosen on the evaluation set; one seed each.
 
-**Fine-tuning under Muon** (runs G; pre-training as in the Muon 1e-2 runs above; fine-tuning on 1,024 new individuals for 1,000 steps, batch 16, no replay, every rate at 0.075 of its pre-training peak as in §7.5b: Muon 7.5e-4, AdamW 3e-5; N = 8,192; one seed each). Old facts are the 8,192 pre-training individuals (held-out frames); new facts are the 1,024 new individuals.
+**Fine-tuning under Muon** (runs G; pre-training as in the Muon 1e-2 runs above; fine-tuning on 1,024 new individuals for 1,000 steps, batch 16, no replay, every rate at 0.075 of its pre-training peak as in §7.5b: Muon 7.5e-4, AdamW 3e-5; N = 8,192; one seed each). Old facts are measured on 1,024 of the 8,192 pre-training individuals (the fixed random sample used throughout §7.5b, held-out frames); new facts on all 1,024 new individuals (held-out frames).
 
 | Run | Old facts at fine-tuning step 0 / 25 / 50 / 75 / 100 / 250 / 500 / 1,000 (%) | New facts at step 25 / 75 / 100 / 150 / 250 (%) |
 |---|---|---|
@@ -599,14 +599,14 @@ Findings:
 - GWS reaches higher test accuracy (48.8% against 40.8%), as in the paper, and the parametric baseline is "slower to fit the training data", as the paper says.
 - The paper's other statement does not hold here: GWS has by far the larger train-test gap (48 points against 7), and its gap widens. GWS memorizes the training set (97%) while its test accuracy keeps rising slowly. The parametric softmax shows only a small widening gap. At this scale, the difference between the two models is how fast they fit, not whether they overfit.
 - The instability of learned weights reproduces.
-- Full scale (all 50,000 images, 250,000 trained keys, plain softmax, Adam 1e-3, T = 1, 50 epochs, A100, 33 min):
+- All data, 250,000 trained keys (all 50,000 images, plain softmax, Adam 1e-3, T = 1, 50 epochs, A100, 33 min; test accuracy on the first 2,000 test images before epoch 50, all 10,000 at epoch 50):
 
 | Epoch | 5 | 10 | 20 | 30 | 40 | 50 |
 |---|---|---|---|---|---|---|
 | Parametric softmax: test / train acc (%) | 37.2 / 37.1 | 41.5 / 41.1 | 44.4 / 45.8 | 46.1 / 48.9 | 46.8 / 51.3 | **49.1 / 52.3** |
 | GWS, L = 0 (section 7.2): test / train acc (%) | 56.1 / 65.2 | 58.5 / 72.3 | 60.2 / 76.6 | 60.3 / 80.1 | 61.4 / 82.1 | **61.9 / 82.3** |
 
-  At 50 epochs the parametric model is still underfitting (train 52%) and its test accuracy is still rising; the gap is 3 points. The paper's widening gap appears after much longer training (2,000 epochs, 40 times this run, about 22 A100-hours at this table size). GWS is 12.8 points ahead on test accuracy and fits much faster, as claimed; its own gap (20 points) is larger, as is the gap in the paper's own figure (about 26 points).
+  At 50 epochs the parametric model is still underfitting (train 52%) and its test accuracy is still rising; the gap is 3 points. In the paper's figure the test accuracy peaks near epoch 60 (3% of training) at about 55.5%, so the paper's gap starts to widen soon after this run's last epoch. This run is about 6 points below the paper's curve at epoch 50 (49.1%), so it fits more slowly than the paper's model; the missing widening gap is not only a matter of run length. The 2,000 epochs at this table size would take about 22 A100-hours. GWS is 12.8 points ahead on test accuracy and fits much faster, as claimed; its own gap (20 points) is larger, as is the gap in the paper's own figure (about 26 points).
 
 **Fig. 5 with the paper's ratios at 1/10 of the data (third round, `overfit_fig5_scaled.json`).** The paper's full-scale parametric model (2.56M trained keys of width 3,072) needs about 126 GB for parameters, gradients and Adam state. This version keeps the paper's two ratios on the first 5,000 training images: the parametric softmax has as many trained keys as the GWS database holds after 50 epochs (249,664, about 50 per image, as in the paper), and it trains for 2,000 epochs against 50 for GWS. Plain softmax (fixed equal weights), T = 1, Adam 3e-3 and 1e-2 (the two lowest rates of the paper's grid), batch 64, augmentation. Train accuracy on 2,000 non-augmented training images, test accuracy on 2,000 test images (final row: all 10,000). Colab G4, 97 minutes.
 
@@ -631,20 +631,20 @@ Findings:
 | bf16 parameters, bf16 m, fp32 v, round to nearest | 38.35 | 1.776 |
 | bf16 parameters, bf16 m, fp32 v, stochastic rounding | **43.96** | **1.616** |
 
-  Round to nearest costs 4.6 points after 5 epochs; stochastic rounding matches fp32 (one seed each; the 1-point difference is inside the seed spread of these runs). The full-scale run uses stochastic rounding.
+  Round to nearest costs 4.6 points after 5 epochs; stochastic rounding is level with fp32 (43.96% against 42.95%; one seed each, so the 1-point difference was not compared with the seed-to-seed spread). The full-scale run uses stochastic rounding.
 
 **Full-scale run (fourth round; molab RTX PRO 6000, one seed).** The paper's setting: 2,560,000 trained keys of width 3,072 with 10-dimensional values, all 50,000 training images with augmentation, plain softmax (fixed equal weights), T = 1, Adam 3e-3 (the lowest rate of the paper's grid), batch 64. bf16 keys, values and first moment with stochastic rounding, fp32 second moment. Every 2 epochs: test accuracy on all 10,000 test images, train accuracy on the first 2,000 training images without augmentation. One epoch takes 113-115 s with the GPU alone and about 240 s while a biography run shares it. At the time of writing the run is at epoch 60 and still running; the paper trains 2,000 epochs. Figure: `docs/figures/fig5_fullscale.png` (GWS at L = 0 from §7.2 for comparison; its test accuracy uses 2,000 test images before the last evaluation).
 
 | Epoch | 10 | 20 | 30 | 40 | 50 | 60 |
 |---|---|---|---|---|---|---|
 | Parametric softmax, 2.56M keys: test / train acc (%) | 39.6 / 39.5 | 44.5 / 45.3 | 47.3 / 50.8 | 49.0 / 52.8 | 49.7 / 54.1 | **51.1** / 57.3 |
-| Test / train loss | 1.69 / 1.69 | 1.58 / 1.56 | 1.51 / 1.42 | 1.47 / 1.36 | 1.45 / 1.31 | 1.43 / 1.24 |
-| 250k keys, fp32, Adam 1e-3 (above): test / train acc (%) | 41.5 / 41.1 | 44.4 / 45.8 | 46.1 / 48.9 | 46.8 / 51.3 | 49.1 / 52.3 | |
+| Test / train loss | 1.69 / 1.69 | 1.58 / 1.56 | 1.51 / 1.42 | 1.47 / 1.36 | 1.45 / 1.31 | 1.43 / 1.23 |
+| 250k keys, fp32, Adam 1e-3 (above; test acc on 2,000 test images before epoch 50): test / train acc (%) | 41.5 / 41.1 | 44.4 / 45.8 | 46.1 / 48.9 | 46.8 / 51.3 | 49.1 / 52.3 | |
 
 Interim findings (epoch 60):
 - The fixed optimizer state trains: 51.1% test accuracy at epoch 60, against 27% for the stalled bf16 run (§7.7 above).
 - The paper's test peak (about 55.5% near epoch 60) is not reached by epoch 60: test accuracy is 4.4 points lower and still rising, and the test loss is still falling. The train-test gap is 6.2 points and widens slowly (about 0 at epoch 10, 3.5 at epoch 30).
-- Possible reasons, not tested: the paper's figure may use a different rate from its grid; the bf16 table with stochastic rounding matched fp32 only in a 5-epoch check at 1/10 of the keys; one seed.
+- Possible reasons, not tested: the paper's figure may use a different rate from its grid; the bf16 table with stochastic rounding matched fp32 only in a 5-epoch check at 1/10 of the keys, one seed per setting; one seed.
 
 ### 7.8 SGD with DeltaNet-like decay, 10-block MLP, 2,000 epochs (paper App. E.3.1, claim 18)
 
@@ -811,7 +811,7 @@ Not attempted after the first two rounds, and done in the third round: the 2,000
 
 Still not attempted, with cost estimates:
 - The full 2,000 epochs of the full-scale parametric softmax of Fig. 5 (2.56M trained keys of width 3,072). The fourth round ran the full-scale model with a fused Adam step (fp32 second moment, bf16 parameters and first moment with stochastic rounding, 78.6 GB of state) for at least 60 epochs (still running at the time of writing) in one free molab session (§7.7). At 113 s per epoch alone, 2,000 epochs need about 63 GPU-hours more. Claim 15 rests on the 1/10-scale run with the paper's ratios (§7.7) and on the start of the full-scale run.
-- The article's biography task at the article's scale. The article publishes no code or configuration. The fourth round used a 6.13M-parameter decoder with the Gemma 3 layer layout, trained from scratch (§7.5b, §7.5c). A pre-trained Gemma 3 checkpoint, larger models and more than 16,384 individuals were not tried. Cost estimate (not measured): the body of Gemma 3 270M (18 layers, width 640, about 100M parameters without the embedding) with this task's small vocabulary needs about 6 × 10⁸ × 1.97 × 10⁸ ≈ 1.2 × 10¹⁷ FLOPs for 6,000 steps of 64 × 512 tokens. At 50-100 TFLOPS sustained in bf16 that is 20-40 minutes per GeGLU or Cos-Bochner run on one RTX PRO 6000. The growing RBF read scales with the width, so a 2M-row run at width 640 costs about 2.5 times the 1.5-2 hours measured at width 256.
+- The article's biography task at the article's scale. The article publishes no code or configuration. The fourth round used a 6.13M-parameter decoder with the Gemma 3 layer layout, trained from scratch (§7.5b, §7.5c). A pre-trained Gemma 3 checkpoint, larger models and more than 16,384 individuals were not tried. Cost estimate (not measured): the body of Gemma 3 270M (18 layers, width 640, GeGLU width 2,048, about 100M parameters without the embedding) with this task's small vocabulary needs about 6 × 10⁸ × 1.97 × 10⁸ ≈ 1.2 × 10¹⁷ FLOPs for 6,000 steps of 64 × 512 tokens (the 6ND rule; attention scores at length 512 add a few percent). At 50-100 TFLOPS sustained in bf16 that is 20-40 minutes per GeGLU run on one RTX PRO 6000. A Cos-Bochner FFN with trained Ω has 2 × 640 × D parameters per layer, so the body is about 124M at D = 4,096 (25-50 minutes) and about 407M at D = 16,384 (1.4-2.7 hours). The growing RBF read costs rows × width per routed token, 2.5 times more at width 640 than at 256. The current fused kernel (`rcdl/rbf_triton.py`) pads the width to the next power of two (1,024 for 640, 4 times 256), and its launch settings were tuned at width 256, so a width-640 run first needs a kernel that loops over the width in fixed chunks. With such a kernel, a 2M-row run would take about 2.5 times the 1-1.6 hours measured at width 256 on a shared GPU.
 
 Third-round efficiency (one 96 GB GPU per machine, two to four job streams each):
 
@@ -829,7 +829,7 @@ Fourth-round efficiency:
 | Fused Triton Adam step with fp32 second moment and optional stochastic rounding (`rcdl/triton_adam.py`) | 18 bytes per element per step and no temporaries, so the 2.56M-key table (78.6 GB of state) fits on one 96 GB GPU; 145 ms per step alone |
 | Fused Triton RBF read and query gradient (`rcdl/rbf_triton.py`) | 412 ms against 1,772 ms per step for the chunked PyTorch path at 4M rows (4.3 times); 4 warps instead of 8 another 17% (no duplicated MMA tiles) |
 | Fine-tuning branches from one pre-trained state (`finetune_variants`) | two fine-tuning conditions for the cost of one pre-training run |
-| Results copied every 20 minutes and uploaded to a private Hugging Face dataset | nothing lost when a molab sandbox ends |
+| Results copied every 20 minutes and uploaded to a private Hugging Face dataset | finished results and logs survive the end of a sandbox up to the last copy (at most 20 minutes lost); runs in progress stop and cannot resume, because no checkpoints are written (the 256k-key rounding check was lost with molab-2) |
 
 GPU efficiency work on the second A100 session (prompted by the question whether the GPU time was used well; measured on the A100):
 

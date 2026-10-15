@@ -503,13 +503,14 @@ def fig_fig5_full(roots, out):
   if gws:   # two runs share this name (eta 1 and 0.003); section 7.2 reports the better one
     g = [e for e in max(gws, key=lambda g: g[-1]['test_acc']) if e['step'] > 0]
     xg = [e['step'] / spe for e in g]
-    axes[0].plot(xg, [100 * e['test_acc'] for e in g], '-', color=SERIES[0], linewidth=1.8, label='GWS, L = 0, 50 epochs: test')
+    axes[0].plot(xg, [100 * e['test_acc'] for e in g], '-', color=SERIES[0], linewidth=1.8, label='GWS, L = 0, 50 epochs: test (2,000 images; epoch 50: 10,000)')
     axes[0].plot(xg, [100 * e['train_acc'] for e in g], '--', color=SERIES[0], linewidth=1.4, label='GWS: train')
-    axes[1].plot(xg, [e['test_loss'] for e in g], '-', color=SERIES[0], linewidth=1.8, label='GWS: test')
+    axes[1].plot(xg, [e['test_loss'] for e in g], '-', color=SERIES[0], linewidth=1.8,
+                 label='GWS: test (2,000 images; epoch 50: 10,000)')
   axes[0].plot([60], [55.5], 'o', color=INK2, markersize=7, label='paper: test peak (about 55.5%, about epoch 60)')
   axes[0].axhline(49.0, color=INK2, linestyle=':', linewidth=1.0, label='paper: test at epoch 2,000 (about 49%)')
   style(axes[0], 'Fig. 5 at full scale (all 50,000 images)', 'epoch', 'accuracy (%)')
-  axes[1].plot(x, [e['test_loss'] for e in ev], '-', color=SERIES[1], linewidth=1.8, label='parametric: test')
+  axes[1].plot(x, [e['test_loss'] for e in ev], '-', color=SERIES[1], linewidth=1.8, label='parametric: test (10,000 images)')
   axes[1].plot(x, [e['train_loss'] for e in ev], '--', color=SERIES[1], linewidth=1.4, label='parametric: train (non-augmented)')
   style(axes[1], 'Cross-entropy loss', 'epoch', 'nats')
   axes[1].legend(fontsize=8, frameon=False)
