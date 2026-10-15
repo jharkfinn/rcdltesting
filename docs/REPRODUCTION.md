@@ -422,7 +422,7 @@ All three forget most old facts within 250 steps. Only the growing layer recover
 
 ### 7.5b Synthetic biographies on a small Gemma 3 style decoder (the article's setup, fourth round)
 
-The article's language experiment uses "a small Gemma 3 model" on Zucchet et al.'s biographies and gives no code or configuration. `rcdl/bios.py` rebuilds both parts from the two sources (`experiments/configs/bios.json`; molab RTX PRO 6000).
+The article's language experiment uses "a small Gemma 3 model" on Zucchet et al.'s biographies and gives no code or configuration. `rcdl/bios.py` rebuilds both parts from the two sources (`experiments/configs/bios.json`; molab RTX PRO 6000). The result of every finished run (configuration, every evaluation, fine-tuning branches) is in `docs/data/bios/<run>.json`; `python3 -m experiments.plots` rebuilds the biography figures from these files alone.
 
 Data (Zucchet et al. App. B). N individuals with unique full names (first and middle name from 900, last name from 1,000) and six independent uniform attributes: birth date (12 × 31 × 201 values), birth place and current location (800 cities), university (200), major (100), company (500). Each attribute has 25 templates (5 openers × 5 frames). A biography has one sentence per attribute in random order, with the full name in every sentence and the name and the attribute type before the value. Biographies are resampled at every step and packed into 512-token sequences.
 

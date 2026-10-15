@@ -406,11 +406,14 @@ def fig_facts(facts, out):
 
 
 def load_bios(roots):
-  """{experiment name: result.json} of every biography run (rcdl/bios.py) under results/**/bios/<name>/."""
+  """{experiment name: result.json} of every biography run (rcdl/bios.py) under <root>/**/bios/<name>/result.json, and
+  the archived copies in docs/data/bios/<name>.json (results/ is not in git)."""
   out = {}
   for root in roots:
     for f in glob.glob(os.path.join(root, '**', 'bios', '*', 'result.json'), recursive=True):
       out[os.path.basename(os.path.dirname(f))] = json.load(open(f))
+    for f in glob.glob(os.path.join(root, '**', 'bios', '*.json'), recursive=True):
+      out.setdefault(os.path.basename(f)[:-len('.json')], json.load(open(f)))
   return out
 
 
@@ -580,7 +583,7 @@ def main():
   p = argparse.ArgumentParser()
   p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/cpu_overfit',
                                                   'results/colab_a2', 'results/colab_g4', 'results/molab_pull',
-                                                  'results/molab_pull2'])
+                                                  'results/molab_pull2', 'docs/data'])
   p.add_argument('--recovered', default='docs/data/singlepass_recovered.json')
   p.add_argument('--out', default='docs/figures')
   args = p.parse_args()
