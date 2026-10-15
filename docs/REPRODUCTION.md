@@ -554,7 +554,15 @@ Findings:
 - This bears on the article's claim that Cos-Bochner approaches the growing RBF layer: with Muon it does, at width 4,096 already.
 - Open: the growing layer with Muon on its other layers, and fine-tuning under Muon (runs G below). The Muon rate grid had two points and was chosen on the evaluation set; one seed each.
 
-G_PLACEHOLDER
+**Fine-tuning under Muon** (runs G; pre-training as in the Muon 1e-2 runs above; fine-tuning on 1,024 new individuals for 1,000 steps, batch 16, no replay, every rate at 0.075 of its pre-training peak as in §7.5b: Muon 7.5e-4, AdamW 3e-5; N = 8,192; one seed each). Old facts are the 8,192 pre-training individuals (held-out frames); new facts are the 1,024 new individuals.
+
+| Run | Old facts at fine-tuning step 0 / 25 / 50 / 75 / 100 / 250 / 500 / 1,000 (%) | New facts at step 25 / 75 / 100 / 150 / 250 (%) |
+|---|---|---|
+| Cos-Bochner 4k + Muon | 100.0 / 92.5 / 49.4 / 75.5 / 94.2 / 65.7 / 55.2 / 33.6 | 2.3 / 16.2 / 40.9 / 95.6 / 99.9 |
+| GeGLU + Muon | 100.0 / 98.5 / 89.2 / 95.2 / 95.5 / 81.0 / 65.3 / 48.7 | 2.7 / 30.5 / 58.8 / 95.0 / 99.9 |
+| Growing RBF (last) + Muon on the other layers | running at the time of writing | |
+
+Interim findings: with Muon, both parametric FFNs still forget most old facts within 1,000 fine-tuning steps (Cos-Bochner 100 → 33.6%, GeGLU 100 → 48.7%). Both show a dip and a recovery early on (Cos-Bochner 49.4% at step 50, 94.2% at step 100), then a slow decline. They learn the new facts later than the growing layer did with AdamW (95% at step 150, against 99.8% at step 75).
 
 ### 7.6 Cost (article: RCDL "matches but does not beat" strong baselines at much higher cost)
 
@@ -624,6 +632,19 @@ Findings:
 | bf16 parameters, bf16 m, fp32 v, stochastic rounding | **43.96** | **1.616** |
 
   Round to nearest costs 4.6 points after 5 epochs; stochastic rounding matches fp32 (one seed each; the 1-point difference is inside the seed spread of these runs). The full-scale run uses stochastic rounding.
+
+**Full-scale run (fourth round; molab RTX PRO 6000, one seed).** The paper's setting: 2,560,000 trained keys of width 3,072 with 10-dimensional values, all 50,000 training images with augmentation, plain softmax (fixed equal weights), T = 1, Adam 3e-3 (the lowest rate of the paper's grid), batch 64. bf16 keys, values and first moment with stochastic rounding, fp32 second moment. Every 2 epochs: test accuracy on all 10,000 test images, train accuracy on the first 2,000 training images without augmentation. One epoch takes 113-115 s with the GPU alone and about 240 s while a biography run shares it. At the time of writing the run is at epoch 60 and still running; the paper trains 2,000 epochs. Figure: `docs/figures/fig5_fullscale.png` (GWS at L = 0 from §7.2 for comparison; its test accuracy uses 2,000 test images before the last evaluation).
+
+| Epoch | 10 | 20 | 30 | 40 | 50 | 60 |
+|---|---|---|---|---|---|---|
+| Parametric softmax, 2.56M keys: test / train acc (%) | 39.6 / 39.5 | 44.5 / 45.3 | 47.3 / 50.8 | 49.0 / 52.8 | 49.7 / 54.1 | **51.1** / 57.3 |
+| Test / train loss | 1.69 / 1.69 | 1.58 / 1.56 | 1.51 / 1.42 | 1.47 / 1.36 | 1.45 / 1.31 | 1.43 / 1.24 |
+| 250k keys, fp32, Adam 1e-3 (above): test / train acc (%) | 41.5 / 41.1 | 44.4 / 45.8 | 46.1 / 48.9 | 46.8 / 51.3 | 49.1 / 52.3 | |
+
+Interim findings (epoch 60):
+- The fixed optimizer state trains: 51.1% test accuracy at epoch 60, against 27% for the stalled bf16 run (§7.7 above).
+- The paper's test peak (about 55.5% near epoch 60) is not reached by epoch 60: test accuracy is 4.4 points lower and still rising, and the test loss is still falling. The train-test gap is 6.2 points and widens slowly (0.1 points at epoch 10).
+- Possible reasons, not tested: the paper's figure may use a different rate from its grid; the bf16 table with stochastic rounding matched fp32 only in a 5-epoch check at 1/10 of the keys; one seed.
 
 ### 7.8 SGD with DeltaNet-like decay, 10-block MLP, 2,000 epochs (paper App. E.3.1, claim 18)
 
@@ -781,14 +802,16 @@ Each direction states what it tests, the evidence from this reproduction that mo
 | molab | marimo molab notebook (RTX PRO 6000 Blackwell, 96 GB; no compute units) | 15:40 | 03:15 (day 2), session limit | about 11.5 (free; jobs ran about 9 of these hours) | third round: GWS L = 2 for 50 epochs (CIFAR-100), Mesa and Muon tuning on CIFAR-100, hybrid τ = 35 grid for β = 10 and 60, parametric Adam 1e-2 for Fig. 5, facts width and value-rate scans |
 | g5 | Colab G4 | 02:03 (day 2) | 03:28, stopped | 1.42 (12.6 compute units) | full-scale Fig. 5 attempt with bf16 Adam state; stalled (bf16 second moment), stopped (§7.7) |
 | Total paid GPU time (Colab) | | | | 19.09 | |
+| molab-2 | marimo molab notebook (RTX PRO 6000 Blackwell, 96 GB) | 01:58 (day 3) | 02:07, sandbox terminated by molab (not by this agent) | 0.15 (free) | fourth round: GPU tests of the fused Adam kernel (found the 1 − β rounding error); the 256k-key rounding check, lost |
+| molab-3 | marimo molab notebook (RTX PRO 6000 Blackwell, 96 GB) | 13:14 (day 3) | running at the time of writing (session limit about 01:14, day 4) | up to 12 (free) | fourth round: GPU tests; the 256k-key rounding check (§7.7); 27 biography runs on the Gemma 3 style decoder (§7.5b, §7.5c); the full-scale Fig. 5 run (§7.7) |
 
 The first A100 session ended at about 07:25 without polling (Colab most likely reclaimed it as idle), and the runs after 06:59 were lost. The permission check of this agent first refused a new session; after the user asked to reconnect, a second A100 session reran all of them except the 50-epoch temperature runs at T = 3 and 30 (replaced by the 10-epoch sweep). The second session was polled every 3-4 minutes.
 
 Not attempted after the first two rounds, and done in the third round: the 2,000-epoch DeltaNet experiment (§7.8: 2.7 hours for all five decay rates at once, not 10 A100-hours, because the five models share one stacked step captured as a CUDA graph); the 2,000-epoch parametric softmax of Fig. 5 (at 1/10 of the data with the paper's ratios, §7.7); GWS at L = 2 for 50 epochs (bf16 tables on a 96 GB GPU, §7.4); the per-τ tuning of the hybrid layer at τ = 35 (§5.2). RBF at L = 2 for 50 epochs was added later (bf16 tables with stored key norms: 66.92 / 66.74%, §7.4), as were AdamW and RMSprop at 50 epochs and second seeds of the main third-round results.
 
 Still not attempted, with cost estimates:
-- The full-scale parametric softmax of Fig. 5 (2.56M trained keys of width 3,072, 2,000 epochs). In fp32 with Adam it needs about 126 GB. With bf16 parameters, gradients and Adam moments it fits in about 63 GB, but every step reads and writes about 110 GB of optimizer state: about 130 ms per step measured on an RTX PRO 6000. bf16 Adam moments stall training (§7.7); with an fp32 second moment (78.6 GB, implemented) the run needs about 3.3 GPU-hours for the first 100 epochs and about 65 for 2,000. This is far beyond the 12-hour target, so claim 15 rests on the 1/10-scale run with the paper's ratios (§7.7).
-- The article's biography task on a Gemma 3 backbone (no code or configuration published); claims 19 and 20 rest on the minimal 2-layer version (§7.5).
+- The full 2,000 epochs of the full-scale parametric softmax of Fig. 5 (2.56M trained keys of width 3,072). The fourth round ran the full-scale model with a fused Adam step (fp32 second moment, bf16 parameters and first moment with stochastic rounding, 78.6 GB of state) for at least 60 epochs (still running at the time of writing) in one free molab session (§7.7). At 113 s per epoch alone, 2,000 epochs need about 63 GPU-hours more. Claim 15 rests on the 1/10-scale run with the paper's ratios (§7.7) and on the start of the full-scale run.
+- The article's biography task at the article's scale. The article publishes no code or configuration. The fourth round used a 6.13M-parameter decoder with the Gemma 3 layer layout, trained from scratch (§7.5b, §7.5c). A pre-trained Gemma 3 checkpoint, larger models and more than 16,384 individuals were not tried. Cost estimate (not measured): the body of Gemma 3 270M (18 layers, width 640, about 100M parameters without the embedding) with this task's small vocabulary needs about 6 × 10⁸ × 1.97 × 10⁸ ≈ 1.2 × 10¹⁷ FLOPs for 6,000 steps of 64 × 512 tokens. At 50-100 TFLOPS sustained in bf16 that is 20-40 minutes per GeGLU or Cos-Bochner run on one RTX PRO 6000. The growing RBF read scales with the width, so a 2M-row run at width 640 costs about 2.5 times the 1.5-2 hours measured at width 256.
 
 Third-round efficiency (one 96 GB GPU per machine, two to four job streams each):
 
@@ -798,6 +821,15 @@ Third-round efficiency (one 96 GB GPU per machine, two to four job streams each)
 | DeltaNet: five decay rates as one stacked model, augmentation on the GPU, CUDA graph | 4.2 ms per step for all five models alone (6 ms shared), against an estimated 10 A100-hours for separate runs |
 | DeltaNet: Delta term inside the weight-gradient matmul, learning rate folded into the loss | 5.05 → 4.16 ms per step (fewer passes over the weights) |
 | Small runs placed beside the 77 GB runs (DeltaNet, facts, Mesa, hybrid) | the GPUs stayed at 97-100% use |
+
+Fourth-round efficiency:
+
+| Change | Measured effect |
+|---|---|
+| Fused Triton Adam step with fp32 second moment and optional stochastic rounding (`rcdl/triton_adam.py`) | 18 bytes per element per step and no temporaries, so the 2.56M-key table (78.6 GB of state) fits on one 96 GB GPU; 145 ms per step alone |
+| Fused Triton RBF read and query gradient (`rcdl/rbf_triton.py`) | 412 ms against 1,772 ms per step for the chunked PyTorch path at 4M rows (4.3 times); 4 warps instead of 8 another 17% (no duplicated MMA tiles) |
+| Fine-tuning branches from one pre-trained state (`finetune_variants`) | two fine-tuning conditions for the cost of one pre-training run |
+| Results copied every 20 minutes and uploaded to a private Hugging Face dataset | nothing lost when a molab sandbox ends |
 
 GPU efficiency work on the second A100 session (prompted by the question whether the GPU time was used well; measured on the A100):
 
