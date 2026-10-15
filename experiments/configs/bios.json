@@ -146,6 +146,12 @@
    "cos_train": false,
    "steps": 3000,
    "eval_seen_templates": true
+  },
+  "E_cos_all_D4k_seen_6k": {
+   "n_people": 8192,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "eval_seen_templates": true
   }
  }
 }
