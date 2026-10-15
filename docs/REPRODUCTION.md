@@ -418,6 +418,91 @@ Findings:
 
 All three forget most old facts within 250 steps. Only the growing layer recovers a part of them without replay (30.1% → 38.4%, rising steadily over the 4,000 steps); GeGLU does not recover. The article's statement is hedged and gives no numbers: "in the fine-tuning setting, the RBF, and also the Cos Bochner, seem to do better than the GeGLU. We are still exploring the interesting phenomenon that the RCDL layers can 'unforget' without replay." Both parts hold here (after 4,000 steps RBF and Cos-Bochner keep 2.5 and 1.9 times as many old facts as GeGLU; the RBF layer recovers old facts without replay), but the recovery is small. In this model the first FFN (GeGLU) and the attention layers still drift on the new individuals, so the old rows of the growing layer receive shifted queries.
 
+### 7.5b Synthetic biographies on a small Gemma 3 style decoder (the article's setup, fourth round)
+
+The article's language experiment uses "a small Gemma 3 model" on Zucchet et al.'s biographies and gives no code or configuration. `rcdl/bios.py` rebuilds both parts from the two sources (`experiments/configs/bios.json`; molab RTX PRO 6000).
+
+Data (Zucchet et al. App. B). N individuals with unique full names (first and middle name from 900, last name from 1,000) and six independent uniform attributes: birth date (12 × 31 × 201 values), birth place and current location (800 cities), university (200), major (100), company (500). Each attribute has 25 templates (5 openers × 5 frames). A biography has one sentence per attribute in random order, with the full name in every sentence and the name and the attribute type before the value. Biographies are resampled at every step and packed into 512-token sequences.
+
+Evaluation: 1,024 fixed biographies of pre-training individuals, written with held-out templates. Per individual and attribute, one frame (all 5 openers) is held out, so the wording between the name and the value is new for that individual. (A first version held out 5 random templates; 99.98% of them shared their frame with a training template of the same individual, so it measured partly memorized wording. A review caught this before the GPU runs, and those runs were restarted.)
+
+Metrics (Zucchet et al.):
+- Attribute loss: the cross-entropy summed over a value's tokens, averaged over attribute instances.
+- Attribute accuracy: every value token right (greedy).
+- No-knowledge baseline: 6.617 nats. This is the loss of a model that knows the value distributions but no individual. It accounts for prefixes that multi-token values share, because the end of a value is not scored. The plain mean of ln(count) is 6.785.
+
+Model. Gemma 3 text decoder at a small size:
+- d = 256, 6 layers (5 local : 1 global, RoPE base 10k / 1M, window 512 = the sequence length);
+- 4 query heads and 1 KV head of width 64, QK-norm;
+- sandwich RMSNorm with scale 1 + w;
+- GeGLU width 1,024 (tanh GELU);
+- embedding scaled by √d, tied output embedding;
+- 6.13M trained parameters.
+
+Training (Zucchet et al. defaults): AdamW 4e-4, betas (0.9, 0.95), weight decay 0.1, cosine to 1e-7 without warm-up, batch 64 × 512 tokens (322 biographies on average), 6,000 steps.
+
+Feed-forward variants (replacing the FFN of every layer, or of the last layer):
+- GeGLU.
+- Cos-Bochner, W_down √(2/D) cos(Ω x + b), with Ω and b trained, at widths D = 1k / 4k / 16k in every layer, and 64k in the last layer.
+- Growing RBF layer in the last layer. s(q) = Σ_j exp(−‖q − k_j‖² / (2T√d)) v_j. After each step it stores every query with v = −η dℓ/ds (ℓ the token's cross-entropy). The table is a 2M-row ring buffer during pre-training; during fine-tuning new rows are appended without eviction. The fused Triton kernel is 4.3 times faster than the chunked PyTorch path.
+
+Assumption (not in the article): the growing layer reads and writes only at fact positions, that is, where the input token is part of a value or the next token starts one. Writing every token would add about 10⁹ rows per run. Elsewhere the layer outputs 0. The control "routed GeGLU" uses the same positions with a parametric GeGLU, which separates the effect of the table from the effect of the routing.
+
+A first version routed by the target ("next token is a value token"). Inside a multi-token value, that leaked whether the value continues, so it was replaced before the GPU runs.
+
+**Plateau against N (GeGLU).** Evaluation every 100 steps. The plateau runs from the step where the attribute loss first comes within 5% of the no-knowledge loss ("reached") to the step where it falls below 0.9 times that loss ("end"):
+
+| N | Reached | End | Plateau (steps) | 50% acc | 90% acc | Final acc (%) |
+|---|---|---|---|---|---|---|
+| 4,096 | 400 | 700 | 300 | 800 | 900 | 99.98 |
+| 8,192 | 400 | 1,000 | 600 | 1,200 | 1,400 | 99.90 |
+| 16,384 | 400 | 1,600 | 1,200 | 2,000 | 2,500 | 99.95 |
+
+The plateau doubles each time N doubles, so it is proportional to N, as Zucchet et al. and the article report. In exposures per individual (322 biographies per step; a biography is 102 tokens on average), the end of the plateau falls from 55 to 39 to 31 exposures, so larger populations need fewer exposures each but more steps.
+
+**Growing RBF against GeGLU across N** (growing RBF in the last layer, T = 2, η = 1, 2M-row ring buffer; N = 4,096 on a 3,000-step schedule, the others on 6,000 steps):
+
+| N | Plateau (steps), RBF / GeGLU | 50% acc, RBF / GeGLU | 90% acc, RBF / GeGLU | Final acc (%), RBF / GeGLU |
+|---|---|---|---|---|
+| 4,096 | 200 / 300 | 600 / 800 | 700 / 900 | 99.07 / 99.98 |
+| 8,192 | 400 / 600 | 900 / 1,200 | 900 / 1,400 | 93.15 / 99.90 |
+| 16,384 | 700 / 1,200 | 1,200 / 2,000 | 1,700 / 2,500 | 87.71 / 99.95 |
+
+The growing layer's plateau also grows about in proportion to N, but it is 33-42% shorter, and the layer reaches 50% and 90% accuracy 22-40% sooner. Its final accuracy falls with N: the 2M-row ring buffer holds about 27 exposures per individual at N = 4,096 but only about 7 at N = 16,384 (the paper's layer never evicts), so part of this ceiling is likely the buffer, not the method. Untested.
+
+The growing layer's held-out accuracy also has sudden dips. At N = 16,384 it fell from 85.9% at step 1,300 to 1.7% at step 1,400, then rose back to 84.4% at step 1,500. Smaller dips appear at every N, and none appear in GeGLU or the routed-GeGLU control. The same dips show on biographies written with the individuals' training templates (2.0% at step 1,400), so they are not caused by the held-out wording. The training loss, averaged over 100 steps, does not show them. Not tested; two candidate causes: the trained upstream layers move the queries away from all stored keys at once, or many near-duplicate rows of the same fact add up to an overshoot.
+
+**Growing RBF kernel width (N = 4,096, 3,000-step schedule).** T = 2 is best: 50% at step 600, 90% at step 700 (GeGLU: 800 and 900). T = 4 gives 700 and 800, and T = 1 gives 800 and only 70% at step 1,100. The T = 1 and T = 4 runs were stopped at step 1,100 once the choice was clear; their logs hold the curves.
+
+**FFN variants at N = 8,192.** Evaluation every 100 steps, held-out frames:
+
+| FFN | Trained params | Plateau end | 50% acc | 90% acc | Final acc (%) |
+|---|---|---|---|---|---|
+| GeGLU, all layers (seed 1 / seed 2) | 6.13M | 1,000 / 1,000 | 1,200 / 1,300 | 1,400 / 1,500 | 99.90 / 99.98 |
+| Routed GeGLU in the last layer (control) | 6.13M | 900 | 1,200 | 1,400 | 100.00 |
+| Growing RBF in the last layer (T = 2, η = 1) | 5.34M + table | 700 | 900 | 900 | 93.15 (dips to 88-95%) |
+| Cos-Bochner 1k, all layers | 4.56M | 1,900 | never | never | 48.2 |
+| Cos-Bochner 4k, all layers | 14.0M | 1,300 | 2,500 | never | 74.7 |
+| Cos-Bochner 16k, all layers | 51.8M | 1,000 | 1,600 | never | 58.5 |
+| Cos-Bochner 64k, last layer | 39.0M | 800 | 1,200 | never | 68.6 |
+
+**Fine-tuning on 1,024 new individuals** (after the 6,000 pre-training steps at N = 8,192; 1,000 steps, batch 16, constant lr 3e-5, no replay unless stated; evaluation every 25 steps). Attribute accuracy (%) on held-out frames:
+
+| FFN | Old individuals at fine-tuning step 0 / 25 / 75 / 150 / 250 / 500 / 1,000 | New individuals at 25 / 75 / 250 / 500 / 1,000 |
+|---|---|---|
+| GeGLU, seed 1 | 99.9 / 26.4 / **12.0** / 28.7 / **57.5** / 43.3 / 36.8 | 0.9 / 1.3 / 34.3 / 99.8 / 100.0 |
+| GeGLU, seed 2 | 100.0 / 98.2 / **22.4** / 64.4 / **75.7** / 58.8 / 48.2 | 1.7 / 1.7 / 63.2 / 99.7 / 99.9 |
+| GeGLU, 50% replay | 100.0 / 95.8 / 98.3 / 98.7 / 98.5 / 99.1 / 99.7 | 1.2 / 2.9 / 55.5 / 98.9 / 99.7 |
+| Cos-Bochner 16k, all layers | 58.5 / 45.4 / 41.4 / 34.4 / 30.4 / 28.4 / 28.1 | 0.8 / 3.0 / 40.0 / 54.3 / 56.0 |
+| Growing RBF, last layer | 93.1 / 92.0 / 91.7 / 91.8 / 90.5 / 89.6 / **87.2** | **87.1 / 99.8** / 99.9 / 100.0 / 100.0 |
+
+Findings on fine-tuning:
+- **GeGLU forgets and then "unforgets" without replay, in both seeds.** Old-fact accuracy collapses within 75 steps (to 12% and 22%), recovers to 57.5% and 75.7% by step 250 as the new facts are learned, then declines again. Zucchet et al.'s own fine-tuning figure (their Fig. N, rendered from the paper source) shows the same dip and partial recovery for their parametric model with 8k and 16k new individuals. The recovery is therefore not specific to RCDL layers, contrary to the article's framing.
+- **The growing RBF layer does not collapse.** It keeps 87.2% of the old facts after 1,000 steps (GeGLU: 36.8% and 48.2%), and it learns the new individuals about 7 times sooner (99.8% at step 75; GeGLU reaches it at step 500). New facts become new rows (1.5M rows appended during fine-tuning, none evicted), so the shared weights need to change little. This supports the article's "the RBF ... seem[s] to do better than the GeGLU". The article's "unforget" does not describe what the growing layer does here: there is no drop to recover from.
+- Replay (half of the fine-tuning biographies drawn from the old population) prevents almost all forgetting in GeGLU (minimum 95.8%). Zucchet et al. report that replay softens the final drop but not the early one, for replay shares of about 33-97% of the fine-tuning biographies (weights 1/32 to 2, 64k old and 4k new individuals). Here a 50% share also prevents the early drop (minimum 95.8% at step 25), with 8k old and 1k new individuals.
+- Cos-Bochner 16k (all layers) declines steadily without recovery, from its lower start (58.5%).
+- Caveat: the growing RBF starts fine-tuning from a lower level (93.1% against 99.9%).
+
 ### 7.6 Cost (article: RCDL "matches but does not beat" strong baselines at much higher cost)
 
 Memory is the stored table (keys, values, weights; fp32) or the parameters; compute is per test input at the end of training. Times are wall-clock training times on the GPU named.
