@@ -534,7 +534,26 @@ Findings:
 - The write-rate confound named in §7.5b does not explain the fast learning of new facts: with η scaled like the optimizer rate, the growing layer still reaches 96.6% at step 75 and 98.8% at step 100 (GeGLU: 99.8% at steps 500-525), and keeps the same share of old facts (89.0% against 88.8%). A likely reason is that every exposure of a new individual adds rows, so even small rows add up within a few exposures (about 6 by step 75); not tested.
 - The pre-training dips replicate (seed 2: 58.7% at step 1,100), and the seen-template and held-out accuracy differ by at most 5.2 points, so the growing layer's facts depend little on wording.
 
-FOLLOWUP_PLACEHOLDER
+**Muon** (Muon on every weight matrix except the tied embedding, AdamW 4e-4 on the embedding and the norm scales, the same cosine schedule; N = 8,192; one seed each; rates 1e-3 and 1e-2 chosen on the evaluation set; seen-template evaluation on):
+
+| FFN + optimizer | Plateau (reached → end) | 50% / 90% acc (step) | Final held-out / seen (%) | Training loss |
+|---|---|---|---|---|
+| GeGLU + AdamW 4e-4 (§7.5b) | 400 → 1,000 (600) | 1,200 / 1,400 | 99.9-100 / 100.0 | 0.373 |
+| Growing RBF (last) + AdamW (§7.5b, §7.5c) | 300 → 700-800 (400-500) | 900 / 900-1,000 | 93.1-95.1 / within 5 points | 0.389 |
+| Cos-Bochner 4k + AdamW (§7.5b) | 500 → 1,300 (800) | 2,500 / never | 65.4 / 100.0 | 0.377 |
+| GeGLU + Muon 1e-3 | 400 → 800 (400) | 1,000 / 1,200 | 100.0 / 100.0 | 0.374 |
+| GeGLU + Muon 1e-2 | 300 → 600 (300) | 700 / 1,400 | 100.0 / 100.0 | 0.374 |
+| Cos-Bochner 4k + Muon 1e-3 | 800 → 1,400 (600) | 2,300 / 3,200 | 93.8 / 99.7 | 0.379 |
+| **Cos-Bochner 4k + Muon 1e-2** | **400 → 600 (200)** | **700 / 900** | **100.0 / 100.0** | 0.369 |
+COS_T2_ROW
+
+Findings:
+- **With Muon, Cos-Bochner stops memorizing wording.** At rate 1e-2 its held-out and seen accuracy are both 100% at the end (with AdamW: 65% / 100%). It has the shortest plateau of every run (200 steps) and reaches 90% at step 900, as soon as the growing RBF layer, and its final accuracy is higher than the growing layer's.
+- **Muon also shortens GeGLU's plateau** (600 → 300-400 steps). So the growing layer's advantage over GeGLU in §7.5b is measured against an AdamW baseline; against Muon-trained parametric FFNs it is gone or reversed. This repeats the CIFAR-10 finding (§7.9), where Cos-Bochner matched the growing RBF layer only with Muon.
+- This bears on the article's claim that Cos-Bochner approaches the growing RBF layer: with Muon it does, at width 4,096 already.
+- Open: the growing layer with Muon on its other layers, and fine-tuning under Muon (runs G below). The Muon rate grid had two points and was chosen on the evaluation set; one seed each.
+
+G_PLACEHOLDER
 
 ### 7.6 Cost (article: RCDL "matches but does not beat" strong baselines at much higher cost)
 
