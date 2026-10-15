@@ -151,7 +151,13 @@ class BiosConfig:
                                 # (0: the ring buffer keeps evicting the oldest rows)
   finetune_variants: str = ''   # JSON list of fine-tuning branches from the same pre-trained state, e.g.
                                 # '[{"name": "eta1"}, {"name": "eta_scaled", "rbf_eta": 0.075}]' (keys: name, rbf_eta,
-                                # finetune_lr); the first branch fills `log`, all are in result['finetune_variants']
+                                # finetune_lr (0 freezes every trained weight; growing layers still write),
+                                # finetune_optimizer ('adamw': a fresh AdamW over all trained weights for that branch, rate
+                                # finetune_lr, weight decay as in pre-training)); the first branch fills `log`, all are in
+                                # result['finetune_variants']
+  eval_no_table: bool = False   # growing layers: at the end of pre-training and of every fine-tuning branch, also evaluate
+                                # with the table read switched off ('no_table_*'): how much of the knowledge the other
+                                # layers hold
   seed: int = 1
   compile: bool = False         # torch.compile the blocks without a growing layer (CUDA)
 
@@ -478,12 +484,13 @@ class GrowingRBF(nn.Module):
     self.register_buffer('key_sq', torch.zeros(n, device=dev), persistent=False)
     self.size, self.next_row, self.written, self.pending, self.loss_tokens = 0, 0, 0, None, 1
     self.ring = cfg.rbf_capacity      # pre-training: ring buffer over rows [0, ring)
+    self.read = True                  # False: the layer outputs zeros (evaluation with the table switched off)
     self.append = False               # fine-tuning (rbf_finetune_rows > 0): append behind the ring, no eviction
     self.evicted_while_appending = 0
 
   def forward(self, x, fact):
     out = torch.zeros(x.shape, dtype=torch.float32, device=x.device)
-    if fact is None or not bool(fact.any()):
+    if not self.read or fact is None or not bool(fact.any()):
       return out
     q = rms_norm(x[fact])
     s = _RBFRead.apply(q, self.keys[:self.size], self.values[:self.size], self.key_sq[:self.size], self.c, self.chunk,
@@ -663,8 +670,10 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
   in_muon = lambda n, p: muon and p.dim() == 2 and not n.startswith('embed')
   decay = [p for n, p in named if p.dim() >= 2 and not in_muon(n, p)]
   no_decay = [p for n, p in named if p.dim() < 2]
-  opts = [torch.optim.AdamW([{'params': decay, 'weight_decay': cfg.weight_decay}, {'params': no_decay, 'weight_decay': 0.0}],
-                            lr=cfg.lr, betas=(0.9, 0.95), eps=1e-8, fused=amp or None)]
+  adamw = lambda dec, nodec: torch.optim.AdamW([{'params': dec, 'weight_decay': cfg.weight_decay},
+                                               {'params': nodec, 'weight_decay': 0.0}],
+                                              lr=cfg.lr, betas=(0.9, 0.95), eps=1e-8, fused=amp or None)
+  opts = [adamw(decay, no_decay)]
   if muon:
     opts.append(torch.optim.Muon([p for n, p in named if in_muon(n, p)], lr=cfg.muon_lr, weight_decay=cfg.weight_decay))
   opt = _Optimizers(opts)
@@ -687,9 +696,17 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
 
   log, t0, train_losses, pending = [], time.time(), [], []
 
-  def record(step, phase, out):
+  def record(step, phase, out, no_table=False):
     rec = {'step': step, 'phase': phase, 'sec': time.time() - t0, 'lr': lr_at(step)}
     rec |= {k: v for k, v in evaluate(model, old_set, amp=amp).items()}
+    if no_table and cfg.eval_no_table and growing:
+      for g in growing:
+        g.read = False
+      rec |= {f'no_table_{k}': v for k, v in evaluate(model, old_set, amp=amp).items()}
+      if new_set is not None and phase != 'pretrain':
+        rec |= {f'no_table_new_{k}': v for k, v in evaluate(model, new_set, amp=amp).items()}
+      for g in growing:
+        g.read = True
     if seen_set is not None:
       rec |= {f'seen_{k}': v for k, v in evaluate(model, seen_set, amp=amp).items() if k in ('attr_loss', 'attr_acc')}
     if new_set is not None and phase != 'pretrain':
@@ -742,7 +759,9 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
                         g.written, g.evicted_while_appending) for g in growing]}
   total = cfg.steps + (cfg.finetune_steps if M else 0)
   variant_logs = {}
+  base_opt = opt
   for vi, var in enumerate(variants):
+    opt = base_opt
     if vi > 0:
       model.load_state_dict(snap['model'])
       opt.load_state_dict(copy.deepcopy(snap['opt']))
@@ -754,17 +773,21 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
         g.size, g.next_row, g.written, g.evicted_while_appending, g.pending = size, nxt, written, ev, None
       pending.clear()
     ft_lr[0] = var.get('finetune_lr', cfg.finetune_lr)
+    if var.get('finetune_optimizer', '') == 'adamw':  # fresh AdamW over every trained weight for this branch
+      opt = _Optimizers([adamw([p for n, p in named if p.dim() >= 2], [p for n, p in named if p.dim() < 2])])
+    elif var.get('finetune_optimizer', ''):
+      raise ValueError(f"unknown finetune_optimizer {var['finetune_optimizer']!r}")
     for g in growing:
       g.eta = var.get('rbf_eta', cfg.rbf_eta)
       g.append = False
     vlog = log if vi == 0 else []
-    record(cfg.steps, 'pretrain_end', vlog)
+    record(cfg.steps, 'pretrain_end', vlog, no_table=True)
     for g in growing:
       g.append = M > 0 and cfg.rbf_finetune_rows > 0
     for step in range(cfg.steps, total):            # fine-tuning on the new individuals
       train_one(step)
       if (step + 1 - cfg.steps) % cfg.finetune_eval_every == 0 or step + 1 == total:
-        record(step + 1, 'finetune', vlog)
+        record(step + 1, 'finetune', vlog, no_table=step + 1 == total)
     variant_logs[var.get('name', f'v{vi}')] = [r for r in vlog if r['step'] >= cfg.steps]
 
   base = world.no_knowledge_loss

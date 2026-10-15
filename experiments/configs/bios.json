@@ -225,6 +225,38 @@
    "finetune_steps": 1000,
    "finetune_eval_every": 25,
    "finetune_batch_size": 16
+  },
+  "H_rbf_T2_muon_mech": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "optimizer": "muon",
+   "muon_lr": 0.01,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 2.0,
+   "rbf_capacity": 2000000,
+   "rbf_finetune_rows": 2000000,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16,
+   "eval_no_table": true,
+   "finetune_variants": "[{\"name\": \"muon\"}, {\"name\": \"frozen\", \"finetune_lr\": 0.0}, {\"name\": \"adamw\", \"finetune_optimizer\": \"adamw\"}]"
+  },
+  "H_rbf_T2_adamw_mech": {
+   "n_people": 8192,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 2.0,
+   "rbf_capacity": 2000000,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16,
+   "rbf_finetune_rows": 2000000,
+   "eval_seen_templates": true,
+   "eval_no_table": true,
+   "finetune_variants": "[{\"name\": \"adamw\"}, {\"name\": \"frozen\", \"finetune_lr\": 0.0}]"
   }
  }
 }

@@ -191,3 +191,48 @@ def test_finetune_variants_branch_from_the_same_state():
   assert v['b']['log'][0]['rbf_eta'] == [0.0] and v['a']['log'][0]['rbf_eta'] == [1.0]
   assert [e['attr_acc'] for e in v['a']['log']] == [e['attr_acc'] for e in v['a2']['log']]   # same branch, same result
   assert r['log'][-1]['step'] == 50 and r['old_acc_after_finetune'] == v['a']['old_acc_after_finetune']
+
+
+def test_frozen_and_adamw_branches_and_no_table_evaluation():
+  """finetune_lr = 0 freezes every trained weight while the growing layer keeps writing; finetune_optimizer 'adamw'
+  replaces Muon by a fresh AdamW for that branch only; eval_no_table records the accuracy with the table read off."""
+  base = dict(n_people=32, seq_len=128, batch_size=8, d_model=32, layers=2, heads=2, kv_heads=1, head_dim=16,
+              ffn_width=64, steps=40, eval_every=20, eval_bios=32, lr=3e-3, special='rbf', rbf_capacity=2000,
+              rbf_finetune_rows=20_000, finetune_people=8, finetune_steps=10, finetune_eval_every=5, finetune_batch_size=4,
+              optimizer='muon', muon_lr=1e-2, eval_no_table=True,
+              finetune_variants='[{"name": "muon"}, {"name": "frozen", "finetune_lr": 0.0}, '
+                                '{"name": "adamw", "finetune_optimizer": "adamw"}, {"name": "muon2"}]')
+  r = run_bios(BiosConfig(**base))
+  v = r['finetune_variants']
+  assert list(v) == ['muon', 'frozen', 'adamw', 'muon2']
+  for name in v:
+    first, last = v[name]['log'][0], v[name]['log'][-1]
+    assert 'no_table_attr_acc' in first and 'no_table_attr_acc' in last and 'no_table_new_attr_acc' in last
+    assert 'no_table_attr_acc' not in v[name]['log'][1]                 # only at the start and the end of a branch
+    assert last['rbf_rows'][0] > first['rbf_rows'][0]                   # the table grows in every branch
+  assert [e['attr_acc'] for e in v['muon']['log']] == [e['attr_acc'] for e in v['muon2']['log']]  # restored after 'adamw'
+  assert all(e['lr'] == 0.0 for e in v['frozen']['log'])
+  assert v['frozen']['log'][0]['attr_acc'] == v['muon']['log'][0]['attr_acc']
+
+
+def test_frozen_branch_leaves_weights_unchanged(monkeypatch):
+  """With finetune_lr = 0 the fine-tuning steps change no trained weight (AdamW and Muon both scale their update and
+  their weight decay by the rate)."""
+  import rcdl.bios as B
+  seen = {}
+  orig = B._Optimizers.step
+
+  def step(self):
+    before = [p.detach().clone() for o in self.opts for g in o.param_groups for p in g['params']]
+    orig(self)
+    after = [p.detach() for o in self.opts for g in o.param_groups for p in g['params']]
+    if all(g['lr'] == 0.0 for g in self.param_groups):
+      seen['frozen_steps'] = seen.get('frozen_steps', 0) + 1
+      assert all(torch.equal(a, b) for a, b in zip(before, after))
+  monkeypatch.setattr(B._Optimizers, 'step', step)
+  base = dict(n_people=32, seq_len=128, batch_size=8, d_model=32, layers=2, heads=2, kv_heads=1, head_dim=16,
+              ffn_width=64, steps=20, eval_every=10, eval_bios=32, lr=3e-3, special='rbf', rbf_capacity=2000,
+              rbf_finetune_rows=20_000, finetune_people=8, finetune_steps=6, finetune_eval_every=3, finetune_batch_size=4,
+              optimizer='muon', muon_lr=1e-2, finetune_variants='[{"name": "frozen", "finetune_lr": 0.0}, {"name": "m"}]')
+  B.run_bios(B.BiosConfig(**base))
+  assert seen['frozen_steps'] == 6
