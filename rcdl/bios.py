@@ -129,6 +129,9 @@ class BiosConfig:
   rbf_impl: str = 'triton'      # 'triton': fused kernels (rcdl/rbf_triton.py) on CUDA; 'torch': chunked PyTorch
   # optimization (Zucchet et al.: AdamW, betas 0.9 / 0.95, weight decay 0.1, cosine to 1e-7, no warm-up, lr 4e-4)
   lr: float = 4e-4
+  optimizer: str = 'adamw'      # 'adamw' | 'muon' (Muon on the 2-D weight matrices except the tied embedding, AdamW on the
+                                # embedding and the norm scales); the schedule scales every rate by the same factor
+  muon_lr: float = 1e-3
   weight_decay: float = 0.1
   steps: int = 4000
   final_lr: float = 1e-7
@@ -613,6 +616,34 @@ def evaluate(model: GemmaBios, data, batch: int = 256, amp: bool = False) -> Dic
           **{f'acc_{a}': per_attr[k] for k, a in enumerate(ATTRS)}}
 
 
+class _Optimizers:
+  """Several torch optimizers stepped as one; every param group keeps its initial rate in 'base_lr'."""
+
+  def __init__(self, opts):
+    self.opts = opts
+    for g in self.param_groups:
+      g['base_lr'] = g['lr']
+
+  @property
+  def param_groups(self):
+    return [g for o in self.opts for g in o.param_groups]
+
+  def zero_grad(self, set_to_none=True):
+    for o in self.opts:
+      o.zero_grad(set_to_none=set_to_none)
+
+  def step(self):
+    for o in self.opts:
+      o.step()
+
+  def state_dict(self):
+    return [o.state_dict() for o in self.opts]
+
+  def load_state_dict(self, states):
+    for o, st in zip(self.opts, states):
+      o.load_state_dict(st)
+
+
 def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu') -> Dict[str, Any]:
   dev = torch.device(device)
   amp = dev.type == 'cuda'
@@ -625,10 +656,18 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
       if blk.kind in ('geglu', 'cos'):
         blk.compile()
   params = [p for p in model.parameters() if p.requires_grad]
-  decay = [p for n, p in model.named_parameters() if p.requires_grad and p.dim() >= 2]
-  no_decay = [p for n, p in model.named_parameters() if p.requires_grad and p.dim() < 2]
-  opt = torch.optim.AdamW([{'params': decay, 'weight_decay': cfg.weight_decay}, {'params': no_decay, 'weight_decay': 0.0}],
-                          lr=cfg.lr, betas=(0.9, 0.95), eps=1e-8, fused=amp or None)
+  named = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
+  muon = cfg.optimizer == 'muon'
+  if cfg.optimizer not in ('adamw', 'muon'):
+    raise ValueError(f'unknown optimizer {cfg.optimizer!r}')
+  in_muon = lambda n, p: muon and p.dim() == 2 and not n.startswith('embed')
+  decay = [p for n, p in named if p.dim() >= 2 and not in_muon(n, p)]
+  no_decay = [p for n, p in named if p.dim() < 2]
+  opts = [torch.optim.AdamW([{'params': decay, 'weight_decay': cfg.weight_decay}, {'params': no_decay, 'weight_decay': 0.0}],
+                            lr=cfg.lr, betas=(0.9, 0.95), eps=1e-8, fused=amp or None)]
+  if muon:
+    opts.append(torch.optim.Muon([p for n, p in named if in_muon(n, p)], lr=cfg.muon_lr, weight_decay=cfg.weight_decay))
+  opt = _Optimizers(opts)
   gen = torch.Generator(device=dev).manual_seed(cfg.seed)
   eval_gen = torch.Generator(device=dev).manual_seed(10_000 + cfg.seed)
   n_eval = min(cfg.eval_bios, N)
@@ -671,7 +710,7 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
 
   def train_one(step):
     for group in opt.param_groups:
-      group['lr'] = lr_at(step)
+      group['lr'] = group['base_lr'] * lr_at(step) / cfg.lr
     if step < cfg.steps:
       x, y, fact = world.train_batch(0, N, cfg.batch_size, cfg.seq_len, gen)
     else:

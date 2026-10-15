@@ -149,7 +149,8 @@ def test_growing_layer_writes_minus_eta_token_gradient():
 def test_tiny_runs_learn_and_finetune():
   base = dict(n_people=32, seq_len=128, batch_size=8, d_model=32, layers=2, heads=2, kv_heads=1, head_dim=16,
               ffn_width=64, steps=60, eval_every=30, eval_bios=32, lr=3e-3)
-  for kw in (dict(eval_seen_templates=True), dict(ffn='cos', cos_width=128), dict(special='rbf', rbf_capacity=200_000, rbf_eta=1.0),
+  for kw in (dict(eval_seen_templates=True), dict(ffn='cos', cos_width=128), dict(ffn='cos', cos_width=128, optimizer='muon'),
+             dict(special='rbf', rbf_capacity=200_000, rbf_eta=1.0),
              dict(special='geglu_fact')):
     r = run_bios(BiosConfig(**base, **kw))
     assert math.isfinite(r['final_attr_loss']) and r['log'][-1]['train_loss'] < r['log'][1]['train_loss']
