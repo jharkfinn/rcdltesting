@@ -9,7 +9,8 @@ Data (Zucchet et al. App. B). N individuals, each with a unique full name (first
 last name from a list of 1,000) and six attributes: birth date (month, day, year in 1900-2100, independent), birth
 place and current location (800 cities), university (200), major (100), company (500), all uniform and independent.
 Every attribute has 25 templates; each individual gets a random split into 20 training and 5 evaluation templates per
-attribute. A biography is one sentence per attribute (template drawn from the individual's training split, full name in
+attribute (here: one of the 5 frames, with all 5 openers, is held out per individual and attribute, so the held-out
+wording between the name and the value is new for that individual). A biography is one sentence per attribute (template drawn from the individual's training split, full name in
 every sentence, the name and the attribute type before the value), in a random order. Training sequences are packed
 biographies (seq_len tokens), resampled at every step. Evaluation uses biographies of the same individuals written with
 their 5 held-out templates, so a correct value is knowledge, not memorized text.
@@ -40,7 +41,9 @@ Feed-forward variants (`ffn` for every layer, `special` for the last `n_special`
               `cos_train`: Ω and b are trained as well (the article's "cosine non-linearity FFN"); else fixed.
   rbf         growing RBF layer (paper Sec. 3, article): s(q) = Σ_j exp(-||q - k_j||^2 / (2 T sqrt(d))) v_j over a growing
               table; after each step, every query q_i of the batch is stored as a key with value v_i = -η dℓ_i/ds_i, where
-              ℓ_i is the token's cross-entropy (the batch loss is the mean over tokens, so dℓ_i/ds_i = n_tokens * dL/ds_i).
+              ℓ_i is the token's cross-entropy (the batch loss is the mean over tokens, so dℓ_i/ds_i = n_tokens * dL/ds_i;
+              in the last layer s_i reaches only logit i; in an earlier growing layer n_tokens * dL/ds_i also carries
+              the losses of later tokens that attend to position i).
               Assumption: the layer reads and writes only at "fact positions" and outputs 0 elsewhere. A position is a
               fact position when its input token is part of an attribute value or its next token starts one. The
               mask is the same for training and evaluation. It reveals nothing about a value's length (it fires on
@@ -164,7 +167,7 @@ def _split_template(text: str) -> Tuple[List[str], List[str], List[str]]:
 class BioWorld:
   """Population, vocabulary, templates and the per-individual template split, as tensors on `device`."""
 
-  def __init__(self, n_people: int, seed: int = 0, device='cpu'):
+  def __init__(self, n_people: int, seed: int = 0, device='cpu', n_base: Optional[int] = None):
     rng = np.random.default_rng(seed)
     self.device = torch.device(device)
     first, last = _piece_strings(rng, 900, 260, 'f'), _piece_strings(rng, 1000, 300, 'l')
@@ -196,21 +199,30 @@ class BioWorld:
                                   prefix_loss(comps), prefix_loss(cities))
     self.no_knowledge_loss = float(np.mean(self.no_knowledge_per_attr))
 
-    # individuals: unique token sequences for the full name, independent uniform attributes
-    names, seen = [], set()
-    while len(names) < n_people:
-      toks = tuple(enc(first[rng.integers(900)] + first[rng.integers(900)] + last[rng.integers(1000)]))
-      if toks not in seen:
-        seen.add(toks)
-        names.append(toks)
-    self.n_people = n_people
+    # individuals: unique token sequences for the full name, independent uniform attributes, and the held-out frame
+    # of each attribute. The pre-training population [0, n_base) comes from its own generator, so it does not depend
+    # on how many fine-tuning individuals follow it.
+    n_base = n_people if n_base is None else n_base
+    seen, blocks = set(), []
+    for k, n in ((1, n_base), (2, n_people - n_base)):
+      rp = np.random.default_rng([seed, k])
+      names = []
+      while len(names) < n:
+        toks = tuple(enc(first[rp.integers(900)] + first[rp.integers(900)] + last[rp.integers(1000)]))
+        if toks not in seen:
+          seen.add(toks)
+          names.append(toks)
+      vals = [rp.integers(0, c, n) for c in (12, 31, 201, 800, 200, 100, 500, 800)]
+      blocks.append((names, vals, rp.integers(0, len(OPENERS), (n, 6)), rp.random((n, 6, N_TEMPLATES))))
+    names = blocks[0][0] + blocks[1][0]
+    m, d, y, birth, uni, maj, comp, loc = (np.concatenate([b[1][j] for b in blocks]) for j in range(8))
+    held = np.concatenate([b[2] for b in blocks])
+    order_key = np.concatenate([b[3] for b in blocks])
+    self.n_people, self.n_base = n_people, n_base
     name_tok = torch.zeros(n_people, MAX_NAME, dtype=torch.long)
     name_len = torch.tensor([len(t) for t in names])
     for i, t in enumerate(names):
       name_tok[i, :len(t)] = torch.tensor(t)
-    m, d, y = rng.integers(0, 12, n_people), rng.integers(0, 31, n_people), rng.integers(0, 201, n_people)
-    birth, loc = rng.integers(0, 800, n_people), rng.integers(0, 800, n_people)
-    uni, maj, comp = rng.integers(0, 200, n_people), rng.integers(0, 100, n_people), rng.integers(0, 500, n_people)
     self.value_index = torch.as_tensor(np.stack([(m * 31 + d) * 201 + y, birth, uni, maj, comp, loc], 1))
     val_tok = torch.zeros(n_people, 6, MAX_VALUE, dtype=torch.long)
     val_len = torch.zeros(n_people, 6, dtype=torch.long)
@@ -231,7 +243,10 @@ class BioWorld:
         for s, seg in enumerate(parts[a][t]):
           tpl_tok[a, t, s, :len(seg)] = torch.tensor(enc(seg), dtype=torch.long)
           tpl_len[a, t, s] = len(seg)
-    split = torch.as_tensor(np.argsort(rng.random((n_people, 6, N_TEMPLATES)), axis=-1))  # [:20] train, [20:] eval
+    # Template t = opener (t // 5) + frame (t % 5). An individual's held-out frame (all 5 of its openers) is evaluation
+    # only, so the evaluated wording from the name to the value never appears in that individual's training text.
+    is_eval = (np.arange(N_TEMPLATES)[None, None, :] % len(OPENERS)) == held[..., None]
+    split = torch.as_tensor(np.argsort(is_eval + 0.5 * order_key, axis=-1))       # [:20] train, [20:] eval (shuffled)
     dev = self.device
     self.name_tok, self.name_len = name_tok.to(dev), name_len.to(dev)
     self.val_tok, self.val_len = val_tok.to(dev), val_len.to(dev)
@@ -393,6 +408,11 @@ class _RBFRead(torch.autograd.Function):
 
   @staticmethod
   def forward(ctx, q, keys, values, key_sq, c: float, chunk: int, fused: bool = False):
+    with torch.autocast('cuda', enabled=False):    # the caller's bf16 autocast would round q.k before the distance
+      return _RBFRead._forward(ctx, q, keys, values, key_sq, c, chunk, fused)
+
+  @staticmethod
+  def _forward(ctx, q, keys, values, key_sq, c: float, chunk: int, fused: bool):
     qf = q.float()
     q_low = qf.to(keys.dtype)
     q_sq = q_low.float().pow(2).sum(-1, keepdim=True)              # of the rounded query: a stored copy has d2 = 0
@@ -576,7 +596,7 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
   dev = torch.device(device)
   amp = dev.type == 'cuda'
   N, M = cfg.n_people, cfg.finetune_people
-  world = BioWorld(N + M, cfg.world_seed, dev)
+  world = BioWorld(N + M, cfg.world_seed, dev, n_base=N)
   torch.manual_seed(cfg.seed)
   model = GemmaBios(cfg, world.vocab_size, dev)
   if cfg.compile and amp:
@@ -606,7 +626,7 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
   def record(step, phase):
     rec = {'step': step, 'phase': phase, 'sec': time.time() - t0, 'lr': lr_at(step)}
     rec |= {k: v for k, v in evaluate(model, old_set, amp=amp).items()}
-    if new_set is not None and phase == 'finetune':
+    if new_set is not None and phase != 'pretrain':
       rec |= {f'new_{k}': v for k, v in evaluate(model, new_set, amp=amp).items()}
     if pending:                                      # one host synchronization per evaluation
       rec['train_loss'] = float(torch.stack(pending).mean())
@@ -622,10 +642,9 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
 
   total = cfg.steps + (cfg.finetune_steps if M else 0)
   for step in range(total + 1):
-    phase = 'pretrain' if step <= cfg.steps else 'finetune'
-    if step == cfg.steps or (step < cfg.steps and step % cfg.eval_every == 0) or \
-       (step > cfg.steps and (step - cfg.steps) % cfg.finetune_eval_every == 0):
-      record(step, phase if step < cfg.steps or not M else 'finetune')
+    if (step < cfg.steps and step % cfg.eval_every == 0) or step == cfg.steps or \
+       (step > cfg.steps and ((step - cfg.steps) % cfg.finetune_eval_every == 0 or step == total)):
+      record(step, 'pretrain' if step < cfg.steps else 'pretrain_end' if step == cfg.steps else 'finetune')
     if step == total:
       break
     for group in opt.param_groups:

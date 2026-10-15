@@ -157,3 +157,15 @@ def test_tiny_runs_learn_and_finetune():
                           rbf_capacity=200_000))
   assert 'new_attr_acc' in r['log'][-1] and r['old_acc_after_finetune'] is not None
   assert all(k in r['log'][0] for k in ('acc_' + a for a in ATTRS))
+
+
+def test_heldout_frame_and_population_independent_of_finetuning_people():
+  """Evaluation templates are one whole frame (5 openers) per individual and attribute, absent from that individual's
+  training templates; the pre-training population is the same whatever the number of fine-tuning individuals."""
+  w = BioWorld(40, seed=4, n_base=24)
+  frames = w.split % 5
+  assert (frames[:, :, 20:] == frames[:, :, 20:21]).all()
+  assert not (frames[:, :, :20] == frames[:, :, 20:21]).any()
+  v = BioWorld(24, seed=4)
+  assert torch.equal(w.name_tok[:24], v.name_tok) and torch.equal(w.val_tok[:24], v.val_tok)
+  assert torch.equal(w.split[:24], v.split)
