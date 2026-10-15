@@ -478,25 +478,43 @@ def fig_bios(bios, out):
     plt.close(fig)
 
 
-def fig_fig5_full(runs, out):
+def fig_fig5_full(roots, out):
   """Paper Fig. 5 at full scale: parametric softmax with 2.56M trained keys (bf16 table, fp32 Adam second moment,
-  stochastic rounding), test and train accuracy against epochs."""
-  keys = [k for k in runs if 'fullscale' in k and k.endswith('_sr')]
-  if not keys:
+  stochastic rounding), test and train accuracy against epochs. Reads evals.jsonl directly: the run is stopped long
+  before its 2,000 epochs, so it never writes summary.json (load_runs needs that file)."""
+  files = sorted(f for root in roots for f in glob.glob(os.path.join(root, '**', '*fullscale_sr', 'seed*', 'evals.jsonl'),
+                                                         recursive=True))
+  if not files:
     return
-  r = max(runs[keys[0]], key=lambda r: len(r['evals']))
-  ev = [e for e in r['evals'] if e['step'] > 0 and 'train_acc' in e]
+  ev = max(([json.loads(l) for l in open(f) if l.strip()] for f in files), key=len)   # the longest copy of the log
+  ev = [e for e in ev if e['step'] > 0 and 'train_acc' in e]
   if not ev:
     return
   spe = 50000 // 64
-  fig, ax = new_fig(7.0, 4.2)
-  ax.plot([e['step'] / spe for e in ev], [100 * e['test_acc'] for e in ev], '-', color=SERIES[1], linewidth=1.8,
-          label='parametric softmax, 2.56M keys: test')
-  ax.plot([e['step'] / spe for e in ev], [100 * e['train_acc'] for e in ev], '--', color=SERIES[1], linewidth=1.4,
-          label='train (2,000 non-augmented images)')
-  style(ax, 'Fig. 5 at full scale (all 50,000 images)', 'epoch', 'accuracy (%)')
-  ax.legend(fontsize=8, frameon=False)
-  fig.tight_layout()
+  x = [e['step'] / spe for e in ev]
+  fig, axes = new_fig(10.0, 5.0, ncols=2)
+  axes[0].plot(x, [100 * e['test_acc'] for e in ev], '-', color=SERIES[1], linewidth=1.8,
+               label='parametric softmax, 2.56M keys: test (10,000 images)')
+  axes[0].plot(x, [100 * e['train_acc'] for e in ev], '--', color=SERIES[1], linewidth=1.4,
+               label='parametric: train (2,000 non-augmented images)')
+  gws = [[json.loads(l) for l in open(f) if l.strip()] for root in roots
+         for f in glob.glob(os.path.join(root, '**', 'gws_L0_T10_50ep', 'seed*', 'evals.jsonl'), recursive=True)]
+  gws = [g for g in gws if g and 'train_acc' in g[-1]]
+  if gws:   # two runs share this name (eta 1 and 0.003); section 7.2 reports the better one
+    g = [e for e in max(gws, key=lambda g: g[-1]['test_acc']) if e['step'] > 0]
+    xg = [e['step'] / spe for e in g]
+    axes[0].plot(xg, [100 * e['test_acc'] for e in g], '-', color=SERIES[0], linewidth=1.8, label='GWS, L = 0, 50 epochs: test')
+    axes[0].plot(xg, [100 * e['train_acc'] for e in g], '--', color=SERIES[0], linewidth=1.4, label='GWS: train')
+    axes[1].plot(xg, [e['test_loss'] for e in g], '-', color=SERIES[0], linewidth=1.8, label='GWS: test')
+  axes[0].plot([60], [55.5], 'o', color=INK2, markersize=7, label='paper: test peak (about 55.5%, about epoch 60)')
+  axes[0].axhline(49.0, color=INK2, linestyle=':', linewidth=1.0, label='paper: test at epoch 2,000 (about 49%)')
+  style(axes[0], 'Fig. 5 at full scale (all 50,000 images)', 'epoch', 'accuracy (%)')
+  axes[1].plot(x, [e['test_loss'] for e in ev], '-', color=SERIES[1], linewidth=1.8, label='parametric: test')
+  axes[1].plot(x, [e['train_loss'] for e in ev], '--', color=SERIES[1], linewidth=1.4, label='parametric: train (non-augmented)')
+  style(axes[1], 'Cross-entropy loss', 'epoch', 'nats')
+  axes[1].legend(fontsize=8, frameon=False)
+  fig.tight_layout(rect=(0, 0.16, 1, 1))
+  fig.legend(*axes[0].get_legend_handles_labels(), loc='lower center', ncol=2, fontsize=8, frameon=False)
   fig.savefig(os.path.join(out, 'fig5_fullscale.png'), dpi=150, facecolor=SURFACE)
   plt.close(fig)
 
@@ -536,7 +554,7 @@ def main():
   fig_multi_epoch(runs, args.out)
   fig_overfit(runs, args.out)
   fig_fig5_scaled(runs, args.out)
-  fig_fig5_full(runs, args.out)
+  fig_fig5_full(args.results, args.out)
   fig_bios(load_bios(args.results), args.out)
   fig_deltanet(args.results, args.out)
   fig_facts(facts, args.out)
