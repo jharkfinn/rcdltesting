@@ -643,7 +643,7 @@ Findings:
 
 Interim findings (epoch 60):
 - The fixed optimizer state trains: 51.1% test accuracy at epoch 60, against 27% for the stalled bf16 run (§7.7 above).
-- The paper's test peak (about 55.5% near epoch 60) is not reached by epoch 60: test accuracy is 4.4 points lower and still rising, and the test loss is still falling. The train-test gap is 6.2 points and widens slowly (0.1 points at epoch 10).
+- The paper's test peak (about 55.5% near epoch 60) is not reached by epoch 60: test accuracy is 4.4 points lower and still rising, and the test loss is still falling. The train-test gap is 6.2 points and widens slowly (about 0 at epoch 10, 3.5 at epoch 30).
 - Possible reasons, not tested: the paper's figure may use a different rate from its grid; the bf16 table with stochastic rounding matched fp32 only in a 5-epoch check at 1/10 of the keys; one seed.
 
 ### 7.8 SGD with DeltaNet-like decay, 10-block MLP, 2,000 epochs (paper App. E.3.1, claim 18)
