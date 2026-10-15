@@ -173,3 +173,20 @@ def test_heldout_frame_and_population_independent_of_finetuning_people():
   v = BioWorld(24, seed=4)
   assert torch.equal(w.name_tok[:24], v.name_tok) and torch.equal(w.val_tok[:24], v.val_tok)
   assert torch.equal(w.split[:24], v.split)
+
+
+def test_finetune_variants_branch_from_the_same_state():
+  """Fine-tuning branches restart from one pre-trained state (model, optimizer, table, data stream): identical
+  end-of-pre-training records, identical fine-tuning data, different growing-layer write rates."""
+  base = dict(n_people=32, seq_len=128, batch_size=8, d_model=32, layers=2, heads=2, kv_heads=1, head_dim=16,
+              ffn_width=64, steps=40, eval_every=20, eval_bios=32, lr=3e-3, special='rbf', rbf_capacity=2000,
+              rbf_finetune_rows=20_000, finetune_people=8, finetune_steps=10, finetune_eval_every=5, finetune_batch_size=4,
+              finetune_variants='[{"name": "a"}, {"name": "b", "rbf_eta": 0.0}, {"name": "a2"}]')
+  r = run_bios(BiosConfig(**base))
+  v = r['finetune_variants']
+  assert list(v) == ['a', 'b', 'a2']
+  strip = lambda rec: {k: x for k, x in rec.items() if k not in ('sec', 'rbf_eta', 'train_loss')}
+  assert strip(v['a']['log'][0]) == strip(v['b']['log'][0]) == strip(v['a2']['log'][0])
+  assert v['b']['log'][0]['rbf_eta'] == [0.0] and v['a']['log'][0]['rbf_eta'] == [1.0]
+  assert [e['attr_acc'] for e in v['a']['log']] == [e['attr_acc'] for e in v['a2']['log']]   # same branch, same result
+  assert r['log'][-1]['step'] == 50 and r['old_acc_after_finetune'] == v['a']['old_acc_after_finetune']

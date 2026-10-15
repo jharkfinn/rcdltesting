@@ -48,8 +48,8 @@ Feed-forward variants (`ffn` for every layer, `special` for the last `n_special`
               fact position when its input token is part of an attribute value or its next token starts one. The
               mask is the same for training and evaluation. It reveals nothing about a value's length (it fires on
               every value token, including the last one, whose target is the closing word); at the position before a
-              value it reveals only what the template already shows. Writing every token (65k per step at batch 128 x 512) would add
-              about 10^9 rows over a run; the article does not say how its layer was restricted. The query is the
+              value it reveals only what the template already shows. Writing every token (32,768 per step at batch 64 x 512) would add
+              about 2 x 10^8 rows over a 6,000-step run; the article does not say how its layer was restricted. The query is the
               parameter-free RMSNorm of the residual stream (Gemma's learned norm scales would move stored keys), and the
               output enters the residual stream directly (a post-norm would rescale an empty table's zero output). The
               table is a ring buffer of `rbf_capacity` rows (oldest rows overwritten), stored in bf16 on the GPU. With
@@ -58,6 +58,7 @@ Feed-forward variants (`ffn` for every layer, `special` for the last `n_special`
   geglu_fact  control for `rbf`: a GeGLU layer applied only at the fact positions (same routing, parametric memory).
 """
 
+import copy
 import dataclasses as dc
 import json
 import math
@@ -145,6 +146,9 @@ class BiosConfig:
   finetune_batch_size: int = 0  # sequences per fine-tuning step (0: batch_size)
   rbf_finetune_rows: int = 0    # growing layer: rows appended during fine-tuning without evicting pre-training rows
                                 # (0: the ring buffer keeps evicting the oldest rows)
+  finetune_variants: str = ''   # JSON list of fine-tuning branches from the same pre-trained state, e.g.
+                                # '[{"name": "eta1"}, {"name": "eta_scaled", "rbf_eta": 0.075}]' (keys: name, rbf_eta,
+                                # finetune_lr); the first branch fills `log`, all are in result['finetune_variants']
   seed: int = 1
   compile: bool = False         # torch.compile the blocks without a growing layer (CUDA)
 
@@ -634,14 +638,17 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
   new_set = world.eval_rows(torch.arange(N, N + min(M, cfg.eval_bios), device=dev), 'eval', eval_gen) if M else None
   growing = model.growing_layers()
 
+  variants = json.loads(cfg.finetune_variants) if (M and cfg.finetune_variants) else [{}]
+  ft_lr = [variants[0].get('finetune_lr', cfg.finetune_lr)]
+
   def lr_at(step):
     if step >= cfg.steps:
-      return cfg.finetune_lr
+      return ft_lr[0]
     return cfg.final_lr + 0.5 * (cfg.lr - cfg.final_lr) * (1.0 + math.cos(math.pi * step / cfg.steps))
 
   log, t0, train_losses, pending = [], time.time(), [], []
 
-  def record(step, phase):
+  def record(step, phase, out):
     rec = {'step': step, 'phase': phase, 'sec': time.time() - t0, 'lr': lr_at(step)}
     rec |= {k: v for k, v in evaluate(model, old_set, amp=amp).items()}
     if seen_set is not None:
@@ -655,27 +662,19 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
     if growing:
       rec['rbf_rows'] = [g.size for g in growing]
       rec['rbf_evicted_while_appending'] = [g.evicted_while_appending for g in growing]
-    log.append(rec)
+      rec['rbf_eta'] = [g.eta for g in growing]
+    out.append(rec)
     print(f'[bios:{"+".join(sorted(set(model.kinds)))}:N={N}] step={step} {phase} attr_loss={rec["attr_loss"]:.3f} '
           f'(no-knowledge {world.no_knowledge_loss:.3f}) attr_acc={rec["attr_acc"]:.4f}'
           + (f' new_acc={rec["new_attr_acc"]:.4f}' if 'new_attr_acc' in rec else '')
           + f' train_loss={rec.get("train_loss", float("nan")):.3f} ({rec["sec"]:.0f}s)', flush=True)
 
-  total = cfg.steps + (cfg.finetune_steps if M else 0)
-  for step in range(total + 1):
-    if (step < cfg.steps and step % cfg.eval_every == 0) or step == cfg.steps or \
-       (step > cfg.steps and ((step - cfg.steps) % cfg.finetune_eval_every == 0 or step == total)):
-      record(step, 'pretrain' if step < cfg.steps else 'pretrain_end' if step == cfg.steps else 'finetune')
-    if step == total:
-      break
+  def train_one(step):
     for group in opt.param_groups:
       group['lr'] = lr_at(step)
     if step < cfg.steps:
       x, y, fact = world.train_batch(0, N, cfg.batch_size, cfg.seq_len, gen)
     else:
-      if step == cfg.steps:
-        for g in growing:
-          g.append = cfg.rbf_finetune_rows > 0
       x, y, fact = world.train_batch(N, N + M, cfg.finetune_batch_size or cfg.batch_size, cfg.seq_len, gen,
                                      cfg.finetune_replay, N)
     for g in growing:
@@ -692,6 +691,43 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
       g.commit()
     pending.append(loss.detach())
 
+  for step in range(cfg.steps):                      # pre-training
+    if step % cfg.eval_every == 0:
+      record(step, 'pretrain', log)
+    train_one(step)
+
+  snap = None
+  if len(variants) > 1:                              # state to restart every fine-tuning branch from (tables on the host)
+    snap = {'model': copy.deepcopy(model.state_dict()), 'opt': copy.deepcopy(opt.state_dict()), 'gen': gen.get_state(),
+            'tables': [(g.keys[:g.size].cpu(), g.values[:g.size].cpu(), g.key_sq[:g.size].cpu(), g.size, g.next_row,
+                        g.written, g.evicted_while_appending) for g in growing]}
+  total = cfg.steps + (cfg.finetune_steps if M else 0)
+  variant_logs = {}
+  for vi, var in enumerate(variants):
+    if vi > 0:
+      model.load_state_dict(snap['model'])
+      opt.load_state_dict(copy.deepcopy(snap['opt']))
+      gen.set_state(snap['gen'])
+      for g, (k, v, ksq, size, nxt, written, ev) in zip(growing, snap['tables']):
+        g.keys[:size].copy_(k)
+        g.values[:size].copy_(v)
+        g.key_sq[:size].copy_(ksq)
+        g.size, g.next_row, g.written, g.evicted_while_appending, g.pending = size, nxt, written, ev, None
+      pending.clear()
+    ft_lr[0] = var.get('finetune_lr', cfg.finetune_lr)
+    for g in growing:
+      g.eta = var.get('rbf_eta', cfg.rbf_eta)
+      g.append = False
+    vlog = log if vi == 0 else []
+    record(cfg.steps, 'pretrain_end', vlog)
+    for g in growing:
+      g.append = M > 0 and cfg.rbf_finetune_rows > 0
+    for step in range(cfg.steps, total):            # fine-tuning on the new individuals
+      train_one(step)
+      if (step + 1 - cfg.steps) % cfg.finetune_eval_every == 0 or step + 1 == total:
+        record(step + 1, 'finetune', vlog)
+    variant_logs[var.get('name', f'v{vi}')] = [r for r in vlog if r['step'] >= cfg.steps]
+
   base = world.no_knowledge_loss
   pre = [r for r in log if r['step'] <= cfg.steps]
   first = lambda cond: next((r['step'] for r in pre if cond(r)), None)
@@ -704,9 +740,13 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
             'final_attr_acc': pre[-1]['attr_acc'], 'final_attr_loss': pre[-1]['attr_loss'],
             'bios_per_step': cfg.batch_size * cfg.seq_len / world.mean_bio_len}
   if M:
-    post = [r for r in log if r['step'] >= cfg.steps]
-    result |= {'old_acc_before_finetune': post[0]['attr_acc'], 'old_acc_min_finetune': min(r['attr_acc'] for r in post),
-               'old_acc_after_finetune': post[-1]['attr_acc'], 'new_acc_after_finetune': post[-1].get('new_attr_acc')}
+    summary = lambda post: {'old_acc_before_finetune': post[0]['attr_acc'],
+                            'old_acc_min_finetune': min(r['attr_acc'] for r in post),
+                            'old_acc_after_finetune': post[-1]['attr_acc'], 'new_acc_after_finetune': post[-1].get('new_attr_acc')}
+    result |= summary([r for r in log if r['step'] >= cfg.steps])
+    if len(variants) > 1:
+      result['finetune_variants'] = {name: {'variant': var, 'log': vl} | summary(vl)
+                                     for (name, vl), var in zip(variant_logs.items(), variants)}
   if out_dir:
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, 'result.json'), 'w') as f:
