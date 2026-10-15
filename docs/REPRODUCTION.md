@@ -572,6 +572,8 @@ Findings:
 - The forgetting has a different shape. The growing layer declines smoothly. Cos-Bochner and GeGLU with Muon drop and recover early (Cos-Bochner 49.4% at step 50, 94.2% at step 100) and then decline. GeGLU with Muon never collapses as GeGLU with AdamW does (lowest 48.0%, against 12.0% and 22.4%).
 - So the article's statement that the RBF layer "seems to do better" in fine-tuning holds against AdamW-trained FFNs. Under Muon the growing layer forgets about as much as GeGLU (one seed each). Runs H below test why.
 
+Figure: `docs/figures/bios_muon.png` (pre-training and fine-tuning with AdamW against Muon; colour = FFN, line style = optimizer; right: the fine-tuning branches of runs H).
+
 **Why the growing layer forgets under Muon (runs H).** Two explanations fit runs G: (a) with Muon, the GeGLU layers below the table learn many of the facts during pre-training, and fine-tuning overwrites them; (b) the Muon fine-tuning steps move the layers below the table so far that the stored keys no longer match the queries of the old individuals. Runs H repeat the growing-layer runs (Muon: G; AdamW: seed 1 of §7.5b) and branch the fine-tuning from the same pre-trained state (`finetune_variants`): the original optimizer; every trained weight frozen (`finetune_lr` 0; only the table writes act); and, for the Muon run, a fresh AdamW at 3e-5 on every weight (`finetune_optimizer`). At the end of pre-training and of every branch they also measure the accuracy with the table read switched off (`eval_no_table`): the share of the facts that the other layers hold.
 
 Run H with Muon (pre-training repeats run G: plateau end, 50% and 90% steps 500 / 600 / 700, 98.3% at the end):

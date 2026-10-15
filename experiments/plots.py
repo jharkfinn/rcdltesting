@@ -424,8 +424,12 @@ def _bios_label(name):
   return label + (f", seed {name.split('seed')[1]}" if 'seed' in name else '')
 
 
+MUON_RUNS = ('F_', 'G_', 'H_')    # section 7.5c: Muon, kernel width and mechanism runs (own figure)
+
+
 def fig_bios(bios, out):
   """Attribute loss and accuracy against steps at N = 8,192 for every FFN variant; plateau against N."""
+  bios = {k: r for k, r in bios.items() if not k.startswith(MUON_RUNS)}   # Muon and mechanism runs: fig_bios_muon
   n8 = {k: r for k, r in bios.items() if r['cfg']['n_people'] == 8192 and 'replay' not in k and 'seed' not in k
         and not k.startswith('E_')}          # E_*: diagnostic reruns (seen-template evaluation), shown in the text
   if not n8:
@@ -520,6 +524,58 @@ def fig_fig5_full(roots, out):
   plt.close(fig)
 
 
+def fig_bios_muon(bios, out):
+  """Section 7.5c: pre-training and fine-tuning with AdamW against Muon (colour = FFN, line style = optimizer), and the
+  fine-tuning branches of runs H (same pre-trained state; table writes only when every weight is frozen)."""
+  need = ['C_geglu_N8k', 'C_rbf_T2_N8k', 'G_geglu_muon_ft', 'G_cos_all_D4k_muon_ft', 'G_rbf_T2_muon_ft',
+          'H_rbf_T2_adamw_mech', 'H_rbf_T2_muon_mech']
+  if any(k not in bios for k in need):
+    return
+  col = {'geglu': SERIES[0], 'rbf': SERIES[1], 'cos': SERIES[2]}
+  runs = [('C_geglu_N8k', 'geglu', '--', 'GeGLU, AdamW'), ('C_rbf_T2_N8k', 'rbf', '--', 'growing RBF (last), AdamW'),
+          ('F_cos_all_D4k_T2', 'cos', '--', 'Cos-Bochner 4k (T = 2), AdamW'),
+          ('G_geglu_muon_ft', 'geglu', '-', 'GeGLU, Muon'), ('G_rbf_T2_muon_ft', 'rbf', '-', 'growing RBF (last), Muon'),
+          ('G_cos_all_D4k_muon_ft', 'cos', '-', 'Cos-Bochner 4k, Muon')]
+  fig, axes = new_fig(15.0, 4.6, ncols=3)
+  for k, kind, ls, lab in runs:
+    if k not in bios:
+      continue
+    r = bios[k]
+    T = r['cfg']['steps']
+    pre = [e for e in r['log'] if e['step'] <= 3000]
+    axes[0].plot([e['step'] for e in pre], [100 * e['attr_acc'] for e in pre], ls, color=col[kind], linewidth=1.6, label=lab)
+    post = [e for e in r['log'] if e['step'] >= T]
+    if r['cfg'].get('finetune_people') and post:
+      axes[1].plot([e['step'] - T for e in post], [100 * e['attr_acc'] for e in post], ls, color=col[kind], linewidth=1.6,
+                   label=lab)
+  style(axes[0], 'Pre-training, N = 8,192 (held-out frames)', 'step', 'attribute accuracy (%)')
+  axes[0].legend(fontsize=7, frameon=False, loc='lower right')
+  style(axes[1], 'Fine-tuning on 1,024 new individuals: old facts', 'fine-tuning step', 'attribute accuracy (%)')
+  branches = [('H_rbf_T2_adamw_mech', 'adamw', SERIES[1], '--', 'AdamW pre-training, AdamW fine-tuning'),
+              ('H_rbf_T2_adamw_mech', 'frozen', SERIES[4], '--', 'AdamW pre-training, weights frozen'),
+              ('H_rbf_T2_muon_mech', 'muon', SERIES[1], '-', 'Muon pre-training, Muon fine-tuning'),
+              ('H_rbf_T2_muon_mech', 'adamw', SERIES[3], '-', 'Muon pre-training, AdamW fine-tuning'),
+              ('H_rbf_T2_muon_mech', 'frozen', SERIES[4], '-', 'Muon pre-training, weights frozen')]
+  for k, b, c, ls, lab in branches:
+    v = bios[k].get('finetune_variants', {}).get(b)
+    if not v:
+      continue
+    T = bios[k]['cfg']['steps']
+    axes[2].plot([e['step'] - T for e in v['log']], [100 * e['attr_acc'] for e in v['log']], ls, color=c, linewidth=1.6,
+                 label=lab)
+  for k, ls in (('H_rbf_T2_adamw_mech', '--'), ('H_rbf_T2_muon_mech', '-')):   # table read off, end of pre-training
+    v = next(iter(bios[k].get('finetune_variants', {}).values()), None)
+    if v and 'no_table_attr_acc' in v['log'][0]:
+      axes[2].plot([0], [100 * v['log'][0]['no_table_attr_acc']], 'o', color=INK2, markersize=6, fillstyle='none' if ls == '--' else 'full')
+  axes[2].plot([], [], 'o', color=INK2, markersize=6, label='table read off at step 0 (filled: Muon, open: AdamW)')
+  style(axes[2], 'Growing RBF: fine-tuning branches from one state (runs H)', 'fine-tuning step', 'old-fact accuracy (%)')
+  axes[2].set_ylim(10, 101)
+  axes[2].legend(fontsize=7, frameon=False, loc='lower right')
+  fig.tight_layout()
+  fig.savefig(os.path.join(out, 'bios_muon.png'), dpi=150, facecolor=SURFACE)
+  plt.close(fig)
+
+
 def main():
   p = argparse.ArgumentParser()
   p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/cpu_overfit',
@@ -556,7 +612,9 @@ def main():
   fig_overfit(runs, args.out)
   fig_fig5_scaled(runs, args.out)
   fig_fig5_full(args.results, args.out)
-  fig_bios(load_bios(args.results), args.out)
+  bios = load_bios(args.results)
+  fig_bios(bios, args.out)
+  fig_bios_muon(bios, args.out)
   fig_deltanet(args.results, args.out)
   fig_facts(facts, args.out)
   fig_train_loss(args.results + ['results/hf', 'results/cpu_binary'], args.out)
