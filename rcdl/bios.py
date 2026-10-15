@@ -135,6 +135,7 @@ class BiosConfig:
   # evaluation
   eval_every: int = 100
   eval_bios: int = 1024         # held-out-template biographies of pre-training individuals (6 instances each)
+  eval_seen_templates: bool = False  # also evaluate the same individuals with their training templates ('seen_*')
   # fine-tuning on new individuals (Zucchet et al. Sec. 4: constant lr 3e-5, no replay)
   finetune_people: int = 0      # M
   finetune_steps: int = 0
@@ -629,6 +630,7 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
   n_eval = min(cfg.eval_bios, N)
   old_people = torch.randperm(N, generator=torch.Generator().manual_seed(cfg.seed))[:n_eval].to(dev)
   old_set = world.eval_rows(old_people, 'eval', eval_gen)
+  seen_set = world.eval_rows(old_people, 'train', eval_gen) if cfg.eval_seen_templates else None
   new_set = world.eval_rows(torch.arange(N, N + min(M, cfg.eval_bios), device=dev), 'eval', eval_gen) if M else None
   growing = model.growing_layers()
 
@@ -642,6 +644,8 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
   def record(step, phase):
     rec = {'step': step, 'phase': phase, 'sec': time.time() - t0, 'lr': lr_at(step)}
     rec |= {k: v for k, v in evaluate(model, old_set, amp=amp).items()}
+    if seen_set is not None:
+      rec |= {f'seen_{k}': v for k, v in evaluate(model, seen_set, amp=amp).items() if k in ('attr_loss', 'attr_acc')}
     if new_set is not None and phase != 'pretrain':
       rec |= {f'new_{k}': v for k, v in evaluate(model, new_set, amp=amp).items()}
     if pending:                                      # one host synchronization per evaluation

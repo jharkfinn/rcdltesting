@@ -149,10 +149,11 @@ def test_growing_layer_writes_minus_eta_token_gradient():
 def test_tiny_runs_learn_and_finetune():
   base = dict(n_people=32, seq_len=128, batch_size=8, d_model=32, layers=2, heads=2, kv_heads=1, head_dim=16,
               ffn_width=64, steps=60, eval_every=30, eval_bios=32, lr=3e-3)
-  for kw in (dict(), dict(ffn='cos', cos_width=128), dict(special='rbf', rbf_capacity=200_000, rbf_eta=1.0),
+  for kw in (dict(eval_seen_templates=True), dict(ffn='cos', cos_width=128), dict(special='rbf', rbf_capacity=200_000, rbf_eta=1.0),
              dict(special='geglu_fact')):
     r = run_bios(BiosConfig(**base, **kw))
     assert math.isfinite(r['final_attr_loss']) and r['log'][-1]['train_loss'] < r['log'][1]['train_loss']
+    assert ('seen_attr_acc' in r['log'][-1]) == kw.get('eval_seen_templates', False)
   r = run_bios(BiosConfig(**base, finetune_people=8, finetune_steps=20, finetune_eval_every=10, special='rbf',
                           rbf_capacity=3000, rbf_finetune_rows=50_000, finetune_batch_size=4))
   assert 'new_attr_acc' in r['log'][-1] and r['old_acc_after_finetune'] is not None
