@@ -21,8 +21,10 @@ their 5 held-out templates, so a correct value is knowledge, not memorized text.
 
 Metrics (Zucchet et al. App. B). Attribute loss: the cross-entropy summed over the tokens of one attribute value,
 averaged over attribute instances. Attribute accuracy: the fraction of attribute instances with every value token
-predicted correctly (greedy). No-knowledge baseline: mean over the six attributes of ln(number of values), the loss of a
-model that knows the value distributions but no individual.
+predicted correctly (greedy). No-knowledge baseline: the attribute loss of a model that knows the value distributions
+but no individual. The end of a value is not scored, so for a value v that model's loss is -ln(n_v / n), with n the
+number of values of the attribute and n_v the number whose token sequence starts with v's; averaged over the uniform
+values and the six attributes (`no_knowledge_loss`; `no_knowledge_upper` = mean ln n ignores shared prefixes).
 
 Model (Gemma 3 text decoder, scaled down; Zucchet et al. used an 8-layer, 512-wide Chinchilla-style decoder): token
 embedding scaled by sqrt(d); per layer x <- x + post_attn_norm(Attn(input_norm(x))), x <- x + post_ffn_norm(FFN(
@@ -39,8 +41,11 @@ Feed-forward variants (`ffn` for every layer, `special` for the last `n_special`
   rbf         growing RBF layer (paper Sec. 3, article): s(q) = Σ_j exp(-||q - k_j||^2 / (2 T sqrt(d))) v_j over a growing
               table; after each step, every query q_i of the batch is stored as a key with value v_i = -η dℓ_i/ds_i, where
               ℓ_i is the token's cross-entropy (the batch loss is the mean over tokens, so dℓ_i/ds_i = n_tokens * dL/ds_i).
-              Assumption: the layer reads and writes only at "fact positions" (inputs whose next token is an attribute
-              value token) and outputs 0 elsewhere. Writing every token (65k per step at batch 128 x 512) would add
+              Assumption: the layer reads and writes only at "fact positions" and outputs 0 elsewhere. A position is a
+              fact position when its input token is part of an attribute value or its next token starts one. The
+              mask is the same for training and evaluation. It reveals nothing about a value's length (it fires on
+              every value token, including the last one, whose target is the closing word); at the position before a
+              value it reveals only what the template already shows. Writing every token (65k per step at batch 128 x 512) would add
               about 10^9 rows over a run; the article does not say how its layer was restricted. The query is the
               parameter-free RMSNorm of the residual stream (Gemma's learned norm scales would move stored keys), and the
               output enters the residual stream directly (a post-norm would rescale an empty table's zero output). The
@@ -177,9 +182,19 @@ class BioWorld:
     assert len(self.stoi) == len(self.itos)
     self.vocab_size = len(self.itos)
     enc = lambda toks: [self.stoi[t] for t in toks]
-    # number of values per attribute; no-knowledge baseline = mean ln(count)
     self.n_values = (12 * 31 * 201, 800, 200, 100, 500, 800)
-    self.no_knowledge_loss = float(np.mean([math.log(c) for c in self.n_values]))
+    self.no_knowledge_upper = float(np.mean([math.log(c) for c in self.n_values]))
+
+    def prefix_loss(values):                       # mean over values v of -ln(#{u : u starts with v} / n)
+      counts = {}
+      for u in values:
+        for k in range(1, len(u) + 1):
+          counts[tuple(u[:k])] = counts.get(tuple(u[:k]), 0) + 1
+      return float(np.mean([-math.log(counts[tuple(v)] / len(values)) for v in values]))
+
+    self.no_knowledge_per_attr = (math.log(12 * 31 * 201), prefix_loss(cities), prefix_loss(unis), prefix_loss(majors),
+                                  prefix_loss(comps), prefix_loss(cities))
+    self.no_knowledge_loss = float(np.mean(self.no_knowledge_per_attr))
 
     # individuals: unique token sequences for the full name, independent uniform attributes
     names, seen = [], set()
@@ -250,7 +265,8 @@ class BioWorld:
                   replay: float = 0.0, replay_hi: int = 0):
     """Packed sequences of fresh biographies of individuals in [lo, hi) (a fraction `replay` from [0, replay_hi)).
 
-    Returns inputs (B, S), targets (B, S) and fact (B, S): True where the target is an attribute value token."""
+    Returns inputs (B, S), targets (B, S) and the fact-position mask (B, S): input token in a value or next token
+    starting one (see the module docstring)."""
     need, dev = batch_size * (seq_len + 1), self.device
     toks, vals, total = [], [], 0
     while total < need:
@@ -264,12 +280,12 @@ class BioWorld:
       vals.append(is_val[valid])
       total += toks[-1].numel()
     stream = torch.cat(toks)[:need].view(batch_size, seq_len + 1)
-    fact = torch.cat(vals)[:need].view(batch_size, seq_len + 1)
-    return stream[:, :-1], stream[:, 1:], fact[:, 1:]
+    val = torch.cat(vals)[:need].view(batch_size, seq_len + 1)
+    return stream[:, :-1], stream[:, 1:], val[:, :-1] | val[:, 1:]
 
   def eval_rows(self, people: torch.Tensor, split: str, gen: torch.Generator):
-    """One biography per row (compacted, PAD-filled): inputs, targets, fact mask and instance id (row * 6 + attribute,
-    -1 off value targets)."""
+    """One biography per row (compacted, PAD-filled): inputs, targets, value-target mask (the scored positions),
+    instance id (row * 6 + attribute, -1 off value targets) and the fact-position mask the routed layers use."""
     tok, valid, is_val, attr = self._assemble(people, split, gen)
     n, dev = len(people), self.device
     pos = valid.long().cumsum(1) - 1
@@ -279,7 +295,8 @@ class BioWorld:
     out[rows[valid], pos[valid]] = tok[valid]
     inst = torch.full((n, L), -1, dtype=torch.long, device=dev)
     inst[rows[is_val], pos[is_val]] = (rows * 6 + attr)[is_val]
-    return out[:, :-1], out[:, 1:], inst[:, 1:] >= 0, inst[:, 1:]
+    val = inst >= 0
+    return out[:, :-1], out[:, 1:], val[:, 1:], inst[:, 1:], val[:, :-1] | val[:, 1:]
 
 
 # ----------------------------------------------------------------------------------------------------------- model
@@ -517,11 +534,8 @@ class GemmaBios(nn.Module):
       if p.dim() == 2 and 'omega' not in name:
         with torch.no_grad():
           p.copy_(torch.randn(p.shape, generator=gen) * 0.02)
-    for blk in self.blocks:
-      if blk.kind == 'cos':
-        nn.init.zeros_(blk.ffn.down.weight)
     self.to(device)
-    S = cfg.seq_len
+    S = max(cfg.seq_len, 1024)                         # evaluation rows (one biography each) can exceed a short seq_len
     self.rope = (rope_tables(S, cfg.head_dim, cfg.rope_local, device), rope_tables(S, cfg.head_dim, cfg.rope_global, device))
 
   def growing_layers(self) -> List[GrowingRBF]:
@@ -539,15 +553,15 @@ class GemmaBios(nn.Module):
 @torch.no_grad()
 def evaluate(model: GemmaBios, data, batch: int = 256, amp: bool = False) -> Dict[str, float]:
   """Attribute loss and accuracy (Zucchet et al.) on held-out-template biographies, plus per-attribute accuracy."""
-  inputs, targets, fact, inst = data
+  inputs, targets, scored, inst, route = data
   model.eval()
   n_inst = int(inst.max()) + 1
   loss = torch.zeros(n_inst, device=inputs.device)
   wrong = torch.zeros(n_inst, device=inputs.device)
   for i in range(0, len(inputs), batch):
     with torch.autocast('cuda', torch.bfloat16, enabled=amp):
-      logits = model(inputs[i:i + batch], fact[i:i + batch])
-    f = fact[i:i + batch]
+      logits = model(inputs[i:i + batch], route[i:i + batch])
+    f = scored[i:i + batch]
     lg, tg, ins = logits[f].float(), targets[i:i + batch][f], inst[i:i + batch][f]
     loss.index_add_(0, ins, F.cross_entropy(lg, tg, reduction='none'))
     wrong.index_add_(0, ins, (lg.argmax(-1) != tg).float())
@@ -637,7 +651,8 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
   base = world.no_knowledge_loss
   pre = [r for r in log if r['step'] <= cfg.steps]
   first = lambda cond: next((r['step'] for r in pre if cond(r)), None)
-  result = {'cfg': dc.asdict(cfg), 'log': log, 'no_knowledge_loss': base, 'vocab_size': world.vocab_size,
+  result = {'cfg': dc.asdict(cfg), 'log': log, 'no_knowledge_loss': base, 'no_knowledge_upper': world.no_knowledge_upper,
+            'no_knowledge_per_attr': world.no_knowledge_per_attr, 'vocab_size': world.vocab_size,
             'mean_bio_len': world.mean_bio_len, 'trained_params': sum(p.numel() for p in params), 'ffn_kinds': model.kinds,
             'plateau_reached_step': first(lambda r: r['attr_loss'] < 1.05 * base),
             'plateau_end_step': first(lambda r: r['attr_loss'] < 0.9 * base),

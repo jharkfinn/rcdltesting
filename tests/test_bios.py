@@ -1,6 +1,7 @@
 """Synthetic biographies on the Gemma 3 style decoder (rcdl/bios.py): data generator, metrics, growing RBF layer."""
 
 import math
+import re
 
 import torch
 import torch.nn.functional as F
@@ -20,7 +21,9 @@ def test_biographies_follow_the_generation_process():
   gen = torch.Generator().manual_seed(0)
   people = torch.arange(64)
   for split in ('train', 'eval'):
-    inputs, targets, fact, inst = world.eval_rows(people, split, gen)
+    inputs, targets, fact, inst, route = world.eval_rows(people, split, gen)
+    val_in = torch.cat([torch.zeros_like(fact[:, :1]), fact[:, :-1]], 1)
+    assert torch.equal(route, fact | val_in)                     # routing: input in a value or next token starts one
     full = torch.cat([inputs[:, :1], targets], 1)
     for i in range(0, 64, 7):
       toks = full[i][full[i] != PAD]
@@ -46,19 +49,25 @@ def test_biographies_follow_the_generation_process():
 
 def test_packed_batches_mark_value_targets():
   world = BioWorld(32, seed=1)
-  x, y, fact = world.train_batch(0, 32, 4, 128, torch.Generator().manual_seed(0))
-  assert x.shape == y.shape == fact.shape == (4, 128)
+  x, y, route = world.train_batch(0, 32, 4, 128, torch.Generator().manual_seed(0))
+  assert x.shape == y.shape == route.shape == (4, 128)
   assert torch.equal(x[:, 1:], y[:, :-1])
-  value_vocab = {world.stoi[s] for s in world.itos if s[0] in 'cumo<' and s not in ('<pad>', '<bos>')}
-  assert all(int(t) in value_vocab for t in y[fact])
-  frac = fact.float().mean().item()
-  assert 0.1 < frac < 0.3                                          # about 14 value tokens per 80-token biography
+  is_value_token = lambda s: re.fullmatch(r'[cumo]\d+|<(month|day|year)\d+>', s) is not None
+  value_vocab = torch.tensor(sorted(world.stoi[s] for s in world.itos if is_value_token(s)))
+  is_val_y, is_val_x = torch.isin(y, value_vocab), torch.isin(x, value_vocab)
+  assert torch.equal(route, is_val_y | is_val_x)                   # every value position and the one before each value
+  assert not torch.equal(route, is_val_y)                          # the last value token (target: closing word) is routed
+  frac = route.float().mean().item()
+  assert 0.1 < frac < 0.35
 
 
 def test_attribute_metrics_on_known_logits():
   """Attribute loss = summed CE over a value's tokens; accuracy needs every token right."""
   world = BioWorld(8, seed=2)
   data = world.eval_rows(torch.arange(8), 'eval', torch.Generator().manual_seed(1))
+  # no-knowledge baseline: shared prefixes (a 1-piece city that starts a 2-piece one) lower it below mean ln(count)
+  assert world.no_knowledge_per_attr[0] == math.log(12 * 31 * 201)
+  assert world.no_knowledge_loss < world.no_knowledge_upper < world.no_knowledge_loss + 0.5
 
   class Oracle(torch.nn.Module):
     def __init__(self, targets, wrong_first_token_of=None):
@@ -73,7 +82,7 @@ def test_attribute_metrics_on_known_logits():
   m = Oracle(data[1])
   r = evaluate(m, data)
   assert r['attr_acc'] == 1.0 and r['attr_loss'] < 1e-6
-  inputs, targets, fact, inst = data
+  inputs, targets, fact, inst, route = data
   bad = targets.clone()
   first = torch.nonzero(fact[0] & (inst[0] == 0))[0]               # first value token of instance 0
   bad[0, first] = (bad[0, first] + 1) % world.vocab_size
