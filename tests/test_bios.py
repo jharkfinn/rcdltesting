@@ -154,8 +154,11 @@ def test_tiny_runs_learn_and_finetune():
     r = run_bios(BiosConfig(**base, **kw))
     assert math.isfinite(r['final_attr_loss']) and r['log'][-1]['train_loss'] < r['log'][1]['train_loss']
   r = run_bios(BiosConfig(**base, finetune_people=8, finetune_steps=20, finetune_eval_every=10, special='rbf',
-                          rbf_capacity=200_000))
+                          rbf_capacity=3000, rbf_finetune_rows=50_000, finetune_batch_size=4))
   assert 'new_attr_acc' in r['log'][-1] and r['old_acc_after_finetune'] is not None
+  end_pre = next(e for e in r['log'] if e['step'] == 60)
+  assert end_pre['rbf_rows'] == [3000]                              # ring buffer full during pre-training
+  assert r['log'][-1]['rbf_rows'][0] > 3000 and r['log'][-1]['rbf_evicted_while_appending'] == [0]
   assert all(k in r['log'][0] for k in ('acc_' + a for a in ATTRS))
 
 

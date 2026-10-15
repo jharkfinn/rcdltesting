@@ -52,7 +52,9 @@ Feed-forward variants (`ffn` for every layer, `special` for the last `n_special`
               about 10^9 rows over a run; the article does not say how its layer was restricted. The query is the
               parameter-free RMSNorm of the residual stream (Gemma's learned norm scales would move stored keys), and the
               output enters the residual stream directly (a post-norm would rescale an empty table's zero output). The
-              table is a ring buffer of `rbf_capacity` rows (oldest rows overwritten), stored in bf16 on the GPU.
+              table is a ring buffer of `rbf_capacity` rows (oldest rows overwritten), stored in bf16 on the GPU. With
+              `rbf_finetune_rows` > 0 the fine-tuning rows are appended behind it without eviction (the paper's layer
+              never evicts; the ring buffer bounds the pre-training cost).
   geglu_fact  control for `rbf`: a GeGLU layer applied only at the fact positions (same routing, parametric memory).
 """
 
@@ -139,6 +141,9 @@ class BiosConfig:
   finetune_lr: float = 3e-5
   finetune_replay: float = 0.0  # fraction of fine-tuning biographies drawn from the pre-training population
   finetune_eval_every: int = 50
+  finetune_batch_size: int = 0  # sequences per fine-tuning step (0: batch_size)
+  rbf_finetune_rows: int = 0    # growing layer: rows appended during fine-tuning without evicting pre-training rows
+                                # (0: the ring buffer keeps evicting the oldest rows)
   seed: int = 1
   compile: bool = False         # torch.compile the blocks without a growing layer (CUDA)
 
@@ -459,10 +464,14 @@ class GrowingRBF(nn.Module):
     dtype = torch.bfloat16 if dev.type == 'cuda' else torch.float32
     self.c, self.eta, self.chunk = 2.0 * cfg.rbf_T * math.sqrt(d), cfg.rbf_eta, cfg.rbf_chunk
     self.fused = cfg.rbf_impl == 'triton' and dev.type == 'cuda'
-    self.register_buffer('keys', torch.zeros(cfg.rbf_capacity, d, dtype=dtype, device=dev), persistent=False)
-    self.register_buffer('values', torch.zeros(cfg.rbf_capacity, d, dtype=dtype, device=dev), persistent=False)
-    self.register_buffer('key_sq', torch.zeros(cfg.rbf_capacity, device=dev), persistent=False)
+    n = cfg.rbf_capacity + cfg.rbf_finetune_rows
+    self.register_buffer('keys', torch.zeros(n, d, dtype=dtype, device=dev), persistent=False)
+    self.register_buffer('values', torch.zeros(n, d, dtype=dtype, device=dev), persistent=False)
+    self.register_buffer('key_sq', torch.zeros(n, device=dev), persistent=False)
     self.size, self.next_row, self.written, self.pending, self.loss_tokens = 0, 0, 0, None, 1
+    self.ring = cfg.rbf_capacity      # pre-training: ring buffer over rows [0, ring)
+    self.append = False               # fine-tuning (rbf_finetune_rows > 0): append behind the ring, no eviction
+    self.evicted_while_appending = 0
 
   def forward(self, x, fact):
     out = torch.zeros(x.shape, dtype=torch.float32, device=x.device)
@@ -484,13 +493,20 @@ class GrowingRBF(nn.Module):
       return
     k, v = self.pending
     self.pending = None
-    n, cap = len(k), len(self.keys)
-    k, v = k[-cap:], v[-cap:]
-    idx = (torch.arange(len(k), device=k.device) + self.next_row) % cap
+    n, total = len(k), len(self.keys)
+    if self.append and self.size + n <= total:
+      idx = torch.arange(self.size, self.size + n, device=k.device)
+      self.size += n
+    else:                                     # ring buffer (pre-training, or the appended region is full)
+      cap = self.ring if not self.append else total
+      self.evicted_while_appending += min(n, self.size) if self.append else 0
+      k, v = k[-cap:], v[-cap:]
+      idx = (torch.arange(len(k), device=k.device) + self.next_row) % cap
+      self.next_row = (self.next_row + len(k)) % cap
+      self.size = min(cap, self.size + len(k))
     self.keys[idx], self.values[idx] = k.to(self.keys.dtype), v.to(self.values.dtype)
     self.key_sq[idx] = self.keys[idx].float().pow(2).sum(-1)
-    self.next_row = (self.next_row + len(k)) % cap
-    self.size, self.written = min(cap, self.size + len(k)), self.written + n
+    self.written += n
 
 
 class Routed(nn.Module):
@@ -634,6 +650,7 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
       pending.clear()
     if growing:
       rec['rbf_rows'] = [g.size for g in growing]
+      rec['rbf_evicted_while_appending'] = [g.evicted_while_appending for g in growing]
     log.append(rec)
     print(f'[bios:{"+".join(sorted(set(model.kinds)))}:N={N}] step={step} {phase} attr_loss={rec["attr_loss"]:.3f} '
           f'(no-knowledge {world.no_knowledge_loss:.3f}) attr_acc={rec["attr_acc"]:.4f}'
@@ -652,7 +669,11 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
     if step < cfg.steps:
       x, y, fact = world.train_batch(0, N, cfg.batch_size, cfg.seq_len, gen)
     else:
-      x, y, fact = world.train_batch(N, N + M, cfg.batch_size, cfg.seq_len, gen, cfg.finetune_replay, N)
+      if step == cfg.steps:
+        for g in growing:
+          g.append = cfg.rbf_finetune_rows > 0
+      x, y, fact = world.train_batch(N, N + M, cfg.finetune_batch_size or cfg.batch_size, cfg.seq_len, gen,
+                                     cfg.finetune_replay, N)
     for g in growing:
       g.loss_tokens = y.numel()
     with torch.autocast('cuda', torch.bfloat16, enabled=amp):

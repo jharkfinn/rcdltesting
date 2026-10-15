@@ -33,7 +33,9 @@ def main():
     cfg = BiosConfig(**(defaults | exps[name] | overrides))
     done = os.path.join(out_dir, 'result.json')
     r = json.load(open(done)) if os.path.exists(done) else None
-    if r is not None and r['cfg'] != dc.asdict(cfg):          # stored result of a different configuration: rerun
+    defaults_now = {f.name: f.default for f in dc.fields(BiosConfig)}
+    if r is not None and any(r['cfg'].get(k, defaults_now[k]) != v for k, v in dc.asdict(cfg).items()):
+      # stored result of a different configuration (fields added later count with their default): rerun
       print(f'{name}: stored result has a different configuration, rerunning', flush=True)
       r = None
     if r is None:

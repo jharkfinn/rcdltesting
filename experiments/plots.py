@@ -405,10 +405,106 @@ def fig_facts(facts, out):
     plt.close(fig)
 
 
+def load_bios(roots):
+  """{experiment name: result.json} of every biography run (rcdl/bios.py) under results/**/bios/<name>/."""
+  out = {}
+  for root in roots:
+    for f in glob.glob(os.path.join(root, '**', 'bios', '*', 'result.json'), recursive=True):
+      out[os.path.basename(os.path.dirname(f))] = json.load(open(f))
+  return out
+
+
+BIOS_LABELS = {'geglu': 'GeGLU (all layers)', 'cos_all_D1k': 'Cos-Bochner 1k (all)', 'cos_all_D4k': 'Cos-Bochner 4k (all)',
+               'cos_all_D16k': 'Cos-Bochner 16k (all)', 'cos_last_D64k': 'Cos-Bochner 64k (last)',
+               'gegluf_last': 'routed GeGLU (last)', 'rbf_last': 'growing RBF (last)', 'rbf_T2': 'growing RBF (last)'}
+
+
+def _bios_label(name):
+  for k, v in BIOS_LABELS.items():
+    if k in name:
+      return v
+  return name
+
+
+def fig_bios(bios, out):
+  """Attribute loss and accuracy against steps at N = 8,192 for every FFN variant; plateau against N."""
+  n8 = {k: r for k, r in bios.items() if r['cfg']['n_people'] == 8192 and 'replay' not in k}
+  if not n8:
+    return
+  order = sorted(n8, key=lambda k: list(BIOS_LABELS).index(next((b for b in BIOS_LABELS if b in k), 'rbf_T2')))
+  fig, axes = new_fig(12.0, 4.2, ncols=3)
+  for c, k in zip(SERIES, order):
+    r = n8[k]
+    pre = [e for e in r['log'] if e['step'] <= r['cfg']['steps']]
+    x = [e['step'] for e in pre]
+    axes[0].plot(x, [e['attr_loss'] for e in pre], color=c, linewidth=1.6, label=_bios_label(k))
+    axes[1].plot(x, [100 * e['attr_acc'] for e in pre], color=c, linewidth=1.6, label=_bios_label(k))
+  base = next(iter(n8.values()))['no_knowledge_loss']
+  axes[0].axhline(base, color=INK2, linestyle='--', linewidth=1.0)
+  axes[0].text(axes[0].get_xlim()[1], base, ' no knowledge', color=INK2, fontsize=8, va='bottom', ha='right')
+  axes[0].set_yscale('log')
+  style(axes[0], 'Attribute loss, N = 8,192 (held-out frames)', 'step', 'nats per attribute')
+  style(axes[1], 'Attribute accuracy, N = 8,192', 'step', 'accuracy (%)')
+  axes[1].legend(fontsize=7, frameon=False, loc='lower right')
+  geglu = sorted((r['cfg']['n_people'], r) for k, r in bios.items() if r['ffn_kinds'] == ['geglu'] * len(r['ffn_kinds'])
+                 and 'replay' not in k)
+  rbf = sorted((r['cfg']['n_people'], r) for k, r in bios.items() if 'rbf' in r['ffn_kinds'] and r['cfg']['steps'] == 6000)
+  for c, (rows, lab) in zip(SERIES, ((geglu, 'GeGLU'), (rbf, 'growing RBF (last)'))):
+    pts = [(n, r['acc50_step']) for n, r in rows if r['acc50_step'] is not None]
+    if pts:
+      axes[2].plot([p[0] for p in pts], [p[1] for p in pts], 'o-', color=c, markersize=7, linewidth=1.6, label=lab)
+  axes[2].set_xscale('log', base=2)
+  style(axes[2], 'Steps to 50% attribute accuracy against N', 'individuals N', 'step')
+  axes[2].legend(fontsize=8, frameon=False)
+  fig.tight_layout()
+  fig.savefig(os.path.join(out, 'bios_plateau.png'), dpi=150, facecolor=SURFACE)
+  plt.close(fig)
+  ft = {k: r for k, r in bios.items() if r['cfg'].get('finetune_people')}
+  if ft:
+    fig, axes = new_fig(10.0, 4.0, ncols=2)
+    for c, k in zip(SERIES, sorted(ft)):
+      r = ft[k]
+      post = [e for e in r['log'] if e['step'] >= r['cfg']['steps']]
+      x = [e['step'] - r['cfg']['steps'] for e in post]
+      lab = _bios_label(k) + (' + 50% replay' if 'replay' in k else '')
+      axes[0].plot(x, [100 * e['attr_acc'] for e in post], color=c, linewidth=1.6, label=lab)
+      axes[1].plot(x, [100 * e.get('new_attr_acc', float('nan')) for e in post], color=c, linewidth=1.6, label=lab)
+    style(axes[0], 'Fine-tuning on 1,024 new individuals: old individuals', 'fine-tuning step', 'attribute accuracy (%)')
+    style(axes[1], 'New individuals', 'fine-tuning step', 'attribute accuracy (%)')
+    axes[0].legend(fontsize=7, frameon=False)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, 'bios_finetune.png'), dpi=150, facecolor=SURFACE)
+    plt.close(fig)
+
+
+def fig_fig5_full(runs, out):
+  """Paper Fig. 5 at full scale: parametric softmax with 2.56M trained keys (bf16 table, fp32 Adam second moment,
+  stochastic rounding), test and train accuracy against epochs."""
+  keys = [k for k in runs if 'fullscale' in k and k.endswith('_sr')]
+  if not keys:
+    return
+  r = max(runs[keys[0]], key=lambda r: len(r['evals']))
+  ev = [e for e in r['evals'] if e['step'] > 0 and 'train_acc' in e]
+  if not ev:
+    return
+  spe = 50000 // 64
+  fig, ax = new_fig(7.0, 4.2)
+  ax.plot([e['step'] / spe for e in ev], [100 * e['test_acc'] for e in ev], '-', color=SERIES[1], linewidth=1.8,
+          label='parametric softmax, 2.56M keys: test')
+  ax.plot([e['step'] / spe for e in ev], [100 * e['train_acc'] for e in ev], '--', color=SERIES[1], linewidth=1.4,
+          label='train (2,000 non-augmented images)')
+  style(ax, 'Fig. 5 at full scale (all 50,000 images)', 'epoch', 'accuracy (%)')
+  ax.legend(fontsize=8, frameon=False)
+  fig.tight_layout()
+  fig.savefig(os.path.join(out, 'fig5_fullscale.png'), dpi=150, facecolor=SURFACE)
+  plt.close(fig)
+
+
 def main():
   p = argparse.ArgumentParser()
   p.add_argument('--results', nargs='*', default=['results/colab_a100', 'results/colab_l4b', 'results/cpu_overfit',
-                                                  'results/colab_a2', 'results/colab_g4', 'results/molab_pull'])
+                                                  'results/colab_a2', 'results/colab_g4', 'results/molab_pull',
+                                                  'results/molab_pull2'])
   p.add_argument('--recovered', default='docs/data/singlepass_recovered.json')
   p.add_argument('--out', default='docs/figures')
   args = p.parse_args()
@@ -439,6 +535,8 @@ def main():
   fig_multi_epoch(runs, args.out)
   fig_overfit(runs, args.out)
   fig_fig5_scaled(runs, args.out)
+  fig_fig5_full(runs, args.out)
+  fig_bios(load_bios(args.results), args.out)
   fig_deltanet(args.results, args.out)
   fig_facts(facts, args.out)
   fig_train_loss(args.results + ['results/hf', 'results/cpu_binary'], args.out)
