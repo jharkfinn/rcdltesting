@@ -114,7 +114,8 @@ class BiosConfig:
   rbf_T: float = 2.0            # kernel exp(-||q - k||^2 / (2 T sqrt(d)))
   rbf_eta: float = 1.0          # η: v_i = -η dℓ_i/ds_i
   rbf_capacity: int = 4_000_000  # ring-buffer rows
-  rbf_chunk: int = 65536        # rows per chunk in the kernel sums
+  rbf_chunk: int = 65536        # rows per chunk in the kernel sums (PyTorch path)
+  rbf_impl: str = 'triton'      # 'triton': fused kernels (rcdl/rbf_triton.py) on CUDA; 'torch': chunked PyTorch
   # optimization (Zucchet et al.: AdamW, betas 0.9 / 0.95, weight decay 0.1, cosine to 1e-7, no warm-up, lr 4e-4)
   lr: float = 4e-4
   weight_decay: float = 0.1
@@ -370,33 +371,41 @@ def _mm_f32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 class _RBFRead(torch.autograd.Function):
   """s_i = Σ_j κ_ij v_j with κ_ij = exp(-||q_i - k_j||^2 / c), summed over row chunks (no Q x N matrix is kept).
 
-  Backward (keys and values are fixed): ds/dq gives dq_i = (2/c) Σ_j κ_ij <g_i, v_j> (k_j - q_i)."""
+  Backward (keys and values are fixed): ds/dq gives dq_i = (2/c) Σ_j κ_ij <g_i, v_j> (k_j - q_i).
+  fused=True runs the Triton kernels of rcdl/rbf_triton.py (same sums, κ kept in registers)."""
 
   @staticmethod
-  def forward(ctx, q, keys, values, key_sq, c: float, chunk: int):
-    out = q.new_zeros(q.shape[0], values.shape[1], dtype=torch.float32)
+  def forward(ctx, q, keys, values, key_sq, c: float, chunk: int, fused: bool = False):
     qf = q.float()
     q_low = qf.to(keys.dtype)
     q_sq = q_low.float().pow(2).sum(-1, keepdim=True)              # of the rounded query: a stored copy has d2 = 0
+    ctx.save_for_backward(qf, keys, values, key_sq)
+    ctx.c, ctx.chunk, ctx.fused = c, chunk, fused
+    if fused:
+      from rcdl.rbf_triton import rbf_forward
+      return rbf_forward(q_low, q_sq[:, 0], keys, key_sq, values, c)
+    out = q.new_zeros(q.shape[0], values.shape[1], dtype=torch.float32)
     for i in range(0, keys.shape[0], chunk):
       d2 = (q_sq + key_sq[i:i + chunk] - 2.0 * _mm_f32(q_low, keys[i:i + chunk].T)).clamp_min_(0.0)
       out += _mm_f32(torch.exp_(d2.mul_(-1.0 / c)).to(values.dtype), values[i:i + chunk])
-    ctx.save_for_backward(qf, keys, values, key_sq)
-    ctx.c, ctx.chunk = c, chunk
     return out
 
   @staticmethod
   def backward(ctx, g):
     qf, keys, values, key_sq = ctx.saved_tensors
     c, chunk = ctx.c, ctx.chunk
-    dq = torch.zeros_like(qf)
     q_low, g_low = qf.to(keys.dtype), g.float().to(values.dtype)
     q_sq = q_low.float().pow(2).sum(-1, keepdim=True)
+    if ctx.fused:
+      from rcdl.rbf_triton import rbf_backward
+      acc, rs = rbf_backward(q_low, q_sq[:, 0], g_low, keys, key_sq, values, c)
+      return (acc - rs[:, None] * qf) * (2.0 / c), None, None, None, None, None, None
+    dq = torch.zeros_like(qf)
     for i in range(0, keys.shape[0], chunk):
       d2 = (q_sq + key_sq[i:i + chunk] - 2.0 * _mm_f32(q_low, keys[i:i + chunk].T)).clamp_min_(0.0)
       a = torch.exp_(d2.mul_(-1.0 / c)).mul_(_mm_f32(g_low, values[i:i + chunk].T))   # κ_ij <g_i, v_j>
       dq += _mm_f32(a.to(keys.dtype), keys[i:i + chunk]) - a.sum(1, keepdim=True) * qf
-    return dq * (2.0 / c), None, None, None, None, None
+    return dq * (2.0 / c), None, None, None, None, None, None
 
 
 def rms_norm(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
@@ -412,6 +421,7 @@ class GrowingRBF(nn.Module):
     d, dev = cfg.d_model, torch.device(device)
     dtype = torch.bfloat16 if dev.type == 'cuda' else torch.float32
     self.c, self.eta, self.chunk = 2.0 * cfg.rbf_T * math.sqrt(d), cfg.rbf_eta, cfg.rbf_chunk
+    self.fused = cfg.rbf_impl == 'triton' and dev.type == 'cuda'
     self.register_buffer('keys', torch.zeros(cfg.rbf_capacity, d, dtype=dtype, device=dev), persistent=False)
     self.register_buffer('values', torch.zeros(cfg.rbf_capacity, d, dtype=dtype, device=dev), persistent=False)
     self.register_buffer('key_sq', torch.zeros(cfg.rbf_capacity, device=dev), persistent=False)
@@ -422,7 +432,8 @@ class GrowingRBF(nn.Module):
     if fact is None or not bool(fact.any()):
       return out
     q = rms_norm(x[fact])
-    s = _RBFRead.apply(q, self.keys[:self.size], self.values[:self.size], self.key_sq[:self.size], self.c, self.chunk)
+    s = _RBFRead.apply(q, self.keys[:self.size], self.values[:self.size], self.key_sq[:self.size], self.c, self.chunk,
+                       self.fused)
     if self.training and torch.is_grad_enabled():
       qd = q.detach()
       s.register_hook(lambda g: setattr(self, 'pending', (qd, -self.eta * self.loss_tokens * g.float())))
