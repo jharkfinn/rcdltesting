@@ -414,24 +414,23 @@ def load_bios(roots):
   return out
 
 
-BIOS_LABELS = {'geglu': 'GeGLU (all layers)', 'cos_all_D1k': 'Cos-Bochner 1k (all)', 'cos_all_D4k': 'Cos-Bochner 4k (all)',
-               'cos_all_D16k': 'Cos-Bochner 16k (all)', 'cos_last_D64k': 'Cos-Bochner 64k (last)',
-               'gegluf_last': 'routed GeGLU (last)', 'rbf_last': 'growing RBF (last)', 'rbf_T2': 'growing RBF (last)'}
+BIOS_LABELS = {'geglu_N': 'GeGLU (all layers)', 'geglu_replay': 'GeGLU (all layers)', 'gegluf_last': 'routed GeGLU (last)', 'rbf_T2': 'growing RBF (last)',
+               'cos_last_D64k': 'Cos-Bochner 64k (last)', 'cos_all_D16k': 'Cos-Bochner 16k (all)',
+               'cos_all_D4k': 'Cos-Bochner 4k (all)', 'cos_all_D1k': 'Cos-Bochner 1k (all)'}
 
 
 def _bios_label(name):
-  for k, v in BIOS_LABELS.items():
-    if k in name:
-      return v
-  return name
+  label = next((v for k, v in BIOS_LABELS.items() if k in name), name)
+  return label + (f", seed {name.split('seed')[1]}" if 'seed' in name else '')
 
 
 def fig_bios(bios, out):
   """Attribute loss and accuracy against steps at N = 8,192 for every FFN variant; plateau against N."""
-  n8 = {k: r for k, r in bios.items() if r['cfg']['n_people'] == 8192 and 'replay' not in k}
+  n8 = {k: r for k, r in bios.items() if r['cfg']['n_people'] == 8192 and 'replay' not in k and 'seed' not in k}
   if not n8:
     return
   order = sorted(n8, key=lambda k: list(BIOS_LABELS).index(next((b for b in BIOS_LABELS if b in k), 'rbf_T2')))
+  # one color per variant in a fixed order, so the same variant has the same color in every panel and figure
   fig, axes = new_fig(12.0, 4.2, ncols=3)
   for c, k in zip(SERIES, order):
     r = n8[k]
@@ -446,9 +445,10 @@ def fig_bios(bios, out):
   style(axes[0], 'Attribute loss, N = 8,192 (held-out frames)', 'step', 'nats per attribute')
   style(axes[1], 'Attribute accuracy, N = 8,192', 'step', 'accuracy (%)')
   axes[1].legend(fontsize=7, frameon=False, loc='lower right')
-  geglu = sorted((r['cfg']['n_people'], r) for k, r in bios.items() if r['ffn_kinds'] == ['geglu'] * len(r['ffn_kinds'])
-                 and 'replay' not in k)
-  rbf = sorted((r['cfg']['n_people'], r) for k, r in bios.items() if 'rbf' in r['ffn_kinds'] and r['cfg']['steps'] == 6000)
+  geglu = sorted(((r['cfg']['n_people'], r) for k, r in bios.items() if r['ffn_kinds'] == ['geglu'] * len(r['ffn_kinds'])
+                  and 'replay' not in k and 'seed' not in k), key=lambda t: t[0])
+  rbf = sorted(((r['cfg']['n_people'], r) for k, r in bios.items() if 'rbf' in r['ffn_kinds'] and r['cfg']['rbf_T'] == 2.0
+                and 'seed' not in k), key=lambda t: t[0])     # N = 4,096: 3,000-step schedule (scan run)
   for c, (rows, lab) in zip(SERIES, ((geglu, 'GeGLU'), (rbf, 'growing RBF (last)'))):
     pts = [(n, r['acc50_step']) for n, r in rows if r['acc50_step'] is not None]
     if pts:

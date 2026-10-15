@@ -1,5 +1,5 @@
 {
- "_comment": "Article's language experiment (claims 19-20) on Zucchet et al.'s synthetic biographies with a small Gemma 3 style decoder (rcdl/bios.py): d = 256, 6 layers (5 local : 1 global), 4 query heads and 1 KV head of width 64, GeGLU width 1,024, tied embeddings. Batch 64 x 512 tokens (about 320 biographies per step), 6,000 steps, AdamW 4e-4 with betas 0.9 / 0.95, weight decay 0.1, cosine to 1e-7 (Zucchet et al. defaults). A: plateau against the number of individuals N (GeGLU; N = 8,192 is the C run). S: growing-RBF kernel width scan at N = 4,096 (3,000 steps, 2M-row tables; about 39 exposures per individual fit in the table). B and C at N = 8,192: Cos-Bochner throughout at widths 1k / 4k / 16k, Cos-Bochner 64k in the last layer, growing RBF and the routed-GeGLU control in the last layer; C runs then fine-tune on 1,024 new individuals for 1,000 steps at constant lr 3e-5 without replay (Zucchet et al. Sec. 4) with batch 16 x 512 tokens (about 80 biographies per step, about 78 exposures per new individual), and one GeGLU run with 50% replay. Growing RBF: a 2M-row ring buffer during pre-training (about 340 steps of rows, about 14 exposures per individual at N = 8,192); during fine-tuning the new rows are appended without evicting pre-training rows (2M extra rows). D (follow-up, beside the full-scale Fig. 5 run): growing RBF at N = 16,384; second seeds of the GeGLU and RBF fine-tuning runs; these also evaluate the same individuals with their training templates.",
+ "_comment": "Article's language experiment (claims 19-20) on Zucchet et al.'s synthetic biographies with a small Gemma 3 style decoder (rcdl/bios.py): d = 256, 6 layers (5 local : 1 global), 4 query heads and 1 KV head of width 64, GeGLU width 1,024, tied embeddings. Batch 64 x 512 tokens (about 320 biographies per step), 6,000 steps, AdamW 4e-4 with betas 0.9 / 0.95, weight decay 0.1, cosine to 1e-7 (Zucchet et al. defaults). A: plateau against the number of individuals N (GeGLU; N = 8,192 is the C run). S: growing-RBF kernel width scan at N = 4,096 (3,000 steps, 2M-row tables; about 39 exposures per individual fit in the table). B and C at N = 8,192: Cos-Bochner throughout at widths 1k / 4k / 16k, Cos-Bochner 64k in the last layer, growing RBF and the routed-GeGLU control in the last layer; C runs then fine-tune on 1,024 new individuals for 1,000 steps at constant lr 3e-5 without replay (Zucchet et al. Sec. 4) with batch 16 x 512 tokens (about 80 biographies per step, about 78 exposures per new individual), and one GeGLU run with 50% replay. Growing RBF: a 2M-row ring buffer during pre-training (about 340 steps of rows, about 14 exposures per individual at N = 8,192); during fine-tuning the new rows are appended without evicting pre-training rows (2M extra rows). D (follow-up, beside the full-scale Fig. 5 run): growing RBF at N = 16,384; second seeds of the GeGLU and RBF fine-tuning runs; these also evaluate the same individuals with their training templates. E (diagnostic): Cos-Bochner 4k in all layers, trained and frozen frequencies, 3,000 steps, evaluated with held-out and seen templates (memorization against knowledge).",
  "defaults": {
   "seq_len": 512,
   "batch_size": 64,
@@ -131,6 +131,21 @@
    "finetune_steps": 1000,
    "finetune_eval_every": 25,
    "finetune_batch_size": 16
+  },
+  "E_cos_all_D4k_seen": {
+   "n_people": 8192,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "steps": 3000,
+   "eval_seen_templates": true
+  },
+  "E_cos_all_D4k_frozen_seen": {
+   "n_people": 8192,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_train": false,
+   "steps": 3000,
+   "eval_seen_templates": true
   }
  }
 }
