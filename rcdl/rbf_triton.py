@@ -99,9 +99,11 @@ def _grid(n_q: int, n_k: int, block_q: int, block_k: int, device) -> tuple:
 
 
 # Launch configurations (BLOCK_Q, BLOCK_K, num_warps, num_stages), tried in order until one fits the GPU's shared
-# memory. At d = dv = 256 in bf16 the first Triton default (3 stages) needs 102,656 bytes on an RTX PRO 6000 Blackwell
-# (limit 101,376). A launch that does not fit raises before any program runs, so no partial sum is added.
-CONFIGS = ((64, 32, 8, 2), (64, 32, 8, 1), (32, 32, 4, 2), (32, 16, 4, 1))
+# memory (chosen separately for the forward and the backward kernel). At d = dv = 256 in bf16 Triton's default 3 stages
+# need 102,656 bytes on an RTX PRO 6000 Blackwell (limit 101,376). A launch that does not fit raises before any program
+# runs, so no partial sum is added. 4 warps: with 8 warps a 64 x 32 tile is computed twice (the MMA layout spans 64
+# columns); measured fwd + bwd at 4,096 queries x 2M rows: 976 ms with (64, 32, 4, 1), 1,169 ms with (64, 32, 8, 1).
+CONFIGS = ((64, 32, 4, 2), (64, 32, 4, 1), (32, 32, 4, 2), (32, 16, 4, 1))
 _CHOSEN = {}
 
 

@@ -24,9 +24,11 @@ except ImportError:      # CPU-only installs: AdamFP32SecondMoment falls back to
 
 def stochastic_round_bf16(x: torch.Tensor, gen: torch.Generator = None) -> torch.Tensor:
   """PyTorch reference of the kernel's rounding: fp32 -> bf16, unbiased (E[result] = x for finite x)."""
-  bits = x.float().contiguous().view(torch.int32)
+  xf = x.float().contiguous()
+  bits = xf.view(torch.int32)
   r = torch.randint(0, 1 << 16, bits.shape, dtype=torch.int32, device=x.device, generator=gen)
-  return ((bits + r) & -65536).view(torch.float32).to(torch.bfloat16)
+  out = ((bits + r) & -65536).view(torch.float32)
+  return torch.where(torch.isnan(xf), xf, out).to(torch.bfloat16)      # NaN stays NaN (adding to its bits can give ±0)
 
 
 if triton is not None:
@@ -47,8 +49,8 @@ if triton is not None:
       r0, r1 = r[0], r[1]
       pb = (p.to(tl.uint32, bitcast=True) + (r0 & 0xFFFF)) & 0xFFFF0000
       mb = (m.to(tl.uint32, bitcast=True) + (r1 & 0xFFFF)) & 0xFFFF0000
-      p = pb.to(tl.float32, bitcast=True)      # exact in bf16 (low 16 bits are zero)
-      m = mb.to(tl.float32, bitcast=True)
+      p = tl.where(p == p, pb.to(tl.float32, bitcast=True), p)   # exact in bf16 (low 16 bits are zero); NaN stays NaN
+      m = tl.where(m == m, mb.to(tl.float32, bitcast=True), m)
     tl.store(p_ptr + offs, p.to(p_ptr.dtype.element_ty), mask=mask)
     tl.store(m_ptr + offs, m.to(m_ptr.dtype.element_ty), mask=mask)
     tl.store(v_ptr + offs, v, mask=mask)
