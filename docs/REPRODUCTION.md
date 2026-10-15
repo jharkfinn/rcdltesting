@@ -486,6 +486,8 @@ The growing layer's held-out accuracy also has sudden dips. At N = 16,384 it fel
 | Cos-Bochner 16k, all layers | 51.8M | 1,000 | 1,600 | never | 58.5 |
 | Cos-Bochner 64k, last layer | 39.0M | 800 | 1,200 | never | 68.6 |
 
+![Biographies: attribute loss and accuracy at N = 8,192; steps to 50% against N](figures/bios_plateau.png)
+
 **Why Cos-Bochner falls short: it memorizes wording.** A rerun of Cos-Bochner 4k (all layers, trained frequencies) also measured accuracy on biographies written with the individuals' own training templates (seen):
 
 | Step | 2,000 | 2,500 | 3,000 | 4,000 | 6,000 |
@@ -504,6 +506,8 @@ The Cos-Bochner model learns every fact as written in training (100%) but recall
 | GeGLU, 50% replay | 100.0 / 95.8 / 98.3 / 98.7 / 98.5 / 99.1 / 99.7 | 1.2 / 2.9 / 55.5 / 98.9 / 99.7 |
 | Cos-Bochner 16k, all layers | 58.5 / 45.4 / 41.4 / 34.4 / 30.4 / 28.4 / 28.1 | 0.8 / 3.0 / 40.0 / 54.3 / 56.0 |
 | Growing RBF, last layer | 93.1 / 92.0 / 91.7 / 91.8 / 90.5 / 89.6 / **87.2** | **87.1 / 99.8** / 99.9 / 100.0 / 100.0 |
+
+![Biographies: fine-tuning on 1,024 new individuals](figures/bios_finetune.png)
 
 Findings on fine-tuning:
 - **GeGLU forgets and then "unforgets" without replay, in both seeds.** Old-fact accuracy collapses within 75 steps (to 12% and 22%), recovers to 57.5% and 75.7% by step 250 as the new facts are learned, then declines again. Zucchet et al.'s own fine-tuning figure (their Fig. N, rendered from the paper source) shows the same dip and partial recovery for their parametric model with 8k and 16k new individuals. The recovery is therefore not specific to RCDL layers, contrary to the article's framing.

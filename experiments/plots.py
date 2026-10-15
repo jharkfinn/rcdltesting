@@ -426,7 +426,8 @@ def _bios_label(name):
 
 def fig_bios(bios, out):
   """Attribute loss and accuracy against steps at N = 8,192 for every FFN variant; plateau against N."""
-  n8 = {k: r for k, r in bios.items() if r['cfg']['n_people'] == 8192 and 'replay' not in k and 'seed' not in k}
+  n8 = {k: r for k, r in bios.items() if r['cfg']['n_people'] == 8192 and 'replay' not in k and 'seed' not in k
+        and not k.startswith('E_')}          # E_*: diagnostic reruns (seen-template evaluation), shown in the text
   if not n8:
     return
   order = sorted(n8, key=lambda k: list(BIOS_LABELS).index(next((b for b in BIOS_LABELS if b in k), 'rbf_T2')))
