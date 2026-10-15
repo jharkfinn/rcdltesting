@@ -15,8 +15,9 @@ from rcdl.bios import _RBFRead
 torch.manual_seed(0)
 cuda = torch.cuda.is_available()
 dev, dt = ('cuda', torch.bfloat16) if cuda else ('cpu', torch.float32)
-# (queries, rows, d, dv, c): row counts that are not multiples of the tile, c small enough for near-zero and near-one κ
-for nq, n, d, dv, c in [(37, 1000, 32, 32, 8.0), (130, 2051, 64, 48, 20.0), (5, 0, 32, 32, 8.0)]:
+# (queries, rows, d, dv, c): row counts that are not multiples of the tile, c small enough for near-zero and near-one κ;
+# d = dv = 256 is the biography model's width (needs the reduced-stage launch configuration on a 100 KB-shared-memory GPU)
+for nq, n, d, dv, c in [(37, 1000, 32, 32, 8.0), (130, 2051, 64, 48, 20.0), (5, 0, 32, 32, 8.0), (70, 600, 256, 256, 64.0)]:
   keys = torch.nn.functional.normalize(torch.randn(n, d, device=dev), dim=-1).mul(d ** 0.5)
   q = keys[:nq].clone() + 0.3 * torch.randn(nq, d, device=dev) if n >= nq else torch.randn(nq, d, device=dev)
   keys, values = keys.to(dt), (0.1 * torch.randn(n, dv, device=dev)).to(dt)

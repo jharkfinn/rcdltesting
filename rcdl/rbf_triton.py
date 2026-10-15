@@ -98,22 +98,46 @@ def _grid(n_q: int, n_k: int, block_q: int, block_k: int, device) -> tuple:
   return qb, triton.cdiv(n_k, rows), rows
 
 
-def rbf_forward(q, q_sq, keys, key_sq, values, c: float, block_q: int = 64, block_k: int = 32, num_warps: int = 8):
+# Launch configurations (BLOCK_Q, BLOCK_K, num_warps, num_stages), tried in order until one fits the GPU's shared
+# memory. At d = dv = 256 in bf16 the first Triton default (3 stages) needs 102,656 bytes on an RTX PRO 6000 Blackwell
+# (limit 101,376). A launch that does not fit raises before any program runs, so no partial sum is added.
+CONFIGS = ((64, 32, 8, 2), (64, 32, 8, 1), (32, 32, 4, 2), (32, 16, 4, 1))
+_CHOSEN = {}
+
+
+def _launch(kernel, key, make_args):
+  """Runs `kernel` with the cached configuration for `key`, or the first in CONFIGS that fits."""
+  configs = [_CHOSEN[key]] if key in _CHOSEN else CONFIGS
+  for i, (bq, bk, warps, stages) in enumerate(configs):
+    grid, args, kwargs = make_args(bq, bk)
+    try:
+      kernel[grid](*args, **kwargs, BLOCK_Q=bq, BLOCK_K=bk, num_warps=warps, num_stages=stages)
+      _CHOSEN[key] = (bq, bk, warps, stages)
+      return
+    except triton.runtime.errors.OutOfResources:
+      if i == len(configs) - 1:
+        raise
+
+
+def rbf_forward(q, q_sq, keys, key_sq, values, c: float):
   """s = Σ_j κ_ij v_j (fp32, Q x dv) for bf16 or fp32 q (same dtype as keys), keys (N x d), values (N x dv)."""
   n_q, d = q.shape
   n_k, dv = values.shape
   out = torch.zeros(n_q, dv, device=q.device, dtype=torch.float32)
   if n_k == 0 or n_q == 0:
     return out
-  qb, splits, rows = _grid(n_q, n_k, block_q, block_k, q.device)
-  _rbf_fwd_kernel[(qb, splits)](q.contiguous(), q_sq.contiguous(), keys, key_sq, values, out, n_q, n_k, d, dv, rows,
-                                1.0 / c, BLOCK_Q=block_q, BLOCK_K=block_k, BLOCK_D=_p2(d), BLOCK_V=_p2(dv),
-                                PRECISION=_precision(keys), num_warps=num_warps)
+  q, q_sq = q.contiguous(), q_sq.contiguous()
+
+  def make_args(bq, bk):
+    qb, splits, rows = _grid(n_q, n_k, bq, bk, q.device)
+    return ((qb, splits), (q, q_sq, keys, key_sq, values, out, n_q, n_k, d, dv, rows, 1.0 / c),
+            dict(BLOCK_D=_p2(d), BLOCK_V=_p2(dv), PRECISION=_precision(keys)))
+
+  _launch(_rbf_fwd_kernel, ('fwd', d, dv, keys.dtype, q.device), make_args)
   return out
 
 
-def rbf_backward(q, q_sq, g, keys, key_sq, values, c: float, block_q: int = 64, block_k: int = 32,
-                 num_warps: int = 8):
+def rbf_backward(q, q_sq, g, keys, key_sq, values, c: float):
   """(Σ_j A_ij k_j, Σ_j A_ij) in fp32 for A_ij = κ_ij <g_i, v_j>; dq = (2/c) (first - second * q)."""
   n_q, d = q.shape
   n_k, dv = values.shape
@@ -121,8 +145,12 @@ def rbf_backward(q, q_sq, g, keys, key_sq, values, c: float, block_q: int = 64, 
   rs = torch.zeros(n_q, device=q.device, dtype=torch.float32)
   if n_k == 0 or n_q == 0:
     return acc, rs
-  qb, splits, rows = _grid(n_q, n_k, block_q, block_k, q.device)
-  _rbf_bwd_kernel[(qb, splits)](q.contiguous(), q_sq.contiguous(), g.to(values.dtype).contiguous(), keys, key_sq,
-                                values, acc, rs, n_q, n_k, d, dv, rows, 1.0 / c, BLOCK_Q=block_q, BLOCK_K=block_k, BLOCK_D=_p2(d),
-                                BLOCK_V=_p2(dv), PRECISION=_precision(keys), num_warps=num_warps)
+  q, q_sq, g = q.contiguous(), q_sq.contiguous(), g.to(values.dtype).contiguous()
+
+  def make_args(bq, bk):
+    qb, splits, rows = _grid(n_q, n_k, bq, bk, q.device)
+    return ((qb, splits), (q, q_sq, g, keys, key_sq, values, acc, rs, n_q, n_k, d, dv, rows, 1.0 / c),
+            dict(BLOCK_D=_p2(d), BLOCK_V=_p2(dv), PRECISION=_precision(keys)))
+
+  _launch(_rbf_bwd_kernel, ('bwd', d, dv, keys.dtype, q.device), make_args)
   return acc, rs
