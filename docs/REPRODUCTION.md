@@ -54,13 +54,15 @@ Budget: 12 GPU-hours on Colab (L4 and A100-40GB) plus a 4-core CPU; 11.87 hours 
 | DeltaNet decay, 10-block MLP, 2,000 epochs, 5 decay rates at once | `python3 -m experiments.deltanet_long --out results/deltanet` | any GPU (3 GB) | about 2 h on an RTX PRO 6000 |
 | Fig. 5 at 1/10 scale; hybrid tuning at τ = 35 | `experiments/configs/overfit_fig5_scaled.json`, `hybrid_tau35_tuning.json` with `experiments.run` | 1 GPU (13-17 GB) | about 45 min per parametric run; 2-4 min per hybrid run |
 | All runs for the claims opened in the last round | `bash experiments/queue_open_claims.sh results/open data` | 1 GPU with 96 GB | about 4 h |
+| Synthetic biographies on the Gemma 3 style decoder (§7.5b) | `python3 -m experiments.bios experiments/configs/bios.json --only <name>` (`--set eval_seen_templates=true` adds the seen-template evaluation) | 1 GPU; growing-RBF runs need the Triton kernels | 10-20 min (GeGLU, Cos-Bochner) to 1.5-2 h (growing RBF, 2M rows) per run on an RTX PRO 6000 |
+| Fig. 5 at full scale (2.56M trained keys, bf16 table, fp32 Adam second moment, stochastic rounding) | `python3 -m experiments.run experiments/configs/overfit_fig5_fullscale.json --run-set eval_every=1562 eval_subset=10000 --set bf16_stochastic_rounding=true --tag sr` | 1 GPU with 96 GB (82 GB used) | 145 ms per step alone: 113 s per epoch |
 | Figures | `python3 -m experiments.plots` | any | seconds |
 
 Data: `--source binary` reads the official CIFAR-10 tarball (the notebook's order). `--source parquet` reads the Hugging Face mirror `uoft-cs/cifar10`. Both hold the same 50,000 training images with the same labels, in a different order (the mirror starts at official image 30,000). The test sets are identical.
 
 Colab: the GPU runs use the official Colab CLI (`google-colab-cli`, `colab new --gpu L4`, `colab upload`, `colab exec`). The jobs start in the background on the VM, so a dropped connection does not stop them.
 
-molab: the last round also ran jobs on a marimo molab notebook (RTX PRO 6000 Blackwell, 96 GB). The marimo-pair script `execute-code.sh` sends Python to the notebook kernel, which clones this branch from GitHub and starts the jobs in the background.
+molab: the last two rounds also ran jobs on marimo molab notebooks (RTX PRO 6000 Blackwell, 96 GB). The marimo-pair script `execute-code.sh` sends Python to the notebook kernel, which clones this branch from GitHub and starts the jobs in the background. molab stops a notebook after 12 hours, or after 90 minutes without activity, and keeps only sidebar uploads and `mo.persistent_cache` files, so results were copied off every 20 minutes and uploaded to a private Hugging Face dataset.
 
 ## 2. The port is exact
 
