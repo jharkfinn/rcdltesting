@@ -71,7 +71,7 @@ bit-identical.
 | E5 | RCDL head (growing table) as a memory store | do offshoots come from captured residual error? | |
 | E6 | Umbrella = bee with exact attribution, parametric against RCDL head | off-ramp claim | |
 | E7 | Crush where packing is predicted (long-tail classes, 13-unit last layer) | rare facts ride related circuits | |
-| E8 | Toy: relatedness against anticorrelation as the cause of shared neurons | gap 2 above | running (`experiments/toy_packing.py`) |
+| E8 | Toy: relatedness against anticorrelation as the cause of shared neurons | gap 2 above | done, 160 runs (Sec. 6) |
 
 ## 5. E0 results: the canonical InceptionV1 neurons on all 50,000 validation images
 
@@ -146,20 +146,61 @@ Limits:
 - Open: whether anything downstream (mixed4e) reads the car half of 241 and 295 back out, which Zoom In's account also
   needs.
 
-## 6. E8 results so far (preliminary)
+## 6. E8 results: relatedness against anticorrelation in a toy, ReLU and SwiGLU, 10 seeds
 
-Setup: 8 families of 4 features; related = embedding cosine rho within a family; exclusive families (members never
-co-occur), co-occurring families, and exclusion pairs of families; 1 or 2 active features per sample; x -> Linear(64, m)
--> Linear(m, H) + ReLU -> Linear(H, 32) + ReLU; AdamW 3e-3, 6,000 steps, batch 256. A first sweep was invalid (output
-bias started at 0, 14 of 32 output ReLUs never turned on); with the bias at 0.1 the loss falls to 3e-4 at m = H = 32.
+Setup (`experiments/toy_packing.py`): 8 families of 4 features; related = embedding cosine rho within a family;
+exclusive families (members never co-occur), co-occurring families, and exclusion pairs of families; 1 or 2 active
+features per sample; x -> Linear(64, m) -> hidden layer of H units (ReLU, or SwiGLU SiLU(W_g z) * (W_v z)) ->
+Linear(H, 32) + ReLU, reconstructing the feature values; AdamW 3e-3, 6,000 steps, batch 256; the hidden layer tracked
+with `rcdl.attribution` (one group per active-feature set). Cells: rho in {0, 0.6}, m in {8, 32}, H in {16, 32}; 10
+seeds each, 160 runs. A unit's poles are the features whose response (the pre-activation for ReLU, the SwiGLU product
+for SwiGLU) is above 0.3 times its largest absolute response (positive pole) or below -0.3 times it (negative pole).
+Summaries: `experiments/toy_summary.py` (`docs/data/toy_packing_summary.json`) and `experiments/toy_growth.py`.
 
-With 3 seeds per cell (pole threshold 0.3 of the neuron's largest response; null = pole memberships shuffled):
-- Related features share a positive pole above chance when capacity is tight (for example 0.39 against 0.21 for
-  related, co-occurring pairs at rho 0.6, m 32, H 8).
-- Opposite poles of a neuron go above chance to unrelated, anticorrelated pairs (0.67 against 0.48 at rho 0.6, m 8,
-  H 32; 0.54 against 0.28 at m 32, H 32) and below chance to related, anticorrelated pairs (0.37 against 0.47; 0.29
-  against 0.30).
-- Confound: at rho 0 the two anticorrelated pair types already differ in some cells, because of how the exclusion
-  structure is built; the effect of relatedness is the change of that difference from rho 0 to rho 0.6.
-- Open: 7 more seeds for the key cells (running), the growth order from the attribution logs, and a SwiGLU hidden layer
-  (the essay's neuron type).
+Pole sharing. For each pair type t, the excess is the share of pairs of type t that share a positive pole (copositive)
+or sit on opposite poles of one unit (antipodal), minus the share expected when pole memberships are shuffled across
+features. Mean over seeds, with the standard error:
+
+| | ReLU, unrelated anticorrelated, excess antipodal | SwiGLU, same |
+|---|---|---|
+| rho 0, (m, H) = (8, 16) / (8, 32) / (32, 16) / (32, 32) | +0.10 / -0.01 / +0.07 / +0.10 (SE 0.03) | +0.04 / -0.03 / +0.05 / -0.00 (SE 0.02 to 0.03) |
+| rho 0.6, same cells | +0.14 / +0.20 / +0.11 / +0.28 (SE 0.02 to 0.05) | +0.07 / +0.02 / +0.07 / +0.02 (SE 0.01 to 0.04) |
+
+- Anticorrelation alone (unrelated features that never co-occur) puts features on opposite poles of ReLU units above
+  chance in 7 of 8 cells, as Toy Models predicts. In SwiGLU units the effect is small (at most +0.07).
+- The effect of relatedness is a difference in differences, because the two anticorrelated pair types already differ
+  at rho 0 (the exclusion structure differs):
+  DiD = [ex_related_anti(0.6) - ex_unrelated_anti(0.6)] - [ex_related_anti(0) - ex_unrelated_anti(0)], seeds paired.
+  For antipodality: ReLU -0.19, -0.38, -0.06, -0.24 (SE 0.05 to 0.07); SwiGLU -0.12, -0.14, -0.08, -0.09 (SE 0.02 to
+  0.09). Relatedness moves related, anticorrelated pairs away from opposite poles.
+- Relatedness moves related pairs onto a shared positive pole: DiD of the copositive excess, related co-occurring
+  against unrelated co-occurring pairs, up to +0.20 (SwiGLU, m 8, H 32; SE 0.04); related anticorrelated against
+  unrelated anticorrelated, up to +0.24 (ReLU, m 8, H 32; SE 0.03).
+- At rho 0.6, related anticorrelated pairs (the toy's "sibling classes") are on opposite poles at or below chance
+  (ReLU -0.12 to +0.04, SwiGLU -0.13 to -0.05). In this toy, a sibling pair on two poles of one unit is not what
+  relatedness produces. The essay's taxi / ambulance poles need another cause, for example the need to tell the two
+  apart, which a reconstruction toy with 1 or 2 active features does not stress.
+
+Growth (from the exact parts; for a unit h and a pole feature j, z = I + sum_w W_w, with W_w the part written by the
+samples of writer feature w and I the decayed initial weight's part; a pair sample's part is split equally):
+
+| cell | own / relatives / others, median share of z | spillover entries | of which mainly from a relative (chance) |
+|---|---|---|---|
+| ReLU rho 0 (4 cells) | -0.18 to 0.07 / about -0.05 / 0.76 to 1.10 | 48% to 68% | at chance (8 / 14.9, 25 / 21.8, 41 / 35.6, 149 / 134.6) |
+| ReLU rho 0.6 | -0.12 to 0.29 / -0.12 to -0.03 / 0.53 to 0.95 | 55% to 76% | 35 / 19.6, 40 / 20.4, 78 / 35.9, 283 / 116.2 |
+| SwiGLU rho 0 | 0.12 to 0.54 / about -0.03 / 0.25 to 0.68 | 36% to 58% | at chance (10 / 11.5, 10 / 13.7, 26 / 25.3, 61 / 49.5) |
+| SwiGLU rho 0.6 | 0.13 to 0.53 / -0.03 to 0.15 / 0.16 to 0.59 | 44% to 72% | 27 / 16.3, 47 / 28.9, 75 / 32.2, 133 / 53.1 |
+
+A spillover entry is a feature that enters a unit's final pole (first checkpoint above 0.3 of the unit's largest
+response) with more than half of its pre-activation written by members already in the pole.
+- Most features enter a pole by spillover in every cell, so growth by spillover is the normal case in this toy.
+- With related inputs, the earlier member that wrote most of the entry is a relative 1.6 to 2.4 times as often as
+  chance. At rho 0 the rate is at chance, which checks the method.
+- Most spillover still comes from unrelated members (75% to 85% at rho 0.6), through the shared m-dimensional
+  bottleneck. Relatedness is one driver of growth here, and it is not the main one.
+- In ReLU units a feature's own samples write little of its pole response (median own share -0.18 to 0.29). In SwiGLU
+  units they write more (0.12 to 0.54).
+
+Limits: a reconstruction toy with a trained bottleneck and 32 features. It isolates the two causes; it does not tell
+which one dominates in an ImageNet model. E1 to E3 measure the same quantities on ConvNeXt-SwiGLU, with WordNet 3.0
+distances between ImageNet classes (`rcdl/imagenet_hierarchy.py`, `docs/data/imagenet_wordnet.npz`) as relatedness.
