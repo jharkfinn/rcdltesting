@@ -64,7 +64,7 @@ bit-identical.
 | # | Experiment | Claim tested | Status |
 |---|---|---|---|
 | E0 | Static checks on the public InceptionV1 (V neuron 4e:55, the car / dog pose circuit 4c:447, mixed5b) | the essay's re-readings of canonical neurons | done for 4e:55 and the car circuit (Sec. 5); mixed5b open |
-| E1 | Writer atlas: ConvNeXt-SwiGLU tiny and medium, per-class attribution of the gate and value maps of late blocks, dense early checkpoints | instrument | code ready (`rcdl/convnext.py`, `rcdl/attribution.py`); needs a GPU and ImageNet |
+| E1 | Writer atlas: ConvNeXt-SwiGLU tiny and medium, per-class attribution of the gate and value maps of late blocks, dense early checkpoints | instrument | code reviewed and ready (`experiments/convnext_train.py`, `experiments/convnext_atlas.py`, `experiments/convnext_growth.py`, `experiments/molab_e1.sh`); the first run was lost with its sandbox (Sec. 7) |
 | E2 | Order of growth: when each class enters a neuron's writer set, and its distance to the classes already there | recursive generalization | |
 | E3 | Head start: did the neuron already fire on a class before that class wrote into it? | circuit racing | |
 | E4 | Muon against AdamW against SGD | optimizer as an intervention on circuit racing | |
@@ -218,3 +218,25 @@ response) with more than half of its pre-activation written by members already i
 Limits: a reconstruction toy with a trained bottleneck and 32 features. It isolates the two causes; it does not tell
 which one dominates in an ImageNet model. E1 to E3 measure the same quantities on ConvNeXt-SwiGLU, with WordNet 3.0
 distances between ImageNet classes (`rcdl/imagenet_hierarchy.py`, `docs/data/imagenet_wordnet.npz`) as relatedness.
+
+## 7. Status of E1 and infrastructure notes (2026-10-16)
+
+- Pipeline: `experiments/molab_e1.sh <run> [trainer args]` downloads the validation set, packs the training set into RAM
+  (`rcdl.imagenet.prepare_train`), restores `resume.pt` from the results dataset if one exists, and trains.
+  `experiments/hf_sync.py` copies results (checkpoints, attribution parts, resume state) to the private Hugging Face
+  dataset every 10 minutes. The trainer writes `resume.pt` every 1,000 steps and at every checkpoint, so a lost
+  sandbox costs at most 1,000 steps plus the data packing.
+- Review (three reviewers, each finding checked by a second agent), all fixed and tested (92 tests pass):
+  - under Muon the tracked biases had a 10 times larger learning rate than the other biases (`bias_lr_scale`);
+  - TF32 broke the exact sum of the Muon parts to about 1e-3 per step (matmuls of the Muon parts now run in fp32);
+  - fp16 checkpoints flushed 7% of the per-class parts to zero at step 50 (now fp16 times a power-of-two scale, plus
+    the fp32 remainder, so `W = a W_0 + sum_k C_k + R` holds exactly as stored);
+  - a loader error hung the trainer; the run did not save its last step for step counts off the checkpoint list;
+    the logged validation count was wrong;
+  - the mixup weights forced a host-device sync every step; data packing used 3 of 18 workers; the
+    RandomResizedCrop fallback differed from torchvision's; JPEG decode and crops ran in series.
+- Open for the medium model: keep C undecayed (C / a) to save a full pass per step, and stack the maps of a stage
+  into one state (36 small updates per step become 4).
+- molab: both sandboxes ended with HTTP 410, after about 15 and 45 minutes, the first while writing to local disk
+  and the second just after training had started with 52 GB in /dev/shm. The cause is not known (a memory limit
+  that counts /dev/shm, a lifetime limit, or the end of the browser session are candidates).
