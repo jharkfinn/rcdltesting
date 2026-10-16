@@ -491,6 +491,8 @@ def fig_fig5_full(roots, out):
   before its 2,000 epochs, so it never writes summary.json (load_runs needs that file)."""
   files = sorted(f for root in roots for f in glob.glob(os.path.join(root, '**', '*fullscale_sr', 'seed*', 'evals.jsonl'),
                                                          recursive=True))
+  files += sorted(f for root in roots for f in glob.glob(os.path.join(root, '**', 'fig5_fullscale_evals.jsonl'),
+                                                          recursive=True))   # archived copy in docs/data
   if not files:
     return
   ev = max(([json.loads(l) for l in open(f) if l.strip()] for f in files), key=len)   # the longest copy of the log
