@@ -128,15 +128,32 @@ neuron that packs a car feature with a dog feature would be driven by car channe
 
 So on natural images, 241 and 295 are each driven by a vehicle detector (447) on vehicles and by dog-breed detectors
 on dogs, with almost orthogonal input patterns. One mixed4c channel, 4c:41 (20 dogs and 18 vehicles in its top 50:
-beach wagon, pickup, Irish and Yorkshire terriers), feeds both halves (11% and 8% of z in 295, 5% and 6% in 241). It is
-the only shared input we found, and it carries a small part of z. Heat montages agree: in 295 the vehicle response
+beach wagon, pickup, Irish and Yorkshire terriers), feeds both halves (11% and 8% of z in 295, 5% and 6% in 241), and
+4c:66 (terriers) also writes into both halves of 295 (4% of the vehicle z, 14% of the dog z). These are the only shared
+inputs we found, and they carry a small part of z. Heat montages agree: in 295 the vehicle response
 sits on wheels and the lower side of side-on cars, and the dog response on the faces of terriers, mostly seen from the
 front, so the top images do not share a pose.
 
 Reading. For these two units, the exact input attribution matches what Zoom In described: a car feature merged into
-neurons that also detect dogs. It does not match a single detector of a pose shared across cars and dogs.
+neurons that also detect dogs. It does not match a single detector of a pose shared across cars and dogs at the level
+of mixed4c. Separate inputs alone cannot exclude one variable built in mixed4d from class-specific channels (see the
+last limit), so low overlap bounds packing from above; the montages are what argue against that variant here.
+
+| overlap against the reader baseline | tuning on a shared attribute such as pose | reading |
+|---|---|---|
+| above (and near the class reference) | any | a feature shared at the previous layer |
+| below | matched across the two groups | one variable built in this layer (the essay survives) |
+| below | unmatched or flat | packing |
+| below | not tested | undecided |
 
 Limits:
+- No reader baseline yet. A review of the follow-up E0d (2026-10-16) showed that the overlap of two image groups is
+  well above 0 for any reader: other units of the same branch, read at the same positions, give a median of about 0.5
+  on synthetic image families, and the floor depends on the unit, the branch and how similar the two groups already
+  are in mixed4c. The 0.08 and 0.12 of 241 and 295 are below every floor seen there, but the comparison with 32 other
+  readers of the same branch on these very images is part of the E0d rerun.
+- The cosine of mean share vectors depends on how concentrated the inputs are; 4c:447 holds about 60% of 241's
+  positive vehicle mass. E0d adds a shared-mass measure and draws conclusions only where both agree.
 - Only the 100 strongest images per unit are used; a pose code could live in the weaker range.
 - Pose was not labelled; the claim about shared pose rests on the montages.
 - The essay's guided ("natural path") feature visualization is not published, so its figure cannot be repeated.
