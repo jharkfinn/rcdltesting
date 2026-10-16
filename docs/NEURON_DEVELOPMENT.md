@@ -545,6 +545,165 @@ at a balance of strong, class-specific opposing pushes, upward from its pole and
 the rest; a tug of war that continues through training. These are descriptive; the interval-split tests in
 `docs/EXACT_HISTORY.md` ask what the pushes do to individual classes.
 
+### Stage 1: a unit's strongest classes teach it down, and its output hurts them
+
+The bias signal above has one exception to the late-block pattern. In stage 1 (three blocks, residual width 8), a
+unit's 20 strongest classes write its bias in the direction that lowers its response on them. This section tests that
+exception in three runs: E1 and E1r (AdamW, seeds 0 and 1) and E4 (Muon, seed 0). Scripts:
+`experiments/convnext_bias_self.py` (exact writes), `convnext_bias_paths.py` (probe gradients, splits, ablation),
+`convnext_unit_roles.py` (per-class ablation profiles and write directions). An adversarial review (three reviewers and
+a synthesis) checked the scripts and the claims below; its corrections are included.
+
+**1. The exact writes, with each class's own derivative.** In stage 1, 41 to 53% of the (unit, pole class) pairs at
+the end lie in the negative lobe of the gate (g < 0 and v < 0, so u = SiLU(g) v > 0), against 0 to 14% in the late
+blocks. A single sign per unit is therefore not the sign of du/dv for every class. `convnext_bias_self.py` uses the
+local derivative at each class's mean pre-activations instead. For unit n, classes k and c, and an interval (t1, t2]:
+
+  pole[k, n] = dv[k, n] mean_{c in P_n} SiLU(Gm[n, c]) + dg[k, n] mean_{c in P_n} SiLU'(Gm[n, c]) Vm[n, c]
+
+- dv[k, n], dg[k, n]: class k's exact value and gate bias writes in the interval (no bias decay, so the increments of
+  the bias parts are exactly the writes);
+- P_n: the unit's 20 strongest classes at t1, by z-score of the class-mean response R (the mean over 8 validation
+  images of the class of u* = max over positions of u);
+- Gm[n, c], Vm[n, c]: class c's mean gate and value pre-activations at the strongest position, at t1;
+- SiLU'(g) = sigma(g) (1 + g (1 - sigma(g))), with sigma the logistic function.
+
+pole[k, n] is the first-order change of the mean response of P_n caused by class k's writes. Values are given in units
+of the mean |pole| over the unit's 1,000 classes (a per-unit scale; `convnext_bias_signal.py` uses one scale per block,
+so its numbers are on a different scale). Medians over the intervals from step 1,000:
+
+| block | E1 top 20: all / negative-lobe units / positive units | E1r top 20: all / negative-lobe / positive |
+|---|---|---|
+| stage 1 block 0 | -0.71 / -0.61 / -0.76 | -0.49 / -0.34 / -0.66 |
+| stage 1 block 1 | -0.51 / -0.28 / -0.82 | -0.66 / -0.57 / -0.70 |
+| stage 1 block 2 | -0.54 / -0.36 / -0.69 | -0.45 / -0.21 / -0.62 |
+| other late blocks (range) | +0.47 to +1.92 | +0.38 to +2.26 |
+
+(A unit is 'negative-lobe' if most of its top 20 classes have g < 0 and v < 0, and 'positive' if most have g > 0 and
+v > 0. After step 2,500 units are nearly pure: 97 to 99% of a unit's top 20 classes are in its lobe.)
+
+- Not an artefact of the orientation. With the derivative the reversal is stronger than with one sign per unit. A
+  reviewer recomputed the derivatives per image on E1 (instead of at class means): the values agree within 0.06 and
+  no sign changes.
+- Not caused by the negative lobe. It is stronger in positive units than in negative-lobe units, in every block and
+  both seeds. In E1, block 2 flips at a negative-lobe share of 0.07; the share rises after the flip, and almost all
+  units that change type in the flip intervals go from positive to negative lobe. So the downward pushes move units
+  into the negative lobe, not the reverse.
+- Not selection. Choosing the top 20 at t1, at t2, at the end or at the previous checkpoint gives the same values
+  (the probe images that define the top 20 are validation images, independent of the training writes). The whole
+  ranking is reversed: in stage 1 a unit's 20 weakest classes push its pole response up (+0.20 to +0.73), and a random
+  set of 20 classes gives about 0. 70 to 88% of live units are negative in each interval after step 2,000.
+- The WordNet relatives of the top 20 also push down (-0.17, -0.11, -0.07 in E1). The remaining classes push up a
+  little (+0.03 to +0.04 per class in E1). The pushes nearly cancel (net about 0.1% of gross), so the top classes' sign is the
+  finding and the rest's sign follows from the balance.
+- A class's own writes lower its own response too (-0.61 to -0.89 in stage 1, same formula with c = k).
+- Weights as well as the bias (a reviewer's computation on E1 only; script in the review folder): with each pole
+  class's mean input at its strongest position recovered from the atlas, the full writes of the top 20 classes
+  (weights and bias) give -0.38 to -0.93 from interval 2,000-2,500 on, about 80% of it through the weights. The bias
+  is not a special lever.
+- Stage 0 differs by seed (E1: +0.20, -0.12, -0.18; E1r: -0.31, +0.61, +0.42). Stage 2 blocks 0 and 3 are near zero.
+
+Time course (stage-1 values per interval start). The flip is staggered by block: in E1, block 2 is negative from
+(500, 1,000], block 1 from (1,000, 2,000], block 0 from (2,000, 2,500] (+0.18 before). Before that, stage 1 is built
+the late-block way (+0.09 to +0.53 in the intervals starting at steps 200 and 350). Block 2 flips before the warm-up ends at step
+1,250, so the end of warm-up is not the trigger.
+
+**2. Where the signal comes from: probe gradients.** The exact writes sum the teaching signal over every position of
+every training image. `convnext_bias_paths.py` recomputes it on the probe set (8 clean validation images per class,
+hard labels) at a checkpoint and splits it. For an image of class k, with z the logits and L = logsumexp(z) - z[k],
+delta[p, n] = dL/du[p, n] is the teaching signal of unit n at position p. The bias gradients are
+B_v = sum_p delta SiLU(g) and B_g = sum_p delta SiLU'(g) v (class means), and the probe pole effect is
+-(B_v mean_{c in P_n} SiLU(Gm) + B_g mean_{c in P_n} SiLU'(Gm) Vm). A test checks B_v and B_g against autograd's bias
+gradients. Splits, each adding up to the whole:
+
+- positions: the strongest position p*, the 'on' positions (u >= 0.5 u*, about 75 to 150 per image for the top
+  classes in stage 1), and the rest;
+- logit terms: the logsumexp(z) term plus the true-class term -z[k]. (In the JSON files of this round the key 'own'
+  holds the gradient of +z[k]; the true-class term is -own.)
+- LayerNorm scale: every LayerNorm with 1 / sigma held fixed (forward values unchanged), and the rest, which is the
+  path through the normalisers' scale.
+
+The probe reproduces the training writes. Per unit, the Spearman correlation over the 1,000 classes between the probe
+effect at a checkpoint and the exact writes of the next interval is 0.71 to 0.76 (E1 and E1r) and 0.53 to 0.59 (E4)
+in stage 1 from step 2,000 (E4: from 5,000), and 0.66 to 0.76 in the late blocks. A reviewer also ran a probe that copies training
+(mixup pairs with Beta(0.8, 0.8) weights, each image's gradient credited to both classes): same pattern, correlation
+0.50 to 0.78, and the term from the partner's label is small (|x| <= 0.10). Mixup is not the cause.
+
+Stage-1 mean of the probe effect on the top 20 classes:
+
+| step | E1 | E1r | E4 (Muon) |
+|---|---|---|---|
+| 200 | +0.12 | +0.20 | |
+| 350 | +0.10 | +0.19 | |
+| 1,000 | +0.05 | +0.00 | -0.10 |
+| 2,000 | -0.33 | -0.45 | -0.13 |
+| 5,000 | -0.30 | -0.40 | -0.42 |
+| 12,500 | -0.41 | -0.33 | |
+| 20,000 | -0.42 | -0.41 | -0.38 |
+
+Late blocks other than stage 2 blocks 0 and 3: +0.76 to +1.11 (E1, E1r) and +0.85 to +1.06 (E4) after step 1,000.
+
+Splits at step 20,000, stage-1 mean (E1 / E1r / E4):
+- positions: p* 0.00 / 0.00 / 0.00 (one position of 784); on -0.19 / -0.15 / -0.13; rest -0.23 / -0.25 / -0.26. Both
+  regions push down. The reversal is not a background effect and not an effect of the position where the response
+  is read.
+- logit terms: true-class term -0.52 / -0.70 / -0.51; logsumexp term +0.10 / +0.29 / +0.13. Raising the unit lowers the
+  true class's logit; the competing classes' term works against the reversal. In late blocks the true-class term is
+  +1.11 / +1.09 / +1.48.
+- LayerNorm scale: fixed scale -0.70 / -0.66 / -0.89; scale path +0.29 / +0.25 / +0.51. The normalisers work against
+  the reversal; it sits in the path at fixed scale. In late blocks the scale path is negative (-0.43 / -0.39 / -0.72):
+  there a strong unit inflates sigma and pays for it.
+
+**3. What the unit does to its top classes: ablation.** Setting one unit's output to zero at every position
+(`convnext_bias_paths.py --ablate`: the unit's 20 strongest classes and 20 random others; `convnext_unit_roles.py`: all
+1,000 classes), cross-entropy change at step 20,000:
+
+| | E1 | E1r | E4 |
+|---|---|---|---|
+| stage 1, top 20 classes (mean over units and blocks) | -3.2e-3 | -1.3e-3 | -2.6e-3 |
+| stage 1, 20 random classes | +6.3e-4 | +5.6e-5 | +4.5e-4 |
+| stage 1, share of units whose removal helps the top 20 more than the rest (blocks 0 / 1 / 2) | 0.69 / 0.67 / 0.60 | 0.57 / 0.57 / 0.39 | 0.81 / 0.68 / 0.60 |
+| late blocks (stage 2 block 5, stage 3 block 1), same share | 0.17 / 0.16 | 0.34 / 0.14 | 0.24 / 0.13 |
+| late blocks other than stage 2 blocks 0 and 3, top 20 classes | +1.9e-2 | +2.2e-2 | +3.1e-2 |
+
+- Removing a stage-1 unit lowers the loss of the classes that drive it and raises the loss of others. In late
+  blocks the unit helps its top classes. At step 1,000 most E1 stage-1 units still help their top classes (share helping 0.71; E1r 0.42, where
+  the probe signal is already about 0).
+- Not overshoot of the single unit: the cross-entropy of the top classes is nearly linear in a scale factor alpha on
+  the unit's output (alpha = 0: -3.2e-3; linear prediction -4.1e-3), and the share of units that help their top classes
+  but would help them more at smaller scale is 0.01 to 0.05.
+- Whom stage-1 units help (the 20 classes whose loss rises most when the unit is removed): they overlap the unit's
+  top 20 at chance (0.009 to 0.066; chance 0.02) and are no more often WordNet relatives of the top 20 than random
+  classes (0.13 to 0.26 against 0.14 to 0.18). Late units help their top classes (overlap 0.07 to 0.29) and their
+  relatives (0.24 to 0.40 against 0.15 to 0.20; visual relatives 0.21 to 0.47 against 0.11 to 0.15).
+- Write directions: a unit writes into the residual stream along w_n = gamma * W_down[:, n]. In stage 1, 48 to 94% of
+  units (step 20,000) have another unit with |cos| > 0.9 (late blocks 0 to 27%). The review measured an effective
+  rank of the stage-1 write directions of 1.5 to 4.7 (of 8), with the layer scale gamma concentrated on one or two
+  channels. Removing the whole stream component along a stage-1 unit's write direction costs every class 0.5 to 1.6
+  nats: the direction is essential, and the unit is a small part of it.
+
+**Reading.** In this model, from about step 1,000 on, a stage-1 unit's strongest classes teach it down and are hurt by
+its output, in three runs with two optimizers. Its top-activating classes describe what it responds to, not whom it
+serves. The effect is not an artefact of orientation, the negative SiLU lobe, selection, mixup, the read-out position,
+the normalisers' scale, the competing classes, or the optimizer. Leading mechanisms (review ranking): M1 overshoot from
+same-direction partners in a collapsed write space (the reversal tracks how much same-direction partners also respond
+on the unit's pole: Spearman -0.65 in E1, by tercile +0.11, -0.61, -1.56); M4 the unit's write cancels a useful
+incoming stream component; M5 a class-specific negative readout. Tests that decide between them (the stream state at
+the unit's active positions, zeroing a unit's same-direction partners, and a replay from step 1,000 with the stage-1
+layer scale frozen) are in progress.
+
+Caveat on scope: the residual width 8 in stages 0 and 1 is this repository's choice for the tiny size (Sec. 2: the
+essay does not publish widths). Whether the same happens at the essay's medium size (widths 48 / 96 / 192 / 384) is
+untested.
+
+Bearing on the essay. (a) Its account of growth gives a unit already on for a class the first claim on that class's
+error (a head start). That holds in late blocks; in stage 1 after step 1,000 the strongest classes act as a brake and
+the bulk of the classes holds the unit's response up. (b) Its picture of a clean residual stream ("we don't see the
+stream accumulating interference only to undo it later") does not hold in this model's 8-wide stages: dozens of units
+of both signs share one to three write directions, and the class pushes on a unit's bias cancel to about 0.1% of
+their gross. (c) Its reading of early units from their top activations: those describe input selectivity, which this
+finding does not contradict, but in stage 1 the top classes are the ones the unit's output hurts.
+
 ### E7: the last layer crushed to 13 units
 
 Run `e7_tiny_crush13`: the E1 recipe and seed with the last block's SwiGLU narrowed to 13 units and its skip connection
