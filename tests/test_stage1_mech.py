@@ -1,5 +1,5 @@
-"""experiments.convnext_stage1_mech: the stream decomposition adds up, the X1 push is convnext_bias_paths' pole push, and
-X2 reduces to the baseline for an empty set and for alpha = 1."""
+"""experiments.convnext_stage1_mech: the stream decomposition adds up, the X1 push is convnext_bias_paths' pole push,
+and X2 reduces to the baseline for an empty set and for alpha = 1."""
 
 import numpy as np
 import torch

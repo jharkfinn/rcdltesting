@@ -20,10 +20,10 @@ X1, the stream state. The block writes w_n = gamma * W_down[:, n] per unit of u_
   s_out  = x_out . e = s_in + s_own + s_part
   kappa  = SiLU(g) pa_v + SiLU'(g) v pa_g   (the derivative of the pole response through this position's bias gradient)
   push   = -kappa delta                 its sum over positions, class-averaged, is convnext_bias_paths' pole[k, n]
-Per block and role (top20: P_n; relatives: WordNet relatives of P_n outside it, with --wordnet; rest: all other classes),
-each quantity is first a class value, then a mean over the role's classes per unit, then a mean over live units:
+Roles per unit: top20 (P_n), relatives (WordNet relatives of P_n outside it, with --wordnet), rest (all other classes).
+Each quantity is a class value, then a mean over the role's classes per unit, then a mean over live units:
   pole_{role}               class-mean push summed over positions, in units of the unit's mean |pole| over all classes
-                            (equals convnext_bias_paths' ce split, with the relatives left out of 'rest')
+                            (convnext_bias_paths' ce split, with the relatives left out of 'rest')
   s_{in,own,part,bias,out}_{role}   |kappa|-weighted means at the unit's active positions (u >= 0.5 u*, u* > 0; p* is
                             among them), in stream units; pstar_s_*_{role}: the same at p* alone (unweighted)
   frac_sout_pos_{role}      share of (unit, class) pairs with s_out > 0 at the active positions
@@ -32,8 +32,8 @@ each quantity is first a class value, then a mean over the role's classes per un
   frac_sin_opposes_own_{role}   share with s_in s_own < 0 (s_own > 0 at active positions, so s_in < 0)
   frac_sout_below_sin_{role}    share with |s_out| < |s_in| (the block shrinks the stream along e)
   frac_m4_{role}            share with both (the unit's write cancels an incoming component)
-  push_by_{v}_bin_{role}    for v in sout, sin, u (u_n): the class-mean push summed within each of 10 bins of v, in units
-                            of the unit's mean |pole| (the 10 entries add up to pole_{role})
+  push_by_{v}_bin_{role}    for v in sout, sin, u (u_n): the class-mean push summed within each of 10 bins of v, in
+                            units of the unit's mean |pole| (the 10 entries add up to pole_{role})
   push_per_pos_by_{v}_bin_{role}  push per position in each bin (pooled over the role's images) times the positions per
                             image, same units: the pole push an image would get if all its positions were in that state
   occ_by_{v}_bin_{role}     share of the role's positions in each bin
@@ -44,24 +44,24 @@ each quantity is first a class value, then a mean over the role's classes per un
 The bins of v are per unit and shared by all roles: deciles of v over all positions of all probe images, each position
 weighted by |kappa| (so each bin holds a tenth of the unit's derivative mass; --edges positions: unweighted), estimated
 from --n_sample random positions per image.
-Readings: M1: s_out > 0 at the active pole positions, mostly from s_part, and push_per_pos falls with s_out on one curve
-for both roles (role_offset_by_sout near 0); M4: s_in < 0 against s_own > 0 with |s_out| < |s_in| (frac_m4 high); M5:
-a role offset at fixed bins (role_offset_by_* < 0 for the reversal); M3: push_per_pos changes along the u bins at a fixed
-stream state (slope_by_u) and not along s_out.
+Readings: M1: s_out > 0 at the active pole positions, mostly from s_part, and push_per_pos falls with s_out on one
+curve for both roles (role_offset_by_sout near 0); M4: s_in < 0 against s_own > 0 with |s_out| < |s_in| (frac_m4
+high); M5: a role offset at fixed bins (role_offset_by_* < 0 for the reversal); M3: push_per_pos changes along the u
+bins at a fixed stream state (slope_by_u) and not along s_out.
 
 X2, partner zeroing (stage-1 blocks by default). For each live unit n, with signed cos between write directions:
 S+ = {m != n: cos(w_m, w_n) > 0.9}, S- = {cos < -0.9}, rand = a random set of the size of S+ among {|cos| < 0.5}
-(fixed seed; smaller if there are too few). For each set and alpha in --alphas (0, 0.5), the units of the set are scaled
-by alpha at every position of block b (n itself is not), and on the images of P_n and of 40 other classes (random, not
-WordNet relatives of P_n when --wordnet is given) dCE / du is recomputed by torch.autograd.grad; n's pole push is
-rebuilt with the BASELINE pa_v, pa_g (its own u, g, v do not change: the set only changes the block's output).
+(seeded per unit; smaller if there are too few). For each set and alpha in --alphas (0, 0.5), the units of the set are
+scaled by alpha at every position of block b (n itself is not), and on the images of P_n and of 40 other classes
+(random, not WordNet relatives of P_n when --wordnet is given) dCE / du is recomputed by torch.autograd.grad; n's pole
+push is rebuilt with the BASELINE pa_v, pa_g (its own u, g, v do not change: the set only changes the block's output).
 Per unit: the class-mean push of the top-20 and of the 40 classes, divided by the baseline mean |push| over the 60.
 Summary per block:
-  top20_base, rest_base                    baseline, all live units
-  top20_{set}_a{alpha}, rest_{set}_a{alpha}  over units with a non-empty set; top20_base_{set} is the baseline of the same
-                                           units; units_{set} their number; n_empty_{set} the others; share_up_{set}_a{alpha}
-                                           the share whose top-20 push rises (less reversed) against their baseline
-  n_short_rand                             units whose random set is smaller than S+
+  top20_base, rest_base       baseline, all live units
+  top20_{set}_a{alpha}, rest_{set}_a{alpha}   over the units with a non-empty set (an empty set is the baseline)
+  top20_base_{set}            the baseline of the same units; units_{set}: their number; n_empty_{set}: the others
+  share_up_{set}_a{alpha}     share of those units whose top-20 push rises (less reversed) against their baseline
+  n_short_rand                units whose random set is smaller than S+
 Readings: M1: the reversal (top20 < 0) shrinks or vanishes for S+, deepens for S-, and is unchanged for rand; M5: all
 unchanged.
 
@@ -170,8 +170,8 @@ def class_stats(model, name, X, y, n_classes, batch):
 
 
 def weighted_edges(vals, w, n_bins=N_BINS):
-  """vals, w: (N, U). Per unit the n_bins - 1 inner edges (U, n_bins - 1) of the w-weighted quantiles of vals (unweighted
-  for a unit whose weights are all zero)."""
+  """vals, w: (N, U). Per unit the n_bins - 1 inner edges (U, n_bins - 1) of the w-weighted quantiles of vals
+  (unweighted for a unit whose weights are all zero)."""
   v, order = vals.T.sort(1)
   cw = torch.gather(w.T.double(), 1, order).cumsum(1)
   N = v.shape[1]
@@ -242,7 +242,7 @@ def x1_block(model, name, X, y, rel=None, stats=None, batch=100, n_sample=16, ed
   f64 = lambda *s: torch.zeros(*s, dtype=torch.float64, device=dev)
   acc = {'push': f64(C, U), 'push_act': f64(C, U), 'n_act': f64(C, U), 'den': f64(C, U),
          **{f'num_{k}': f64(C, U) for k in PARTS}, **{f'pstar_{k}': f64(C, U) for k in PARTS},
-         **{f'bin_push_{k}': f64(C * U * N_BINS) for k in BIN_VARS}, **{f'bin_cnt_{k}': f64(C * U * N_BINS) for k in BIN_VARS}}
+         **{f'bin_{t}_{k}': f64(C * U * N_BINS) for k in BIN_VARS for t in ('push', 'cnt')}}
   ar = torch.arange(U, device=dev)
   with no_param_grads(model):
     for s in range(0, len(X), batch):
@@ -394,7 +394,8 @@ def x2_block(model, name, X, y, rel=None, stats=None, alphas=(0.0, 0.5), n_top=2
     push = x2_push(model, name, X, y, by_class, cls, n, configs, pa_v[n], pa_g[n], batch)
     norm = np.abs(push['base']).mean() + 1e-30
     rec = {'unit': int(n), **{f'n_{k}': int(len(S)) for k, S in sets.items()},
-           'top20_base': float(push['base'][:n_top].mean() / norm), 'rest_base': float(push['base'][n_top:].mean() / norm)}
+           'top20_base': float(push['base'][:n_top].mean() / norm),
+           'rest_base': float(push['base'][n_top:].mean() / norm)}
     for k, S in sets.items():
       for al in alphas:
         p = push.get(f'{k}_a{al:g}', push['base'])                                          # empty set: the baseline
@@ -414,7 +415,8 @@ def x2_block(model, name, X, y, rel=None, stats=None, alphas=(0.0, 0.5), n_top=2
       key = f'{k}_a{al:g}'
       for role in ('top20', 'rest'):
         out[f'{role}_{key}'] = float(np.mean([r[f'{role}_{key}'] for r in sel])) if sel else float('nan')
-      out[f'share_up_{key}'] = float(np.mean([r[f'top20_{key}'] > r['top20_base'] for r in sel])) if sel else float('nan')
+      up = [r[f'top20_{key}'] > r['top20_base'] for r in sel]
+      out[f'share_up_{key}'] = float(np.mean(up)) if sel else float('nan')
   return out, rows
 
 
@@ -428,9 +430,10 @@ def main():
   p.add_argument('--val', default='/marimo/work/data/imagenet/data')
   p.add_argument('--probe_cache', default='/dev/shm/probe_8.pt')
   p.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz')
-  p.add_argument('--edges', default='kappa', choices=['kappa', 'positions'], help='X1 bin edges: |kappa|-weighted deciles')
+  p.add_argument('--edges', default='kappa', choices=['kappa', 'positions'],
+                 help='X1 bin edges: |kappa|-weighted deciles of all positions, or unweighted')
   p.add_argument('--n_sample', type=int, default=16, help='X1: positions per image for the bin edges')
-  p.add_argument('--batch', type=int, default=100)
+  p.add_argument('--batch', type=int, default=50)
   p.add_argument('--seed', type=int, default=0)
   p.add_argument('--out', default=None, help='JSON (default: stage1_mech.json in --run); raw arrays next to it')
   a = p.parse_args()
@@ -443,7 +446,7 @@ def main():
   C = int(y.max()) + 1
   rel = None
   if a.wordnet and os.path.exists(a.wordnet):
-    rel = np.load(a.wordnet)['dist'] <= 4
+    rel = np.load(a.wordnet)['dist'][:C, :C] <= 4
     np.fill_diagonal(rel, False)
   else:
     print(f"no WordNet file at {a.wordnet}: 'rest' includes the relatives", flush=True)
@@ -452,6 +455,7 @@ def main():
   b2 = [b for b in a.x2_blocks.split(',') if b]
   out = a.out or os.path.join(a.run, 'stage1_mech.json')
   odir = os.path.dirname(os.path.abspath(out))
+  os.makedirs(odir, exist_ok=True)
   res = {}
   for s in [int(t) for t in a.steps.split(',')]:
     model.load_state_dict(torch.load(os.path.join(a.run, f'model_{s:05d}.pt'), map_location=dev))

@@ -1,5 +1,5 @@
-"""experiments.convnext_train --freeze_gamma: frozen layer scales stay fixed, everything else trains, and saved optimizer
-states (snapshots, resume states) load into optimizers built with a different frozen set."""
+"""experiments.convnext_train --freeze_gamma: frozen layer scales stay fixed, everything else trains, and saved
+optimizer states (snapshots, resume states) load into optimizers built with a different frozen set."""
 
 import pytest
 import torch

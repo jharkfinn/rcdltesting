@@ -45,7 +45,8 @@ def test_fixed_sigma_same_forward_other_gradient():
   from rcdl.convnext import LayerNorm2d
   orig = F.layer_norm
   torch.manual_seed(0)
-  for mod, x in ((torch.nn.LayerNorm(8, eps=1e-6), torch.randn(4, 5, 8)), (LayerNorm2d(8, eps=1e-6), torch.randn(2, 8, 3, 4))):
+  for mod, x in ((torch.nn.LayerNorm(8, eps=1e-6), torch.randn(4, 5, 8)),
+                 (LayerNorm2d(8, eps=1e-6), torch.randn(2, 8, 3, 4))):
     with torch.no_grad():
       mod.weight.normal_()
       mod.bias.normal_()
