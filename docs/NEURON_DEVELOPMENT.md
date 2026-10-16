@@ -64,7 +64,7 @@ bit-identical.
 | # | Experiment | Claim tested | Status |
 |---|---|---|---|
 | E0 | Static checks on the public InceptionV1 (V neuron 4e:55, the car / dog pose circuit 4c:447, mixed5b) | the essay's re-readings of canonical neurons | done for 4e:55 and the car circuit (Sec. 5); mixed5b open |
-| E1 | Writer atlas: ConvNeXt-SwiGLU tiny and medium, per-class attribution of the gate and value maps of late blocks, dense early checkpoints | instrument | code reviewed and ready (`experiments/convnext_train.py`, `experiments/convnext_atlas.py`, `experiments/convnext_growth.py`, `experiments/molab_e1.sh`); the first run was lost with its sandbox (Sec. 7) |
+| E1 | Writer atlas: ConvNeXt-SwiGLU tiny and medium, per-class attribution of the gate and value maps of late blocks, dense early checkpoints | instrument | code reviewed and ready (`experiments/convnext_train.py`, `experiments/convnext_atlas.py`, `experiments/convnext_growth.py`, `experiments/molab_e1.sh`); tiny AdamW run done, 18.5% top-1 (Sec. 7) |
 | E2 | Order of growth: when each class enters a neuron's writer set, and its distance to the classes already there | recursive generalization | |
 | E3 | Head start: did the neuron already fire on a class before that class wrote into it? | circuit racing | |
 | E4 | Muon against AdamW against SGD | optimizer as an intervention on circuit racing | |
@@ -236,7 +236,37 @@ Limits: a reconstruction toy with a trained bottleneck and 32 features. It isola
 which one dominates in an ImageNet model. E1 to E3 measure the same quantities on ConvNeXt-SwiGLU, with WordNet 3.0
 distances between ImageNet classes (`rcdl/imagenet_hierarchy.py`, `docs/data/imagenet_wordnet.npz`) as relatedness.
 
-## 7. Status of E1 and infrastructure notes (2026-10-16)
+## 7. E1: the tiny run, and how it compares with the essay's own tiny runs
+
+Run `e1_tiny_adamw` (molab sandbox, 2026-10-16): ConvNeXt-SwiGLU tiny (92,228 parameters without the classifier), the
+essay's recipe (all 1,281,167 training images, batch 512, 25,020 updates, mixup on images and labels), AdamW 2e-3 with
+weight decay 0.05 and 1,250 warm-up steps then cosine; every pw_gate and pw_value map of all 18 blocks tracked with one
+group per class (mixup's two classes as soft groups). Top-1 validation accuracy: 0.08% at step 0, 1.5% at 1,000, 9.9% at
+5,000, 15.7% at 12,500, 18.5% at 25,020 (all 50,000 images; earlier steps on the first 10,000). The atlas (exact parts
+of every unit's gate and value at its strongest position, 8 probe images per class) sums to the model's own
+pre-activations within 1e-5 at all 16 checkpoints. Files: `docs/data/e1/` (log, config, growth summary, car map).
+
+Comparison with the essay's runs. The essay's training map publishes, for its two fresh tiny runs (seed 0 and 1, the
+same 1,152 units and the same 16 checkpoint steps), an AUROC per unit and checkpoint for car (ten car classes against all
+other sampled classes), ambulance and cab (one car class against the other nine), in four pooling modes
+(`assets/training-map/<run>/timeline.bin`). `experiments/convnext_carmap.py` computes the same for our run on a probe
+of the same design (all 50 validation images of each car class, 4 of every other class; the essay's own image ids do
+not follow the Hugging Face or the file-name order, so its exact images could not be used). Population numbers
+(units cannot be matched across runs):
+
+| step | best car AUROC, mean pooling: ours / essay seed 0 / seed 1 | best cab AUROC: ours / seed 0 / seed 1 |
+|---|---|---|
+| 0 | 0.72 / 0.77 / 0.74 | 0.71 / 0.72 / 0.71 |
+| 1,000 | 0.83 / 0.71 / 0.69 | 0.77 / 0.69 / 0.66 |
+| 5,000 | 0.87 / 0.83 / 0.86 | 0.78 / 0.75 / 0.76 |
+| 12,500 | 0.90 / 0.87 / 0.88 | 0.79 / 0.80 / 0.80 |
+| 25,020 | 0.92 / 0.84 / 0.86 | 0.79 / 0.76 / 0.80 |
+
+Car selectivity develops on the same schedule and to about the same level in all three runs (ours a little higher for
+car; the essay's optimizer is not published). No unit of the essay's runs reaches car AUROC 0.9 in mean pooling; 0.3%
+of ours do at the end. Our run is therefore a fair stand-in for the essay's tiny models in what follows.
+
+## 8. Status of E1 and infrastructure notes (2026-10-16)
 
 - Pipeline: `experiments/molab_e1.sh <run> [trainer args]` downloads the validation set, packs the training set into RAM
   (`rcdl.imagenet.prepare_train`), restores `resume.pt` from the results dataset if one exists, and trains.
