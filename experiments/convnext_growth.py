@@ -16,7 +16,9 @@ lam, 1 - lam) and I_t the decayed initial weights' part. With d(c, k) the WordNe
 
 Growth: the positive pole of a unit is the set of its `poles` strongest classes at the final checkpoint whose mean
 response R (the SwiGLU product at the strongest position) exceeds tau times the unit's largest |R|; a class enters at
-the first checkpoint where its R exceeds tau times that checkpoint's largest |R|. For every class that is not the first
+the first checkpoint from which it stays among the unit's `poles` strongest classes until the end (a threshold on R
+alone is passed by random classes at initialization). The trajectory gives, per checkpoint, the median own, relative
+and other shares of the final pole classes (signed parts divided by |vbar|). For every class that is not the first
 to enter (E3, "head start"): its own share at entry; and (E2, "spillover") whether more than half of vbar at entry was
 written by the classes already in the pole, and, if so, whether the strongest of those writers is a relative of the
 entering class, against the rate expected if it were drawn at random from the earlier members. Also the WordNet
@@ -71,10 +73,10 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, seed=0):
         rec['other'].append((float(W[j].sum()) - float(W[j, c]) - float(W[j, rel].sum())) / vbar)
         rec['init'].append(float(I[j]) / vbar)
       entry = {}
-      for j, c in pole:
-        for ti, at in enumerate(atlases):
-          Rt = at[b]['R'][n]
-          if Rt[c] > tau * Rt.abs().max().clamp(min=1e-12):
+      for j, c in pole:                                         # stable entry: in the top P from here to the end
+        inside = [bool((torch.argsort(at[b]['R'][n], descending=True)[:P] == c).any()) for at in atlases]
+        for ti in range(len(atlases)):
+          if all(inside[ti:]):
             entry[(j, c)] = ti
             break
       order = sorted(entry, key=lambda jc: entry[jc])
@@ -99,6 +101,28 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, seed=0):
           top = earlier[int(torch.argmax(Wt[earlier]))]
           rec['spill_from_relative'] += int(dist[c, top] <= near)
           rec['spill_from_relative_null'] += float(np.mean([dist[c, e] <= near for e in earlier]))
+    traj = []
+    for ti, at in enumerate(atlases):
+      own, rel, oth = [], [], []
+      for n in range(R_T.shape[0]):
+        scale = R_T[n].abs().max()
+        if scale <= 0:
+          continue
+        for j, c in enumerate(final[b]['poles'][n, :P].tolist()):
+          if R_T[n, c] <= tau * scale:
+            continue
+          W, I = at[b]['value_writers'][n, j].float(), float(at[b]['value_init'][n, j])
+          vbar = float(W.sum()) + I
+          if abs(vbar) < 1e-6:
+            continue
+          r = [k for k in np.where(dist[c] <= near)[0] if k != c]
+          own.append(float(W[c]) / abs(vbar)); rel.append(float(W[r].sum()) / abs(vbar))
+          oth.append((float(W.sum()) - float(W[c]) - float(W[r].sum())) / abs(vbar))
+      med = lambda x: float(np.median(x)) if x else float('nan')
+      traj.append({'step': steps[ti], 'own': med(own), 'relative': med(rel), 'other': med(oth),
+                   'R_mean_pole': float(np.mean([float(at[b]['R'][n, c]) for n in range(R_T.shape[0])
+                                                  for c in final[b]['poles'][n, :P].tolist()]))})
+    rec['trajectory'] = traj
     out[b] = rec
   return out
 
@@ -115,7 +139,8 @@ def summarize(out):
                'spill': r['spill'], 'spill_from_relative': r['spill_from_relative'],
                'spill_from_relative_null': r['spill_from_relative_null'],
                'nearest_earlier_dist_median': med(r['nearest_earlier_dist']),
-               'nearest_earlier_dist_null_median': med(r['nearest_earlier_dist_null'])}
+               'nearest_earlier_dist_null_median': med(r['nearest_earlier_dist_null']),
+               'trajectory': r.get('trajectory', [])}
   return rows
 
 
@@ -209,6 +234,11 @@ def main():
           f" {r['own_share_at_entry_median']:.2f}, {r['entered_with_own_share_below_half']:.2f} | {r['spill']},"
           f" {r['spill_from_relative']} ({r['spill_from_relative_null']:.1f}) | {r['nearest_earlier_dist_median']}"
           f" ({r['nearest_earlier_dist_null_median']})")
+  show = [0, 350, 1000, 2500, 5000, 10000, 25020]
+  print('\ntrajectory of the final pole classes (median shares own / relative / other) at steps', show)
+  for b, r in rows.items():
+    tr = {t['step']: t for t in r['trajectory']}
+    print(f'{b:14s} ' + '  '.join(f"{tr[s_]['own']:+.2f}/{tr[s_]['relative']:+.2f}/{tr[s_]['other']:+.2f}" for s_ in show if s_ in tr))
   json.dump({'steps': steps, 'tau': a.tau, 'near': a.near, 'blocks': rows},
             open(a.out or os.path.join(a.run, 'growth_summary.json'), 'w'), indent=1)
 
