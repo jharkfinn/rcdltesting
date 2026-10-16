@@ -102,9 +102,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from experiments.rare_common import (Selection, auroc, by_region, class_gradients, excise, flat_parts, group_effects,
+from experiments.rare_common import (Selection, auroc, by_region, class_gradients, clean_json, excise, group_effects,
                                      load_parts, load_spec, logits_of, normalize, own_groups, pct_rank, rankdata,
-                                     region, spearman, tracked_modules, zeta)
+                                     spearman, tracked_modules, zeta)
 
 N_DRAWS = 1000
 K_UNITS = 8
@@ -1116,7 +1116,7 @@ def cmd_churn(a):
     nfar = len(sel.far(c))
     r['traffic'] = tot
     r['tau'] = (tot['far'] / nfar) / (tot['near'] / 10) if tot['near'] > 0 and nfar else None
-  json.dump({str(c): r for c, r in res.items()},
+  json.dump(clean_json({str(c): r for c, r in res.items()}),
             open(a.out or os.path.join(a.run, f'rare_churn_{a.split}.json'), 'w'), indent=1)
 
 
@@ -1429,8 +1429,8 @@ def cmd_compare(a):
   out['decision'] = {'against_essay': against, 'support_for_essay': support, 'controls_pass': controls_ok,
                      'replicated': {k: replicated(k) for k in ('P1', 'P2', 'P3')} if rep else 'no seed-1 runs',
                      'note': None if controls_ok else 'positive controls failed: primaries are unvalidated'}
-  json.dump(out, open(a.out, 'w'), indent=1)
-  print(json.dumps(out['decision'], indent=1))
+  json.dump(clean_json(out), open(a.out, 'w'), indent=1)
+  print(json.dumps(clean_json(out['decision']), indent=1))
 
 
 # ------------------------------------------------------------------------------------------------------- CLI
@@ -1517,7 +1517,7 @@ def cmd_measure(a):
     out['M4'] = m4_collapse(model, mods, parts_c, sel, m4cls, V, Vpos, Q, Qy, counts, dev, seed=a.seed)
     out['S7'] = s7_consolidation(DeltaQ, unit_list(model), sel, atlas)
   os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-  json.dump(out, open(a.out, 'w'), indent=1, default=lambda o: o.tolist() if hasattr(o, 'tolist') else str(o))
+  json.dump(clean_json(out), open(a.out, 'w'), indent=1)
   np.savez_compressed(a.out.replace('.json', '') + '_arrays.npz', DeltaQ=DeltaQ.numpy(), sigma=np.array(out['sigma']))
   log(f'wrote {a.out}')
 

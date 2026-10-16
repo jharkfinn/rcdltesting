@@ -301,6 +301,19 @@ def pct_rank(x: float, null) -> float:
   return float((null < x).mean() + 0.5 * (null == x).mean()) if len(null) else float('nan')
 
 
+def clean_json(o):
+  """A JSON-safe copy: numpy scalars and arrays to Python, non-finite floats to None (strict JSON has no NaN)."""
+  if isinstance(o, dict):
+    return {str(k): clean_json(v) for k, v in o.items()}
+  if isinstance(o, (list, tuple)):
+    return [clean_json(v) for v in o]
+  if hasattr(o, 'tolist'):
+    return clean_json(o.tolist())
+  if isinstance(o, float) and not np.isfinite(o):
+    return None
+  return o
+
+
 # ------------------------------------------------------------------------------------------------------- images
 
 def val_class_index(val_dir: str) -> np.ndarray:

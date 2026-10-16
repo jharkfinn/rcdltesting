@@ -39,9 +39,9 @@ import time
 import numpy as np
 import torch
 
-from experiments.rare_common import (Selection, auroc, by_region, class_gradients, excise, fold, group_effects,
-                                     load_parts, load_spec, logits_of, own_groups, pct_rank, tracked_modules,
-                                     train_center_u8, zeta, val_class_index, load_val_images)
+from experiments.rare_common import (Selection, auroc, by_region, class_gradients, clean_json, excise, fold,
+                                     group_effects, load_parts, load_spec, load_val_images, logits_of, own_groups,
+                                     pct_rank, tracked_modules, train_center_u8, val_class_index, zeta)
 from rcdl.convnext import build_convnext
 
 THRESH_AUROC, THRESH_FRAC = 0.6, 0.5
@@ -281,7 +281,7 @@ def main():
   a = p.parse_args()
   out = combine(a.combine) if a.combine else run_one(a)
   os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-  json.dump(out, open(a.out, 'w'), indent=1)
+  json.dump(clean_json(out), open(a.out, 'w'), indent=1)
   if not a.combine:
     for k, v in out['by_level_stratum'].items():
       print(k, json.dumps({x: round(y, 3) if isinstance(y, float) else y for x, y in v.items()}))
