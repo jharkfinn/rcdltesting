@@ -265,8 +265,8 @@ response) with more than half of its pre-activation written by members already i
 - Most features enter a pole by spillover in every cell, so growth by spillover is the normal case in this toy.
 - With related inputs, the earlier member that wrote most of the entry is a relative 1.6 to 2.5 times as often as
   chance. At rho 0 the rate is at chance, which checks the method. This shows that relatives write more onto each
-  other (similar inputs), not that growth depends on order: the null does not control for static similarity (E1
-  review, Sec. 7).
+  other (similar inputs), not that growth depends on order: the null does not control for static similarity (Sec. 7,
+  T4: any account predicts that similar inputs write into each other's responses).
 - Most spillover still comes from unrelated members (75% to 83% at rho 0.6), through the shared m-dimensional
   bottleneck. Relatedness is one driver of growth here, and it is not the main one.
 - In ReLU units a feature's own samples write little of its pole response (median own share -0.18 to 0.29). In SwiGLU
@@ -306,45 +306,148 @@ Car selectivity develops on the same schedule and to about the same level in all
 car; the essay's optimizer is not published). No unit of the essay's runs reaches car AUROC 0.9 in mean pooling; 0.3%
 of ours do at the end. Our run is therefore a fair stand-in for the essay's tiny models in what follows.
 
-### E2 and E3 on the E1 run: what the writer atlas shows, after review
+### E2 and E3 on the E1 run: order of growth and head start (tests v4, 2026-10-16)
 
-`experiments/convnext_growth.py`, `docs/data/e1/growth_summary_v2.json`. For each unit of each block and each class in
-its final positive pole (strongest 20 classes, response above 0.3 of the largest), the mean value pre-activation at
-the unit's strongest position splits exactly into a part per training class. 'Relative' = WordNet distance at most 4
-(a class has a median of 10 such relatives). Mixup credits each example's gradient to its two classes by lam and
-1 - lam; a class then keeps about 0.69 of its own label signal and the rest goes to random partner classes, so own and
-relative parts are both about 0.65 of what a label split would give (toy check in the review).
+Code: `experiments/convnext_growth_tests.py` (v4). Results: `docs/data/e1/growth_tests_v4.json.gz` (WordNet distance)
+and `growth_tests_v4_visual.json.gz` (visual distance); the E4 (Muon) run in `docs/data/e4/`. Two adversarial checks
+(six agents each; every number recomputed from the stored results) shaped v3 and v4; their findings are in
+`docs/data/e1/review_e2e3_v2_findings.json` and `review_e2e3_v3_findings.json`. Earlier result files are kept.
 
-A review (two reviewers, eight findings, all confirmed by a second agent; 2026-10-16) changed the reading:
-- What the atlas shows. In the late blocks (stage 2 from block 1, stage 3), each WordNet relative writes about 20% as
-  much into a pole class's value as the class itself; a non-relative class writes about -0.3% of it; all other
-  classes together write net negative. Units respond to groups of classes with similar inputs. Any account predicts
-  this: class k's AdamW part on probe class c is about the sum over steps of lr_t m_t^(k) D_t h_c, so similar inputs
-  write into each other's responses whatever the order of growth.
-- Signed shares divided by the net value measure cancellation. In the late blocks the net is a small remainder of large
-  opposing writes; shares above 1 (relatives 0.65 to 2.3) and the negative 'other' (down to -2.75) are cancellation, and
-  their rise after about step 7,500 follows the accumulated learning rate while the net stays flat. They are not a
-  measure of how much relatives build the response.
-- Order of growth (E2) is not shown. The nearest earlier pole member of an entering class is at WordNet distance 6
-  against 8 for random classes, but the same gap appears when poles are WordNet-clustered and the entry order is random
-  (simulation in the review); it measures pole coherence. On this run's own trajectories (steps 0 to 17,500), shuffling
-  the entry checkpoints within each pole leaves the nearest-earlier distance unchanged or slightly smaller than
-  observed, and the share of entering classes that already have a relative in the pole (17 to 33%) is at chance. Entry
-  order follows final strength: stronger classes stabilize earlier. Spillover entries led by a relative are 529 of
-  8,719 against 468 expected (1.13 times; 0.88 to 1.61 per block), inside the toy's unrelated range.
-- Head start (E3) is untested: the share of entering classes with own share below 0.5 (51 to 67%) has no baseline, and
-  it follows the block's level of cancellation and the mixup split (about 41 to 58% under a label split).
-- The same caveat applies to E8's "spillover from relatives at 1.6 to 2.5 times chance": it shows that relatives write
-  more, not that growth depends on order.
+Notation. For unit n and a class c of its final positive pole (the 20 strongest classes at the end, response above 0.3
+of the largest; units whose response is nearly the same for every class are skipped as dead: none in E1, 58 in E4):
+- t_c: the stable entry checkpoint, the first checkpoint from which c stays among the unit's 20 strongest classes to
+  the end, as an index on the grid 0, 50, 100, 200, 350, 500, 1,000, 2,000, 2,500, 5,000, 7,500, 10,000, 12,500,
+  17,500, 20,000, 25,020 (intervals of 50 to 5,020 steps). Entries at the last checkpoint are censored.
+- R_c(t): the class mean of the unit's response at its strongest position (8 probe images per class).
+- W_k: the part of training class k in the class mean of c's value pre-activation, multiplied by the sign of that value
+  at the end. For 51 to 60% of the stage-1 pole classes the value is negative and the response runs through a negative
+  gate, so the writes that build it are the negative ones.
+- d(c, c'): WordNet 3.0 distance ('relatives': d <= 4; median 10 per class, mean 14.8, 49 classes have none), or the
+  symmetric neighbour rank of DINOv2 class means (`docs/data/imagenet_dinov2_classdist.npz`; 'visual relatives': rank
+  at most 10, 1 to 16 per class). The essay's growth runs along visual facets (yellow flowers, then green objects, then
+  dogs), so both are used. Neither captures facets that co-occur in photos (dogs in flower photos).
+- Early blocks: stages 0 and 1 (6 blocks); late blocks: stages 2 and 3 (12 blocks). All statistics below are medians
+  or means over (unit, class) pairs pooled within a block, then over blocks as stated.
+- Mixup (alpha 0.8) splits each example's gradient between its two classes, so a class keeps about 0.69 of its own
+  label signal and the rest goes to random partners; own and relatives' parts are both about 0.65 of what a label
+  split would give.
 
-Tests that would decide E2 and E3, to run on the stored atlas files: entry order against a within-pole permutation
-null (also within final-strength terciles), with a power check on a planted branch order; the lag between a class's
-relative-written and own parts (checkpoints to 25% and 50% of their final values); the half-rise checkpoint of each
-class's response against its distance to the unit's first classes, with final strength as a covariate; positive-mass
-shares and per-interval increments against an accumulation null; and a knockout test with gate and value (would the
-class stay in the top 20 without its own writes, compared with incumbents at the same checkpoint). Until then, the
-result is: late-block units are coherent groups of related classes; this run shows no sign that classes join them in
-branch order.
+What the atlas shows at the end (T4, value pre-activation only). A pole class's value is the small remainder of large
+writes that cancel: sum_k |W_k| / |vbar_c| is 302 to 477 (median per block) in early blocks and 405 to 575 in late
+blocks; independent zero-mean writes of the same sizes would give about 30 to 40. (Class parts sum to the integrated
+update, so they cancel whenever classes pull in opposite directions; how much of each part is class structure and how
+much SGD noise is measured by the random-group split of run E1r, pending.) Medians over pairs, per block:
+- own part's percentile among the other 999 classes' parts (chance 0.5): 0.48 to 0.60 in stage 0, 0.30 to 0.41 in
+  stage 1 (the own writes oppose the class's value more often than a typical class's do), 0.52 to 0.81 in stage 2
+  (0.59 and 0.52 in blocks 0 and 3) and 0.83 to 0.92 in stage 3. Pole classes are selected for a large response, so
+  part of this is selection; the statement is descriptive.
+- relatives: their share of the positive mass over the share of as many random classes is 0.73 to 0.92 in early
+  blocks and 0.93 to 1.92 in late blocks (median 1.25; about 2 only in stage 2 block 8 and stage 3); visual relatives
+  0.68 to 0.99 and 0.99 to 2.47 (median 1.55). The sign-based measure agrees: a relative's part ranks at 0.47 to 0.54
+  among the non-relatives' parts in early blocks and 0.51 to 0.62 in late blocks (visual 0.42 to 0.55, 0.51 to 0.68).
+- So in stage 3 and most of stage 2 the own class and its relatives write more into a pole class's value than other
+  classes do; in stage 1 they write less; stage 0 and stage 2 blocks 0 and 3 are near chance. Every account predicts
+  that similar inputs write into each other's responses (class k's AdamW part on probe class c is about the sum over
+  steps of lr_t m_t^(k) D_t h_c), so this is not evidence for any order of growth.
+
+Order of entry (T1).
+- Withdrawn: the earlier reading that this run 'shows no sign that classes join them in branch order'. It rested on the
+  nearest-earlier distance (from an entering class to its nearest pole member with an earlier entry checkpoint) and on
+  the share of entering classes whose nearest earlier member is a relative. With WordNet distance a planted branch
+  order moves both the other way: the distance rises (z = +7.1 to +12.5 per block) and the share falls (0.14 against
+  0.23, pooled). The planted order is the observed checkpoints of the unit, sorted and reassigned along a tree grown from the
+  strongest class (each next class the one nearest to any class placed). Tied checkpoints cause the reversal, above
+  all the large tie at the last checkpoint, which a planted order fills with the pole's outliers. Co-timing alone
+  (related classes tied at one checkpoint, clusters in random order) raises the WordNet statistic about three times
+  more than a planted order does, so the WordNet nearest-earlier statistic says nothing about order. With visual
+  ranks a planted order lowers it and co-timing raises it, so the visual statistic is the one order statistic that
+  co-timing cannot produce: late blocks 13% of the planted shift (15% against the tercile shuffle on both sides; z =
+  -2.2, one-sided p = 0.01), early blocks 33% (43%; p = 0.002), carried by the three stage-0 blocks (stage 1: +0.26, -0.20, -0.41). The earlier-
+  relative share is reversed by ties under both distances.
+- Co-timing (Mantel statistic): per unit, the correlation over class pairs of |t_c - t_c'| with d(c, c'), averaged
+  over units. It is symmetric in time: it measures whether near classes enter at similar checkpoints, which a branch
+  order and relatives entering together both give. Ties lower it but do not reverse it.
+
+| Mantel r (fraction of planted) | WordNet, early | WordNet, late | visual, early | visual, late |
+|---|---|---|---|---|
+| observed | 0.010 (0.02) | 0.029 (0.06) | 0.015 (0.06) | 0.014 (0.05) |
+| null: shuffle within strength terciles | 0.003; z = 1.3, p = 0.09 | 0.006; z = 5.7, p = 0.002 | 0.004; z = 2.6, p = 0.008 | 0.004; z = 3.4, p = 0.004 |
+| after the network-wide class clock | 0.014; z = 1.7, p = 0.04 | 0.033; z = 5.8, p = 0.002 | 0.017; z = 2.8, p = 0.006 | 0.015; z = 3.3, p = 0.002 |
+| after the stage class clock | 0.013; z = 1.5, p = 0.06 | 0.035; z = 6.0, p = 0.002 | 0.017; z = 2.3, p = 0.016 | 0.016; z = 3.4, p = 0.002 |
+
+  (z and p against the tercile shuffle; p from 500 draws, so 0.002 is the floor. The planted Mantel r is 0.36 to 0.38
+  with WordNet, 0.19 to 0.20 with visual ranks.) Controls. Final strength: the tercile shuffle takes 0.2 to 0.3 of the
+  observed r; the Mantel of |log R_c - log R_c'| with d is -0.03 to +0.05 (visual -0.04 to
+  +0.02); this tests one route of the strength confound only. Class clock: t_c minus the class's mean entry checkpoint
+  over the other units of the network, or of the same stage, where it is a pole class (relatives that become learnable
+  at the same time everywhere, or within a stage, give co-timing with no spread inside a unit). Its null permutes the
+  entry checkpoints in every unit at once and recomputes the clocks, so it carries the noise of the clock estimate.
+  The late co-timing survives both clocks.
+- Reading: in late blocks, near classes enter a unit at slightly more similar checkpoints than chance, not explained by
+  final strength (one route) or by a network-wide or stage-wide class clock, at about 5 to 6% of a planted branch
+  order; the one order-specific statistic (visual nearest-earlier) leans toward order at 13 to 15% of the planted shift
+  (p = 0.01). In early blocks the effect is weak (WordNet) or of the same size (visual).
+
+Direction (T2). Within units, with log R_c(T) as a covariate: the slope of the checkpoint at which R_c reaches half its
+final value on the distance from the unit's strongest final class, among final pole classes, against a planted outward
+order (the observed half-rise checkpoints reassigned within the unit in order of distance). Late blocks: 4.6% of the
+planted slope with the first crossing (t = 1.7 over blocks, 95% interval -3% to +11%) and 3.1% with the stable
+crossing (t = 1.4); visual ranks 3.3% and 1.4%. Early blocks: 5.7% (WordNet, t = 1.4) and -3.8% (visual). No outward
+direction is detected; the bound is about a tenth of a strict outward order. Not visible to this test: seeds that do
+not stay strongest (the essay's InceptionV1 rapeseed neuron) and offshoots that grow and are then dropped.
+
+Relatives' writes over time (T3). For each pole class whose oriented own part and summed relatives' part are positive
+at the end (2,381 of 7,640 pole classes in early blocks, 7,448 of 15,358 in late blocks), the checkpoint at which each
+reaches half its final value, by the first crossing and by the stable crossing (the first checkpoint from which it stays
+above). Own minus relatives (positive: relatives first), late blocks: +0.19 checkpoint (first; interval above 0 in 9 of
+12 blocks) and +0.10 (stable; 1 of 12); early +0.14 and +0.04; visual relatives late +0.06 and +0.05. Against as many
+non-relative classes matched one to one on the final oriented part, relatives minus matched is +0.32 (first) and +0.16
+(stable) in late blocks, +0.57 and +0.21 in early blocks; visual late +0.19 and +0.05. A sum of parts crosses half its
+final value at a time set by its own drift-to-noise ratio, and the matched null equalizes only the final value, so the
+two crossing rules still disagree. Reading: relatives' writes may reach half their final value slightly before the
+class's own writes, by at most about a fifth of a checkpoint interval in the direct comparison; this is not robust
+across rules and is not established.
+
+Head start (T5). Approximate response: SiLU(G_c) V_c from class means of gate and value, strongest position held fixed;
+the block input (which the same classes wrote in earlier blocks) is held fixed too. Removing the writes of a class set
+changes the response of every stored pole class (40 per unit), so the bar (the 20th strongest response among the
+other classes) is recomputed with them; the other 960 classes keep their response, so the bar is only partly
+recomputed. A class survives if it stays at or above the bar. The approximation keeps 62 to 81% of entering classes
+above the bar with no knockout. Every class writes into every unit from the first step, and one class's part is often
+a large fraction of a pole class's value, so removing even one random class's writes drops many classes; that is the
+yardstick. Late blocks, at the stable entry checkpoint:
+- without its own writes 33% of entering classes survive; without one random non-relative class's writes 52% (own
+  lower in 12 of 12 blocks, by 3 to 31 points). Without its relatives' writes 37%; without as many random classes' writes
+  50% (relatives lower in 11 of 12). The same in E4 and with visual relatives. So at entry a class's own writes, and its
+  relatives', hold up its response more than other classes' writes do.
+- entering against incumbents at the same checkpoint, beyond the random baseline: own minus one random class +0.091
+  (t = 5.6 over blocks, 11 of 12 positive), relatives minus random +0.058 (t = 6.1, 11 of 12). Entering classes depend
+  less on their own writes than incumbents do: own writes keep growing after entry relative to the rest of the response.
+- In early blocks own writes count no more than one random class's (0.44 against 0.41), in line with T4.
+- Reading: a strict head start, in which a class already sits in the unit's top 20 before its own writes count for more
+  than any other class's, is not seen at this checkpoint resolution. The essay's head start is milder: a unit that is
+  already partly on for a class is first in line to take its error, so the class's own writes then do the lifting. T5
+  is consistent with that and does not test it. 49 classes (4.9%) have no WordNet relative; their relatives' and random
+  knockouts are empty (about 2 points on both rows).
+
+Result for E2 and E3 on this run. Late-block units are groups of classes with similar inputs, and in stage 3 and most of
+stage 2 their own and related classes write more into them than other classes do (T4). Near classes enter a unit at
+slightly more similar times than chance, specifically within the unit, at 5 to 6% of what a strict branch order gives;
+the one statistic that separates order from co-timing leans toward order at 13 to 15%; no outward direction is
+detected (bound about a tenth of a strict order). Relatives' writes do not clearly lead own writes. At entry a class's
+own writes hold up its response more than other classes' writes do, so a strict head start is not seen; the essay's
+milder head start is not tested. Each class's net value is the small remainder of large cancelling writes.
+
+How this bears on the essay. The essay shows recursive generalization qualitatively on one or two neurons, chosen as
+the messiest or least legible ones, in InceptionV1, and says the improved architecture 'shows the same pattern, but
+much less of it'. A pooled whole-model test on a tiny ConvNeXt cannot separate a weak effect in every unit from a strong
+effect in a few, and a weak effect here is partly what the essay itself predicts. What this run does show is that the
+essay's narrower prediction ('everything on it should trace back to the same local origin ... and it should grow out
+from there over training in a particular order') holds here only weakly: co-timing of near classes, little order, and
+no detectable outward growth. The essay authors' own early-training notes are cautious in the same direction, on a
+different test (zeroing a candidate precursor unit against matched controls). Open: the seed-1 replication and the
+random-group control (run E1r), a denser checkpoint grid around entry for T3 and T5, facet co-occurrence distances, a
+per-unit analysis of the strongest-growing units, and the medium model.
 
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
