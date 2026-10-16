@@ -8,7 +8,15 @@ import torch.nn as nn
 
 from rcdl.attribution import GroupAttribution, newton_schulz_factor, muon_adjusted_lr
 
-torch.set_default_dtype(torch.float64)
+
+
+@pytest.fixture(autouse=True)
+def float64_default():
+  """float64 inside these tests only (a module-level set_default_dtype would leak into other test files)."""
+  old = torch.get_default_dtype()
+  torch.set_default_dtype(torch.float64)
+  yield
+  torch.set_default_dtype(old)
 
 
 def tiny(seed=0, d_in=5, d_hid=7, d_out=3):
