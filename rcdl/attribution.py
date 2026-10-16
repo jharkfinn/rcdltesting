@@ -23,9 +23,12 @@ Optimizers (the tracked weights are updated here, not by a torch optimizer):
          X X^T built from the total U, so group k's part is P U^(k) / ||U||. The iteration runs in fp32 here (torch:
          bf16), so the real update differs from torch's by bf16 rounding only.
 Biases use the same rule as the weights for sgd and adamw, and AdamW (betas, eps of the Muon settings) under muon,
-as torch.optim.Muon accepts only matrices.
+as torch.optim.Muon accepts only matrices; their learning rate is lr * bias_lr_scale (set it to the AdamW / Muon
+learning-rate ratio of the untracked parameters). Under muon the matmuls of the update run with TF32 off, so the group
+parts add up to the real update to fp32 rounding even when the caller enables TF32.
 """
 
+import contextlib
 import math
 from typing import Dict, Optional
 
@@ -60,6 +63,16 @@ def muon_adjusted_lr(lr: float, shape, adjust_lr_fn: Optional[str] = None) -> fl
   if adjust_lr_fn == 'match_rms_adamw':
     return lr * 0.2 * math.sqrt(max(A, B))
   raise ValueError(f'unknown adjust_lr_fn {adjust_lr_fn!r}')
+
+
+@contextlib.contextmanager
+def _no_tf32():
+  prev = torch.backends.cuda.matmul.allow_tf32
+  torch.backends.cuda.matmul.allow_tf32 = False
+  try:
+    yield
+  finally:
+    torch.backends.cuda.matmul.allow_tf32 = prev
 
 
 def _scatter(buf: torch.Tensor, groups: torch.Tensor, weights: Optional[torch.Tensor], G: torch.Tensor, alpha: float):
@@ -149,20 +162,21 @@ class _Tracked:
       _scatter(self.m.mul_(mu), groups, weights, G, 1 - mu)
       g = G.sum(0)
       U = (1 - mu) * g + mu * self.m.sum(0) if nest else self.m.sum(0)
-      O, P, transposed, norm = newton_schulz_factor(U, hp['ns_steps'], hp['ns_eps'])
-      s = muon_adjusted_lr(lr, W.shape, hp['adjust_lr_fn']) / norm
-      self.C.mul_(1 - lr * wd)
-      K = self.C.shape[0]
-      if transposed:                                   # group part: U^(k) P^T
-        Pt = P.T.expand(K, *P.T.shape)
-        self.C.baddbmm_(self.m, Pt, alpha=-s * (mu if nest else 1.0))
-        if nest:
-          _scatter(self.C, groups, weights, torch.matmul(G, P.T), -s * (1 - mu))
-      else:                                            # group part: P U^(k)
-        Pe = P.expand(K, *P.shape)
-        self.C.baddbmm_(Pe, self.m, alpha=-s * (mu if nest else 1.0))
-        if nest:
-          _scatter(self.C, groups, weights, torch.matmul(P, G), -s * (1 - mu))
+      with _no_tf32():                                 # the parts must add up to O: no TF32 in these matmuls
+        O, P, transposed, norm = newton_schulz_factor(U, hp['ns_steps'], hp['ns_eps'])
+        s = muon_adjusted_lr(lr, W.shape, hp['adjust_lr_fn']) / norm
+        self.C.mul_(1 - lr * wd)
+        K = self.C.shape[0]
+        if transposed:                                 # group part: U^(k) P^T
+          Pt = P.T.expand(K, *P.T.shape)
+          self.C.baddbmm_(self.m, Pt, alpha=-s * (mu if nest else 1.0))
+          if nest:
+            _scatter(self.C, groups, weights, torch.matmul(G, P.T), -s * (1 - mu))
+        else:                                          # group part: P U^(k)
+          Pe = P.expand(K, *P.shape)
+          self.C.baddbmm_(Pe, self.m, alpha=-s * (mu if nest else 1.0))
+          if nest:
+            _scatter(self.C, groups, weights, torch.matmul(P, G), -s * (1 - mu))
       self.a *= 1 - lr * wd
       upd = O * (-s * norm)
     else:
@@ -171,7 +185,9 @@ class _Tracked:
     if Gb is None:
       return
     b = self.lin.bias
-    if self.opt in ('adamw', 'muon'):                  # torch.optim.Muon takes matrices only: AdamW for the bias
+    if self.opt == 'muon':                             # torch.optim.Muon takes matrices only: AdamW for the bias,
+      lr = lr * hp['bias_lr_scale']                    # at the learning rate of the caller's AdamW parameters
+    if self.opt in ('adamw', 'muon'):
       _scatter(self.mb.mul_(b1), groups, weights, Gb, 1 - b1)
       gb = Gb.sum(0)
       self.vb.mul_(b2).addcmul_(gb, gb, value=1 - b2)
@@ -200,9 +216,11 @@ class GroupAttribution:
   def __init__(self, layers: Dict[str, nn.Linear], n_groups: int, optimizer: str = 'adamw', lr: float = 1e-3,
                betas=(0.9, 0.999), eps: float = 1e-8, weight_decay: float = 0.0, bias_weight_decay: float = 0.0,
                momentum: float = 0.95, nesterov: bool = True, ns_steps: int = 5, ns_eps: float = 1e-7,
-               adjust_lr_fn: Optional[str] = None, dtype: torch.dtype = torch.float32):
+               adjust_lr_fn: Optional[str] = None, bias_lr_scale: float = 1.0, dtype: torch.dtype = torch.float32):
+    """bias_lr_scale: under muon, the biases' AdamW learning rate is lr * bias_lr_scale (ignored for sgd and adamw)."""
     hp = dict(betas=betas, eps=eps, weight_decay=weight_decay, bias_weight_decay=bias_weight_decay, momentum=momentum,
-              nesterov=nesterov, ns_steps=ns_steps, ns_eps=ns_eps, adjust_lr_fn=adjust_lr_fn)
+              nesterov=nesterov, ns_steps=ns_steps, ns_eps=ns_eps, adjust_lr_fn=adjust_lr_fn,
+              bias_lr_scale=bias_lr_scale)
     self.lr, self.n_groups = lr, n_groups
     self.tracked = {name: _Tracked(lin, n_groups, optimizer, hp, dtype) for name, lin in layers.items()}
 

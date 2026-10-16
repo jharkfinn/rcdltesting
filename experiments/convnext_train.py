@@ -33,17 +33,24 @@ CKPT_STEPS = (0, 50, 100, 200, 350, 500, 1000, 2000, 2500, 5000, 7500, 10000, 12
 
 
 def prefetch(gen, depth: int = 3):
-  """Runs a batch generator in a background thread (GPU decode overlaps the training step)."""
+  """Runs a batch generator in a background thread (GPU decode overlaps the training step); an exception in the
+  generator is raised in the consumer (otherwise the consumer would wait forever)."""
   q, stop = queue.Queue(depth), object()
   def work():
-    for item in gen:
-      q.put(item)
+    try:
+      for item in gen:
+        q.put(item)
+    except BaseException as e:
+      q.put(e)
+      return
     q.put(stop)
   threading.Thread(target=work, daemon=True).start()
   while True:
     item = q.get()
     if item is stop:
       return
+    if isinstance(item, BaseException):
+      raise item
     yield item
 
 
@@ -68,16 +75,19 @@ def param_groups(model, tracked_params, wd):
 
 @torch.no_grad()
 def evaluate(model, val_dir, device, limit=None):
+  """Top-1 accuracy on the first `limit` validation images (all if None), and the number of images used."""
   model.eval()
   correct = total = 0
   for x, y in val_batches(val_dir, 500, device):
+    if limit:
+      x, y = x[:limit - total], y[:limit - total]
     with torch.autocast('cuda', torch.bfloat16):
       correct += (model(x).argmax(-1) == y).sum().item()
     total += len(y)
     if limit and total >= limit:
       break
   model.train()
-  return correct / total
+  return correct / total, total
 
 
 def main():
@@ -111,7 +121,8 @@ def main():
                             weight_decay=a.wd, bias_weight_decay=0.0)
   else:
     attr = GroupAttribution(layers, n_groups=1000, optimizer='muon', lr=a.muon_lr, momentum=0.95, nesterov=True,
-                            weight_decay=a.wd, bias_weight_decay=0.0, betas=(0.9, 0.999))
+                            weight_decay=a.wd, bias_weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8,
+                            bias_lr_scale=a.lr / a.muon_lr)   # tracked biases: AdamW at a.lr, like the other biases
   tracked = [t for l in layers.values() for t in (l.weight, l.bias)]
   groups = param_groups(model, tracked, a.wd)
   if a.opt == 'adamw':
@@ -131,14 +142,14 @@ def main():
   log, step, t0 = [], 0, time.time()
 
   def checkpoint(step):
-    acc = evaluate(model, a.val, dev, None if step == a.steps else a.val_limit)
+    acc, n_val = evaluate(model, a.val, dev, None if step == a.steps else a.val_limit)
     torch.save(model.state_dict(), os.path.join(a.out, f'model_{step:05d}.pt'))
     st = attr.state_dict()
     torch.save({k: {'C': v['C'].half(), 'Cb': v['Cb'].half(), 'a': v['a'], 'ab': v['ab'], 't': v['t']} for k, v in st.items()},
                os.path.join(a.out, f'attr_{step:05d}.pt'))
     if step == 0:
       torch.save({k: {'W0': v['W0'], 'b0': v['b0']} for k, v in st.items()}, os.path.join(a.out, 'attr_init.pt'))
-    rec = {'step': step, 'val_acc': acc, 'n_val': 50000 if step == a.steps else a.val_limit, 'sec': time.time() - t0}
+    rec = {'step': step, 'val_acc': acc, 'n_val': n_val, 'sec': time.time() - t0}
     log.append(rec)
     json.dump(log, open(os.path.join(a.out, 'log.json'), 'w'))
     print(json.dumps(rec), flush=True)
@@ -169,7 +180,7 @@ def main():
       if step % 100 == 0:
         print(f'step {step} loss {torch.stack(run_loss).mean().item():.4f} {time.time() - t0:.0f}s', flush=True)
         run_loss.clear()
-      if step in CKPT_STEPS:
+      if step in CKPT_STEPS or step == a.steps or (a.max_steps and step == a.max_steps):
         checkpoint(step)
       if step >= a.steps or (a.max_steps and step >= a.max_steps):
         break

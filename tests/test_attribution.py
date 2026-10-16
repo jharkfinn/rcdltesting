@@ -123,6 +123,29 @@ def test_muon_parts_add_up_and_follow_the_muon_rule(d_hid):
   assert res['weight'] < 1e-12 and res['bias'] < 1e-12
 
 
+def test_muon_bias_uses_adamw_at_the_scaled_learning_rate():
+  """Under muon, a tracked bias follows torch AdamW at lr * bias_lr_scale (the caller's AdamW rate for 1-D params)."""
+  model = tiny(3)
+  ref = copy.deepcopy(model)
+  attr = GroupAttribution({'l0': model[0]}, n_groups=4, optimizer='muon', lr=2e-2, momentum=0.95, nesterov=True,
+                          weight_decay=0.05, bias_weight_decay=0.0, betas=(0.9, 0.95), bias_lr_scale=0.1,
+                          dtype=torch.float64)
+  ref_b = torch.optim.AdamW([ref[0].bias], lr=2e-3, betas=(0.9, 0.95), eps=1e-8, weight_decay=0.0)
+  x, y, groups = data(15, 6, seed=7)
+  for t in range(15):
+    loss_fn(model(x[t]), y[t]).backward()
+    attr.step(groups[t])
+    model[2].zero_grad()
+    ref_b.zero_grad()
+    ref[0].weight.grad = None
+    loss_fn(ref(x[t]), y[t]).backward()
+    ref_b.step()
+    with torch.no_grad():
+      ref[0].weight.copy_(model[0].weight)            # weight rule checked by the Muon test
+  assert torch.allclose(model[0].bias, ref[0].bias, atol=1e-11, rtol=0)
+  assert attr.residual('l0')['bias'] < 1e-12
+
+
 def test_one_group_per_example_is_linear_attention_over_training():
   """Plain SGD, one group per training example: the part of the pre-activation written by example k on a probe h is
   -lr <h_k, h> delta_k (RCDL Sec. 2, Eq. 1), and all parts plus the initial weights give the pre-activation."""
