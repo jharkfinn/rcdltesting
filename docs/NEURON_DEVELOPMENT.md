@@ -65,9 +65,9 @@ bit-identical.
 |---|---|---|---|
 | E0 | Static checks on the public InceptionV1 (V neuron 4e:55, the car / dog pose circuit 4c:447, every mixed unit of mixed4c-5b) | the essay's re-readings of canonical neurons | done (Sec. 5) |
 | E1 | Writer atlas: ConvNeXt-SwiGLU tiny and medium, per-class attribution of the gate and value maps of late blocks, dense early checkpoints | instrument | code reviewed and ready (`experiments/convnext_train.py`, `experiments/convnext_atlas.py`, `experiments/convnext_growth.py`, `experiments/molab_e1.sh`); tiny AdamW run done, 18.5% top-1 (Sec. 7) |
-| E2 | Order of growth: when each class enters a neuron's writer set, and its distance to the classes already there | recursive generalization | |
-| E3 | Head start: did the neuron already fire on a class before that class wrote into it? | circuit racing | |
-| E4 | Muon against AdamW against SGD | optimizer as an intervention on circuit racing | |
+| E2 | Order of growth: when each class enters a neuron's writer set, and its distance to the classes already there | recursive generalization | tiny AdamW and Muon done (Sec. 7): weak co-timing of near classes, no outward direction |
+| E3 | Head start: did the neuron already fire on a class before that class wrote into it? | circuit racing | tiny AdamW and Muon done (Sec. 7): strict head start not seen; the essay's milder one not tested |
+| E4 | Muon against AdamW against SGD | optimizer as an intervention on circuit racing | Muon done (Sec. 7, E4); SGD not run |
 | E5 | RCDL head (growing table) as a memory store | do offshoots come from captured residual error? | |
 | E6 | Umbrella = bee with exact attribution, parametric against RCDL head | off-ramp claim | |
 | E7 | Crush where packing is predicted (long-tail classes, 13-unit last layer) | rare facts ride related circuits | |
@@ -448,6 +448,39 @@ no detectable outward growth. The essay authors' own early-training notes are ca
 different test (zeroing a candidate precursor unit against matched controls). Open: the seed-1 replication and the
 random-group control (run E1r), a denser checkpoint grid around entry for T3 and T5, facet co-occurrence distances, a
 per-unit analysis of the strongest-growing units, and the medium model.
+
+### E4: Muon against AdamW from the same initialization
+
+Run `e4_tiny_muon` (`docs/data/e4/`): the E1 recipe and seed (the same initial weights and data order; the step-0
+numbers below are identical), with Muon (lr 2e-2, momentum 0.95, Nesterov, weight decay 0.05) on every 2-D weight
+matrix except the classifier (torch.optim.Muon for the down maps; the attribution's exact Muon, fp32 Newton-Schulz
+without TF32, for the tracked gate and value maps) and AdamW (lr 2e-3) on the convolution kernels (stem, downsampling,
+depthwise), biases, norms, layer scales and the classifier, as in E1; the tracked biases use AdamW at 2e-3. The run was lost at about step 8,000 with its first sandbox and resumed from the step-6,000 state on a
+second one: the data order is rebuilt exactly, the random crops of the resumed epoch are not.
+
+| step | 1,000 | 2,000 | 5,000 | 10,000 | 17,500 | 25,020 (all 50,000 images) |
+|---|---|---|---|---|---|---|
+| top-1, AdamW (E1) | 1.5% | 4.5% | 9.9% | 13.5% | 17.3% | 18.52% |
+| top-1, Muon (E4) | 3.0% | 6.7% | 10.4% | 13.5% | 16.7% | 19.07% |
+
+- Muon learns faster in the first 2,500 steps and ends 0.55 points higher.
+- Dead units: 58 of 1,152 under Muon (50 in stage 0, 26% of its 192 units; 8 in stages 2 and 3), none under AdamW. A
+  dead unit responds almost the same to every class (spread below 0.1% of its largest response).
+- Car units: the best car AUROC (mean pooling) is 0.889 at the end against 0.916 for AdamW and 0.840 / 0.856 for the
+  essay's two runs; Muon is ahead at 1,000 and 5,000 steps (0.854, 0.894) and behind from 12,500 on; no Muon unit
+  reaches 0.9 (0.3% of AdamW units do). Cab and ambulance are about equal.
+- Cancellation is stronger: sum_k |W_k| / |vbar| is 579 to 2,312 in early blocks and 631 to 962 in late blocks (AdamW
+  302 to 477 and 405 to 575). In stage 1 the own part's percentile falls to 0.13 to 0.62.
+- Growth tests (v4), late blocks: co-timing r = 0.025 (7% of planted; z = 5.8 against the tercile shuffle), surviving
+  the network clock (0.032, z = 6.7) and the stage clock (0.023, z = 4.4); visual 0.010 (5%). Early blocks: WordNet
+  co-timing is much stronger than under AdamW, r = 0.066 (15% of planted, z = 7.6; network clock 0.060, z = 6.5),
+  while visual co-timing is about the same (0.012). No outward direction (T2). Head start (T5) as under AdamW: own
+  writes hold up an entering class more than one random class's do (survival 0.33 against 0.51, 12 of 12 late blocks);
+  entering classes depend less on their own writes than incumbents (+0.098 beyond the one-class baseline, t = 7.2).
+- Reading: an optimizer that equalizes the step size over all singular directions of each update did not remove the
+  weak co-timing of near classes, and it increased it in early blocks, by WordNet but not by visual distance. It left a
+  quarter of the stage-0 units dead, and its car units are slightly less selective. One seed per optimizer; the E1r
+  run gives the AdamW seed-to-seed spread. SGD (the third arm of E4) is not run.
 
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
