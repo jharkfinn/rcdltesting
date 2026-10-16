@@ -488,6 +488,63 @@ second one: the data order is rebuilt exactly, the random crops of the resumed e
   seed-to-seed spread from E1r is about 1 point of final accuracy, and E1r's spread on the other measures is pending.
   SGD (the third arm of E4) is not run.
 
+### E1r: a second AdamW seed, and the class split against random groups
+
+Run `e1r_tiny_adamw_s1`: the E1 recipe with seed 1 (other initial weights, data order and crops), with the same updates
+also split over 1,000 random groups of class size (`--rand_groups`: the training labels shuffled across examples, a
+shadow attribution that does not change training). The sandbox was lost at about step 23,000 and the run resumed from
+its last resume state; the data order is rebuilt exactly, the crops of the resumed epoch are not. Top-1 accuracy: 1.7%,
+5.2%, 11.2%, 14.4%, 17.7% and 19.51% at 1,000, 2,000, 5,000, 10,000, 17,500 and 25,020 steps (E1: 18.52%).
+
+Class structure against noise. With E_class the summed squared size of the 1,000 class parts of a unit and E_rand the
+same for the 1,000 random groups, the between-class share f = 1 - E_rand / E_class (median over units, value map;
+range over the 18 blocks) is 0.87 to 0.91 at step 100, 0.97 to 0.99 at step 1,000, 0.994 to 0.998 at step 5,000 and
+0.997 to 0.999 at the end. A class's own part on its own probe images, in units of the random groups' spread, has a
+block median of 4 to 39 in 11 of 12 late blocks (-2.4 in stage 2 block 0), 4 to 16 in stage 0 and -4 to -2 in
+stage 1. The class parts cancel far more than random groups do: sum_k |W_k| / |sum_k W_k| (block medians at the end)
+is 286 to 539 for classes and 14 to 23 for random groups. So the per-class parts are class structure, not SGD noise,
+and the large cancellation is between classes.
+
+Growth tests v4 on E1r (`growth_tests_v4*.json`), against E1:
+
+| statistic | E1 (seed 0) | E1r (seed 1) |
+|---|---|---|
+| Mantel r, WordNet, late (z against tercile shuffle) | 0.029 (5.7) | 0.025 (6.4) |
+| Mantel r, WordNet, early | 0.010 (1.3) | 0.016 (2.9) |
+| Mantel r, visual, late | 0.014 (3.4) | 0.016 (4.8) |
+| Mantel r, visual, early | 0.015 (2.6) | 0.008 (2.1) |
+| after the network clock, WordNet late | 0.033 (5.8) | 0.028 (6.1) |
+| after the stage clock, WordNet late | 0.035 (6.0) | 0.027 (6.0) |
+| visual nearest-earlier, late: fraction of planted (z) | 13-15% (-2.2) | 8-9% (-1.5) |
+| visual nearest-earlier, early | 33-43% (p = 0.002) | 9-10% (-0.9) |
+| T2 outward slope, late, first crossing (95% interval) | 4.6% (-3% to +11%) | 1.9% (-2% to +7%) |
+| T3 own minus relatives, late, first / stable | +0.19 / +0.10 | +0.20 / +0.17 |
+| T5 survival without own writes against one random class, late | 0.33 against 0.52 (12 of 12) | 0.36 against 0.53 (11 of 12) |
+| T5 entering minus incumbents, own minus one random class | +0.091 (t = 5.6) | +0.099 (t = 6.5) |
+| T4 gross / net, late blocks | 405 to 575 | 390 to 539 |
+
+(For the visual nearest-earlier statistic a planted order lowers it, so negative z leans toward order.)
+
+Reading: the co-timing of near classes in late blocks, its survival of both class clocks, the absence of an outward
+direction, and the head start at entry (T5) replicate across seeds. The order-specific statistic does not: E1's strong
+early result (33 to 43% of a planted order, carried by stage 0) is 9% in E1r and not significant, and the late lean
+toward order falls from 13-15% (p = 0.01) to 8-9% (not significant). Across the two seeds the evidence for a branch
+order beyond co-timing is weak. The final accuracy differs by 1 point between seeds.
+
+The per-class teaching signal on each unit (bias parts; `experiments/convnext_bias_signal.py`, `docs/EXACT_HISTORY.md`
+Sec. 1), over the checkpoint intervals from step 1,000 on, value map, pushes oriented so that positive raises the
+unit's response on its pole and given in units of the mean push size. Late blocks (median over blocks and intervals,
+range): a unit's 20 strongest classes push its bias up, 0.69 (-0.16 to 1.62) in E1 and 0.71 (-0.31 to 1.93) in E1r;
+their WordNet relatives outside the top 20 push it up less, 0.15 and 0.17; each of the about 960 other classes pushes it
+down, -0.045 and -0.050. In stage 1 the top classes push the other way in both seeds (-0.34 and -0.39). In stage 0 the
+seeds differ (median 0.00 in E1, 0.46 in E1r). In E1r, each class pushes 5 to 20 times harder (median 14) than a
+random group of the same size, and the class pushes cancel to a net of about 0.1% of their gross sum (block medians
+800 to 1,000 for gross / net; random groups 56 to 75, about 1.5%). A class's strongest unit (largest response z-score)
+takes 0.8 to 1.9 times a uniform share of that class's pushes over the block's 64 units. Reading: each unit's bias sits
+at a balance of strong, class-specific opposing pushes, upward from its pole and the pole's relatives and downward from
+the rest; a tug of war that continues through training. These are descriptive; the interval-split tests in
+`docs/EXACT_HISTORY.md` ask what the pushes do to individual classes.
+
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
 - Pipeline: `experiments/molab_e1.sh <run> [trainer args]` downloads the validation set, packs the training set into RAM
