@@ -13,7 +13,8 @@ are both similar and mutually exclusive), so this toy separates them with a 2 x 
   all other cross-family pairs co-occur at the base rate (unrelated + independent).
 
 A sample has 1 or 2 active features with values v ~ U(0.5, 1); input x = sum_active v_i e_i; the model reconstructs the
-feature values: x -> Linear(D, m) -> Linear(m, H) + ReLU ("neurons") -> Linear(H, n) + ReLU. The neuron layer is tracked
+feature values: x -> Linear(D, m) -> Linear(m, H) + ReLU ("neurons") -> Linear(H, n) + ReLU (output bias starts at 0.1;
+the output ReLU lets the model filter negative interference, as in Toy Models). The neuron layer is tracked
 with rcdl.attribution (one group per active-feature set), so for every neuron we know which features wrote it and when.
 
 Outputs per run (JSON): the response matrix R[neuron, feature] (pre-activation for a unit input of one feature), the
@@ -102,6 +103,8 @@ class Toy(nn.Module):
     self.down = nn.Linear(D, m, bias=False)
     self.neurons = nn.Linear(m, H)
     self.out = nn.Linear(H, n)
+    with torch.no_grad():                            # with a zero start, about half of the ReLU outputs never turn on
+      self.out.bias.fill_(0.1)                       # (14 of 32 dead at m = H = 32); 0.1 leaves none dead
 
   def forward(self, x):
     return F.relu(self.out(F.relu(self.neurons(self.down(x)))))
