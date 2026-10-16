@@ -21,7 +21,10 @@ snap_{step}.pt starts from one with a NEW attribution over 1,001 groups: W_0 = t
 ('history') carries the old momentum, so every part is a write made after the snapshot. Run a control replay and an
 intervention replay from the same snapshot and compare them (the random crops of the partial epoch differ from the
 original run's, the same in both replays; with --batch_crops in the original run and its replays, the crops are seeded
-per batch and a control replay repeats the original run up to GPU nondeterminism). --zero_loss_classes gives the listed classes' label terms loss weight 0 (an
+per batch and a control replay repeats the original run up to GPU nondeterminism). --freeze_gamma 1 (X3) keeps the
+layer scale of every stage-1 block at its value (the snapshot's in a replay): requires_grad False and left out of the
+optimizers, whose saved states are re-indexed without it (remap_optimizer_state); snapshots and resume states record the
+frozen stages. The attribution is unaffected (it tracks pw_gate and pw_value only). --zero_loss_classes gives the listed classes' label terms loss weight 0 (an
 intervention: their examples still pass through the model, but teach nothing for those labels). --extra_ckpts adds
 checkpoints (attribution parts and model, no validation pass) for a denser record.
 
@@ -156,16 +159,15 @@ def remap_optimizer_state(sd, old_groups, new_groups):
 
 
 def load_optimizer_states(opts, saved, model, tracked, opt, wd, saved_stages, stages):
-  """Load saved optimizer states (from a snapshot or resume state written with layer scales of saved_stages frozen)
-  into opts (built with those of stages frozen)."""
+  """Load saved optimizer states (from a snapshot or resume state written with the layer scales of saved_stages frozen)
+  into opts (built by build_optimizers with those of stages frozen)."""
   if parse_stages(saved_stages) == parse_stages(stages):
     for o, sd in zip(opts, saved):
       o.load_state_dict(sd)
     return
   old = optimizer_groups(model, tracked, opt, wd, skip=frozen_names(model, parse_stages(saved_stages)))
-  new = optimizer_groups(model, tracked, opt, wd, skip=frozen_names(model, parse_stages(stages)))
-  for o, sd, og, ng in zip(opts, saved, old, new):
-    o.load_state_dict(remap_optimizer_state(sd, og, ng))
+  for o, sd, og in zip(opts, saved, old):
+    o.load_state_dict(remap_optimizer_state(sd, og, o.param_groups))
 
 
 @torch.no_grad()
@@ -216,6 +218,8 @@ def main():
                  'relabelled images), and optionally group / group_class for a fine-group shadow split saved as '
                  'attrF_{step}.pt (rare classes, own-image groups, decoy sets)')
   p.add_argument('--track_head', action='store_true', help='also track the classifier (head) with the same groups')
+  p.add_argument('--freeze_gamma', default='', help='comma-separated stage indices whose blocks keep their layer scale '
+                 '(gamma) fixed: requires_grad False and left out of the optimizers (X3; e.g. 1, with --init_from)')
   a = p.parse_args()
   dev = torch.device('cuda')
   torch.manual_seed(a.seed)
@@ -258,14 +262,10 @@ def main():
     if attr_r is not None:
       attr_r.load_snapshot(snap['attr'], history_group=1000)
   tracked = [t for l in layers.values() for t in (l.weight, l.bias)]
-  groups = param_groups(model, tracked, a.wd)
-  if a.opt == 'adamw':
-    opts = [torch.optim.AdamW(groups, lr=a.lr, betas=(0.9, 0.999), eps=1e-8, fused=True)]
-  else:
-    mats = [p for p in groups[0]['params'] if p.dim() == 2 and p is not model.head.weight]
-    rest = [p for p in groups[0]['params'] if not any(p is m for m in mats)]
-    opts = [torch.optim.Muon(mats, lr=a.muon_lr, weight_decay=a.wd, momentum=0.95, nesterov=True),
-            torch.optim.AdamW([{'params': rest, 'weight_decay': a.wd}, groups[1]], lr=a.lr, betas=(0.9, 0.999))]
+  frozen = freeze_layer_scales(model, parse_stages(a.freeze_gamma))
+  if frozen:
+    print(f'frozen layer scales: {frozen}', flush=True)
+  opts = build_optimizers(model, tracked, a.opt, a.lr, a.muon_lr, a.wd)
   base = [[g['lr'] for g in o.param_groups] for o in opts]
   sched = lambda s: (s + 1) / a.warmup if s < a.warmup else 0.5 * (1 + math.cos(math.pi * (s - a.warmup) / (a.steps - a.warmup)))
   os.makedirs(a.out, exist_ok=True)
@@ -304,7 +304,8 @@ def main():
     if a.snapshots:
       torch.save({'step': step, 'model': model.state_dict(), 'opts': [o.state_dict() for o in opts],
                   'attr': attr.snapshot(), 'torch_rng': torch.get_rng_state(), 'cuda_rng': torch.cuda.get_rng_state(),
-                  'log': list(log), 'batch_crops': a.batch_crops}, os.path.join(a.out, f'snap_{step:05d}.pt'))
+                  'log': list(log), 'batch_crops': a.batch_crops, 'freeze_gamma': a.freeze_gamma},
+                 os.path.join(a.out, f'snap_{step:05d}.pt'))
     rec = {'step': step, 'val_acc': acc, 'n_val': n_val, 'sec': time.time() - t0}
     log.append(rec)
     json.dump(log, open(os.path.join(a.out, 'log.json'), 'w'))
@@ -318,15 +319,14 @@ def main():
                 'attr': attr.full_state(), 'attr_r': attr_r.full_state() if attr_r is not None else None,
                 'attr_f': attr_f.full_state() if attr_f is not None else None,
                 'log': log, 'torch_rng': torch.get_rng_state(),
-                'cuda_rng': torch.cuda.get_rng_state()}, tmp)
+                'cuda_rng': torch.cuda.get_rng_state(), 'freeze_gamma': a.freeze_gamma}, tmp)
     os.replace(tmp, os.path.join(a.out, 'resume.pt'))
 
   resume = os.path.join(a.out, 'resume.pt')
   if os.path.exists(resume):
     st = torch.load(resume, map_location=dev, weights_only=False)
     model.load_state_dict(st['model'])
-    for o, os_ in zip(opts, st['opts']):
-      o.load_state_dict(os_)
+    load_optimizer_states(opts, st['opts'], model, tracked, a.opt, a.wd, st.get('freeze_gamma', ''), a.freeze_gamma)
     attr.load_full_state(st['attr'])
     if attr_r is not None:
       attr_r.load_full_state(st['attr_r'])
@@ -342,8 +342,8 @@ def main():
     if snap.get('batch_crops', False) != a.batch_crops:
       print(f'WARNING: snapshot batch_crops={snap.get("batch_crops", False)}, this replay {a.batch_crops}: '
             'the crops will not repeat the original run', flush=True)
-    for o, os_ in zip(opts, snap['opts']):
-      o.load_state_dict(os_)
+    load_optimizer_states(opts, snap['opts'], model, tracked, a.opt, a.wd, snap.get('freeze_gamma', ''),
+                          a.freeze_gamma)               # a frozen layer scale's saved moments are dropped
     torch.set_rng_state(snap['torch_rng'].cpu())
     torch.cuda.set_rng_state(snap['cuda_rng'].cpu())
     step = snap['step']
