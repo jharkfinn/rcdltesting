@@ -4,6 +4,7 @@ knockout and the cached forward passes equal direct recomputation, first-order e
 excision undo is bitwise, the fine split folds to the class split, and the statistics helpers are right."""
 
 import itertools
+import os
 
 import numpy as np
 import pytest
@@ -501,3 +502,238 @@ def test_compare_on_synthetic_runs(tmp_path):
   assert s0['P1']['n'] == 30 and s0['P1']['median'] > 0 and s0['P1']['p_two_sided'] < 0.01
   assert s0['P2']['median'] == pytest.approx(0.2) and set(res['holm_seed0']) == {'P1', 'P2', 'P3'}
   assert s0['noise_control']['passes'] and res['decision']['against_essay'] == []
+
+
+# ---------------------------------------------------------------------------------------- review fixes (adversarial)
+
+def control_selection():
+  """toy_selection plus a relabel control (class 8, source 30) and a noise control (class 9, source 31), set A."""
+  base = toy_selection()
+  sel = dict(base.sel)
+  sel['relabel'] = [dict(cls=8, name='c8', set='A', source=30, source_name='c30', n=10)]
+  sel['noise'] = [dict(cls=9, name='c9', set='A', source=31, source_name='c31', n=10)]
+  D = base.D.copy()
+  np.fill_diagonal(D, 0)
+  CS = np.zeros((NC, NC))
+  CS[np.arange(NC)[:, None], base.order] = np.arange(1, NC)[None, :] / NC     # the same visual order as base
+  return rc.Selection(sel, D, CS)
+
+
+def test_builder_scores_count_cross_writes_only():
+  """beta^x(k) sums k's writes into the top-20 poles other than c and k (no pole leak), beta(c) = 0."""
+  rng = np.random.default_rng(4)
+  model = ConvNeXt(dims=(4,), units=(3,), depths=(1,), n_classes=NC, stem=2)
+  atlas = {}
+  for b, blk in model.blocks():
+    U = blk.pw_gate.out_features
+    poles = torch.as_tensor(np.stack([rng.permutation(NC) for _ in range(U)]))
+    atlas[b] = {'poles': poles, 'Vm': torch.randn(U, NC, dtype=torch.float64),
+                'Gm': torch.randn(U, NC, dtype=torch.float64),
+                'value_writers': torch.randn(U, NC, NC, dtype=torch.float64).half(),
+                'gate_writers': torch.randn(U, NC, NC, dtype=torch.float64).half()}
+  bms = cr.builder_matrices(atlas, model)
+  b = model.blocks()[0][0]
+  for n, bm in enumerate(bms):
+    top = [int(k) for k in atlas[b]['poles'][n][:20]]
+    raw = np.zeros((20, NC))
+    for j, cp in enumerate(top):
+      sv, sg = np.sign(float(atlas[b]['Vm'][n, cp])), np.sign(float(atlas[b]['Gm'][n, cp]))
+      raw[j] = np.maximum(sv * atlas[b]['value_writers'][n, j].double().numpy(), 0) + \
+        np.maximum(sg * atlas[b]['gate_writers'][n, j].double().numpy(), 0)
+    assert np.allclose(bm['raw'], raw, atol=1e-6)
+    for c in (top[0], top[5], int(atlas[b]['poles'][n][30])):            # c a pole, and c not a pole
+      beta = cr.builders(bm, c)
+      brute = np.array([sum(raw[j, k] for j, cp in enumerate(top) if cp not in (c, k)) for k in range(NC)])
+      brute[c] = 0.0
+      assert np.allclose(beta, brute, atol=1e-6), (n, c)
+      k = top[3] if top[3] != c else top[4]                             # a pole: its own response is not counted
+      assert np.isclose(beta[k], sum(raw[j, k] for j, cp in enumerate(top) if cp not in (c, k)), atol=1e-6)
+  # S7's own niche share: c's own row of the top carrier when c is a pole, else undefined
+  units = cr.unit_list(model)
+  DeltaQ = torch.zeros(len(units), NC, dtype=torch.float64)
+  sel = toy_selection()
+  sel.nW[:] = 10
+  sel.cos10[:] = 0.0
+  units = [('stage2.block0', n) for _, n in units]                    # S7 reads the late stages only
+  top0 = [int(k) for k in atlas[b]['poles'][0][:20]]
+  c_in, c_out = top0[2], int(atlas[b]['poles'][0][25])
+  DeltaQ[0, c_in] = DeltaQ[0, c_out] = 1.0                              # unit 0 is the top carrier of both
+  s7 = cr.s7_consolidation(DeltaQ, units, sel, bms)
+  rows = {r['cls']: r for r in s7['classes']}
+  raw0 = bms[0]['raw']
+  assert np.isclose(rows[c_in]['N'], raw0[2, c_in] / raw0[2].sum())
+  assert rows[c_out]['N'] is None
+
+
+def test_control_sets_probes_and_snapshots(tmp_path):
+  sel = control_selection()
+  assert 30 not in sel.pi(8) and 30 not in sel.far(8) and 31 not in sel.pi(9)       # the source is not a random class
+  assert 30 in sel.pi(0) or 30 in sel.near10(0)                                    # other classes keep it
+  assert sel.n_own(8) == [] and sel.cell(8) == 'A/relabel'
+  V = torch.arange(40 * 2 * 3 * 4 * 4, dtype=torch.int64).remainder(256).to(torch.uint8).view(80, 3, 4, 4)
+  Vpos = {c: np.arange(2 * i, 2 * i + 2) for i, c in enumerate(range(40))}
+  assert torch.equal(rc.probes(sel, 8, V, Vpos), V[Vpos[30]])                     # relabel: the source's images
+  nx = {9: torch.zeros(10, 3, 4, 4, dtype=torch.uint8)}
+  assert torch.equal(rc.probes(sel, 9, V, Vpos, nx), nx[9])
+  assert torch.equal(rc.probes(sel, 9, V, Vpos, {}), V[Vpos[9]])                  # no noise images: no KeyError
+  assert rc.probe_kind(sel, 9, {}) != 'noise' and rc.probe_kind(sel, 8) == 'source_val'
+  # noise images: the run's own spec first, then the other specs
+  labels = np.repeat(np.arange(NC), 3)
+  labels[[93, 94]] = 9
+  spec = {'noise': np.array([93, 94]), 'labels': labels}
+  ni = rc.noise_images([None, {'noise': np.zeros(0, np.int64)}, spec], sel)
+  assert list(ni) == [9] and ni[9].shape == (2, 3, 224, 224)
+  # snapshots: step 0 (v = 0) is never used for step sizes; history/ snapshots are found
+  os.makedirs(tmp_path / 'history')
+  for s in (0, 50, 2500):
+    open(tmp_path / f'snap_{s:05d}.pt', 'w').close()
+  open(tmp_path / 'history' / 'snap_12000.pt', 'w').close()
+  snaps = rc.snapshot_files(str(tmp_path))
+  assert sorted(snaps) == [0, 50, 2500, 12000] and snaps[12000].endswith(os.path.join('history', 'snap_12000.pt'))
+  assert cr.flow_snapshot(snaps, 0) == 50 and cr.flow_snapshot(snaps, 2500) == 2500
+  assert cr.flow_snapshot(snaps, 12500) == 12000 and rc.nearest_snapshot({0: 'x'}, 0) is None
+  st = {'m': {'v': torch.full((2, 3), 4e-6), 'vb': torch.full((2,), 1e-6), 't': 10}}
+  D = cr.step_scales({'stage0.block0.pw_gate': st['m'], 'head': st['m']})
+  c2 = 1 - 0.999 ** 10
+  assert list(D) == ['stage0.block0.pw_gate']
+  assert torch.allclose(D['stage0.block0.pw_gate'][0], torch.full((2, 3), 1 / ((4e-6 / c2) ** 0.5 + 1e-8)))
+  with pytest.raises(AssertionError):
+    cr.step_scales({'k': dict(st['m'], t=0)})
+
+
+def test_row_norms_for_several_scalings_equal_single_calls(toy):
+  model = toy['model']
+  x = images(toy, 3, 22)
+  y, y2 = torch.tensor([0, 3, 5]), torch.tensor([7, 1, 2])
+  lam = torch.tensor([0.3, 0.8, 0.5], dtype=torch.float64)
+  params = [p for b, blk in model.blocks() for m in ('pw_gate', 'pw_value') for p in getattr(blk, m).parameters()]
+  for p in params:
+    p.requires_grad_(True)
+  D = {f'{b}.{m}': (torch.rand_like(getattr(blk, m).weight) + 0.5, torch.rand_like(getattr(blk, m).bias) + 0.5)
+       for b, blk in model.blocks() for m in ('pw_gate', 'pw_value')}
+  try:
+    both = cr.row_norms(model, x, y, y2, lam, [None, D])
+    model.zero_grad(set_to_none=True)
+    one = [cr.per_example_row_norms(model, x, y, y2, lam, s) for s in (None, D)]
+    for a_, b_ in zip(both, one):
+      assert torch.allclose(a_, b_, atol=1e-13, rtol=0)
+  finally:
+    for p in params:
+      p.requires_grad_(False)
+    model.zero_grad(set_to_none=True)
+
+
+def test_measure_nulls_do_not_depend_on_the_analysed_classes(toy):
+  """--only: the N_own nulls (O, PI, P2, P3) use every special class's own groups, so a partial run gives the same
+  numbers as a run over more classes."""
+  V, Vpos, Q, Qy = toy_images()
+  kw = dict(run_set='A', counts=np.full(NC, PER), n_draws=30, log=lambda s: None, check_units=2)
+  one = cr.measure(toy['model'], toy['sel'], toy['spec'], toy['pc'], toy['pf'], V, Vpos, Q, Qy, 'cpu', classes=[3],
+                   **kw)['classes'][0]
+  more = {r['cls']: r for r in cr.measure(toy['model'], toy['sel'], toy['spec'], toy['pc'], toy['pf'], V, Vpos, Q,
+                                          Qy, 'cpu', classes=[3, 4, 5], **kw)['classes']}[3]
+  assert one['n_nown'] == 2 and 'P2' in one and 'P3' in one
+  if one['K']:
+    assert one['O'] == pytest.approx(more['O']) and one['PI'] == pytest.approx(more['PI'])
+  assert one['P2']['X_stage'] == pytest.approx(more['P2']['X_stage'])
+  assert one['P3']['sum_w'] == pytest.approx(more['P3']['sum_w'])
+
+
+def test_gonogo_probes_controls_on_their_images(toy):
+  """Relabel controls are probed on the source class's images (Far without the source), noise controls on their
+  noise images; the units-only pass is reported."""
+  sel = control_selection()
+  g = torch.Generator().manual_seed(9)
+  cls = list(range(10)) + [30, 31]
+  Vl = np.repeat(cls, 6)
+  V = torch.randint(0, 256, (len(Vl), 3, 8, 8), generator=g, dtype=torch.uint8)
+  Vpos = {c: np.flatnonzero(Vl == c) for c in cls}
+  Qy = np.repeat(np.arange(NC), 4)
+  Q = torch.randint(0, 256, (len(Qy), 3, 8, 8), generator=g, dtype=torch.uint8)
+  nx = {9: torch.randint(0, 256, (4, 3, 8, 8), generator=g, dtype=torch.uint8)}
+  recs, _ = gg.analyse(toy['model'], sel, toy['spec'], toy['pc'], toy['pf'], V, Vpos, Q, Qy, 'A', 'cpu',
+                       log=lambda s: None, noise_x=nx, excision=False)
+  by = {r['cls']: r for r in recs}
+  assert by[8]['probe'] == 'source_val' and by[8]['n_probe'] == 6 and by[9]['probe'] == 'noise'
+  assert by[9]['n_probe'] == 4 and by[8]['condition'] == 'rare'
+  zs = rc.logits_of(toy['model'], V[Vpos[30]], 'cpu')
+  assert by[8]['top1'] == pytest.approx(float((zs.argmax(1) == 8).float().mean()))
+  sq = rc.zeta(rc.logits_of(toy['model'], Q, 'cpu'), 8).numpy()
+  assert by[8]['auroc_near'] == pytest.approx(rc.auroc(rc.zeta(zs, 8).numpy(), sq[np.isin(Qy, sel.near10(8))]))
+  assert by[3]['E_units_pass'] == (by[3]['E_own_region']['units'] > np.percentile(by[3]['E_units_null'], 95))
+  assert 'frac_E_units_pass' in gg.verdict(recs)
+  recs2, _ = gg.analyse(toy['model'], sel, toy['spec'], toy['pc'], toy['pf'], V, Vpos, Q, Qy, 'A', 'cpu',
+                        log=lambda s: None, noise_x={}, excision=False)   # spec_A missing: real images, no crash
+  assert {r['cls']: r for r in recs2}[9]['probe'].startswith('val')
+
+
+def test_streamed_validation_crops_equal_val_images(tmp_path):
+  pytest.importorskip('pyarrow')
+  import io
+  import pyarrow as pa
+  import pyarrow.parquet as pq
+  from PIL import Image
+  from experiments.convnext_umbrella import val_images
+  d = tmp_path / 'val' / 'data'
+  d.mkdir(parents=True)
+  for f in range(2):
+    rows = []
+    for i in range(5):
+      buf = io.BytesIO()
+      Image.new('RGB', (60 + 7 * i, 50 + f), (40 * i, 9 * f, 7)).save(buf, format='JPEG')
+      rows.append({'image': {'bytes': buf.getvalue(), 'path': None}, 'label': i})
+    pq.write_table(pa.Table.from_pylist(rows), d / f'validation-{f:05d}-of-00002.parquet')
+  gidx = [7, 1, 9, 0, 5]
+  cache = str(tmp_path / 'cache.pt')
+  x = rc.load_val_images(str(tmp_path / 'val'), gidx, cache)
+  assert torch.equal(x, val_images(str(tmp_path / 'val'), gidx))
+  assert torch.equal(rc.load_val_images(str(tmp_path / 'val'), gidx, cache), x)          # from the cache
+  assert np.array_equal(rc.val_class_index(str(tmp_path / 'val')), [0, 1, 2, 3, 4] * 2)
+
+
+def test_compare_counts_against_only_beyond_floor_and_replicated(tmp_path):
+  import argparse
+  import json
+
+  def rec(c, cond, l3, ref=0.5):
+    return {'cls': c, 'kind': 'selected', 'stratum': 'dense', 'level': 10, 'condition': cond, 'set': 'A', 'PI': 0.1,
+            'defined': True, 'F': 0.5, 'O': 0.1, 'O_whole': 2.0, 'auroc_far': 0.7, 'top1': 0.3,
+            'P2': {'lambda3': l3, 'defined': True}, 'P2_whole': {'lambda3': ref}}
+
+  def write(name, o):
+    p = str(tmp_path / f'{name}.json')
+    json.dump(o, open(p, 'w'))
+    return p
+  ids = range(30)
+  rare = write('rare', {'run': 'A0', 'run_set': 'A', 'classes': [rec(c, 'rare', 0.2) for c in ids]})
+  other = write('other', {'run': 'B0', 'run_set': 'B', 'classes': [rec(c, 'common', 0.5) for c in ids]})
+  same = write('same', {'run': 'B0', 'run_set': 'B', 'classes': [rec(c, 'common', 0.2) for c in ids]})
+  c0 = write('c0', {'run': 'C0', 'run_set': 'C', 'classes': [rec(c, 'common', 0.5) for c in ids]})
+  out = str(tmp_path / 'cmp.json')
+  args = dict(c0=[c0], e1=[], out=out)
+  cr.cmd_compare(argparse.Namespace(rare=[rare, other], rare1=[], c1=[], e1r=[], **args))
+  dec = json.load(open(out))['decision']
+  assert dec['against_essay'] == [] and dec['against_pending_seed1'] == ['median lambda_3 difference < 0']
+  # seed 1 without C1: the class-split reference (P2_whole) comes from E1r
+  cr.cmd_compare(argparse.Namespace(rare=[rare, other], rare1=[rare, other], c1=[], e1r=[c0], **args))
+  res = json.load(open(out))
+  assert res['seed0']['P2']['floor_wilcoxon']['p'] < 1e-4 and res['seed1_reference'] == 'E1r'
+  assert res['decision']['against_essay'] == ['median lambda_3 difference < 0']
+  cr.cmd_compare(argparse.Namespace(rare=[rare, same], rare1=[rare, same], c1=[c0], e1r=[], **args))  # D = D0
+  dec = json.load(open(out))['decision']
+  assert dec['against_essay'] == [] and dec['against_candidates'][0]['floor_ok'] is False
+
+
+def test_zeta_accepts_numpy_classes_and_fold_check_flags():
+  z = torch.tensor([[1.0, 2.0, 6.0], [0.0, 3.0, 0.0]])
+  for c in (2, np.int64(2)):
+    assert torch.allclose(rc.zeta(z, c), torch.tensor([3.0, -1.0]))
+  assert torch.allclose(rc.zeta(z, torch.tensor([2, 1])), torch.tensor([3.0, 2.0]))
+  rec = {'C': torch.ones(3, 2, 2, dtype=torch.float16) * 4, 'C_scale': 4.0, 'Cb': torch.ones(3, 2, dtype=torch.float16),
+         'Cb_scale': 1.0}
+  cls = {'C': torch.tensor([[[2.0, 2.0], [2.0, 2.0]], [[1.0, 1.0], [1.0, 1.0]]]).half(), 'C_scale': 1.0,
+         'Cb': torch.tensor([[2.0, 2.0], [1.0, 1.0]]).half(), 'Cb_scale': 1.0}
+  chk = gg.fold_check({'m': rec}, {'m': cls}, np.array([0, 0, 1]), 2)
+  assert chk['max_rel'] == 0.0 and chk['ok']
+  cls['Cb'] = torch.tensor([[2.0, 2.0], [1.5, 1.0]]).half()
+  assert not gg.fold_check({'m': rec}, {'m': cls}, np.array([0, 0, 1]), 2)['ok']

@@ -2,7 +2,8 @@
 and the same numbers on common runs (C0, E1, E1r) as the ceiling.
 
 Definitions (experiments/rare_common.py): V_c, V_est, Q, Far(c), Near10(c), N_own(c), Own_m(c), zeta_c, E_S(c).
-Per class c (the 128 selected classes and the 16 relabel and noise controls):
+Per class c (the 128 selected classes and the 16 relabel and noise controls; a relabel control is probed on its
+source class's validation images and a noise control on its noise images, rare_common.probes, in place of V_c):
   top1, top5      accuracy of the label c on V_c (50 validation images)
   auroc_far       AUROC of zeta_c on V_c against zeta_c on the Q images of Far(c) (8 per class)
   auroc_near      the same against the Q images of Near10(c) (descriptive)
@@ -10,9 +11,11 @@ Per class c (the 128 selected classes and the 16 relabel and noise controls):
                   maps of all blocks and the head), from the fine split (attrF); also per region (stage0..3, head)
   E_null          the same effect of each N_own class's Own_m on c (13 values for selected classes)
   E_pass          E_own > the 95th percentile of E_null
+  E_units_pass    the same without the head (unit maps only; descriptive: AdamW enlarges a rare head row's steps)
   E_class         first-order effect of c's whole class part (class split attr, every tracked map) and its null over
                   the N_own classes' class parts: on runs without a fine split (E1, E1r) the only own effect, and
-                  descriptive (own = the whole class); in a rare run it equals E_own for a rare class (fold check)
+                  descriptive (own = the whole class); in a rare run it equals E_own for a rare class (fold check);
+                  E_class_units without the head (E1 and E1r track no head)
   X_own           (level-100 classes of the rare set) the exact excision effect of Own_m(c) from every tracked map on
                   mean_{V_est} zeta_c, against which E_own is a first-order approximation
   fit_T           (with --train) top-1 of the class's training label on center crops of its own training images
@@ -40,21 +43,22 @@ import numpy as np
 import torch
 
 from experiments.rare_common import (Selection, auroc, by_region, class_gradients, clean_json, excise, fold,
-                                     group_effects, load_parts, load_spec, load_val_images, logits_of, own_groups,
-                                     pct_rank, tracked_modules, train_center_u8, val_class_index, zeta)
+                                     group_effects, load_npz, load_parts, load_probe_images, load_spec, logits_of,
+                                     noise_images, own_groups, pct_rank, probe_kind, probes, tracked_modules,
+                                     train_center_u8, zeta)
 from rcdl.convnext import build_convnext
 
 THRESH_AUROC, THRESH_FRAC = 0.6, 0.5
 
 
-def summarize(recs, keys=('auroc_far', 'auroc_near', 'top1', 'top5', 'E_own', 'E_class', 'fit_T')):
+def summarize(recs, keys=('auroc_far', 'auroc_near', 'top1', 'top5', 'E_own', 'E_class', 'E_class_units', 'fit_T')):
   out = {'n': len(recs)}
   for k in keys:
     v = [r[k] for r in recs if r.get(k) is not None and np.isfinite(r[k])]
     if v:
       out[f'median_{k}'] = float(np.median(v))
       out[f'mean_{k}'] = float(np.mean(v))
-  for k in ('E_pass', 'E_class_pass'):
+  for k in ('E_pass', 'E_units_pass', 'E_class_pass'):
     v = [r[k] for r in recs if r.get(k) is not None]
     if v:
       out[f'frac_{k}'] = float(np.mean(v))
@@ -70,8 +74,10 @@ def verdict(recs):
   pas = [r['E_pass'] for r in l100 if r.get('E_pass') is not None]
   frac = float(np.mean(pas)) if pas else float('nan')
   ok_a, ok_e = med >= THRESH_AUROC, bool(pas) and frac >= THRESH_FRAC
+  pu = [r['E_units_pass'] for r in l100 if r.get('E_units_pass') is not None]
   return {'n_level100': len(l100), 'median_auroc_far': med, 'auroc_ok': bool(ok_a), 'frac_E_pass': frac,
           'n_E': len(pas), 'E_ok': bool(ok_e), 'decision': 'GO' if ok_a and ok_e else 'NO-GO',
+          'frac_E_units_pass': float(np.mean(pu)) if pu else None,
           'line': (f"{'GO' if ok_a and ok_e else 'NO-GO'}: median AUROC_far {med:.3f} (>= {THRESH_AUROC}: "
                    f"{'yes' if ok_a else 'no'}); E_Own_m above the N_own 95th percentile for {frac:.0%} of "
                    f"{len(pas)} level-100 classes (>= {THRESH_FRAC:.0%}: {'yes' if ok_e else 'no'})")}
@@ -91,17 +97,24 @@ def cells(recs):
 
 
 def analyse(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, run_set, device, train_x=None,
-            excision=True, log=print):
-  """All per-class numbers (see the module docstring). V: uint8 images of the analysed classes, Vpos[c] their rows
-  in V (50 per class, global validation order); Q, Qy: the probe images and labels."""
-  classes = sorted(Vpos)
+            excision=True, log=print, noise_x=None):
+  """All per-class numbers (see the module docstring). V: uint8 validation images, Vpos[c] the rows of class c in V
+  (50 per class, global validation order; relabel controls need their source class's rows); Q, Qy: the probe images
+  and labels; noise_x: {noise control: its noise images} (rare_common.noise_images)."""
+  def has(c):                                       # probe images available
+    row = sel.rows[c]
+    if row['kind'] == 'relabel':
+      return row['source'] in Vpos
+    return c in Vpos or (row['kind'] == 'noise' and noise_x is not None and c in noise_x)
+  classes = [c for c in sorted(sel.rows) if has(c)]
+  xs = {c: probes(sel, c, V, Vpos, noise_x) for c in classes}
   t0 = time.time()
-  zV, zQ = logits_of(model, V, device), logits_of(model, Q, device)
+  zQ = logits_of(model, Q, device)
   log(f'logits {time.time() - t0:.0f}s')
   keys = list(parts_f if parts_f is not None else parts_c)
   mods = tracked_modules(model, keys)
   ckeys = [k for k in parts_c if k in mods]
-  grads = class_gradients(model, mods, [V[Vpos[c][1::2]] for c in classes], classes, device)
+  grads = class_gradients(model, mods, [xs[c][1::2] for c in classes], classes, device)
   log(f'gradients {time.time() - t0:.0f}s')
   Ec = by_region(group_effects(parts_c, {k: grads[k] for k in ckeys}))
   Ef = by_region(group_effects(parts_f, grads)) if parts_f is not None else None
@@ -111,19 +124,21 @@ def analyse(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, run_s
   recs = []
   for c in classes:
     row = sel.rows[c]
-    j, zc = col[c], zV[Vpos[c]]
+    j, zc = col[c], logits_of(model, xs[c], device)
     s = zeta(zc, c).numpy()
     top5 = torch.topk(zc, 5, 1).indices
     sq = zeta(zQ, c).numpy()
     far, near = sel.far(c), sel.near10(c)
     r = {'cls': c, 'name': row['name'], 'kind': row['kind'], 'set': row['set'], 'stratum': row['stratum'],
          'level': row['level'], 'cell': sel.cell(c), 'condition': sel.condition(c, run_set),
+         'probe': probe_kind(sel, c, noise_x), 'n_probe': int(len(xs[c])),
          'top1': float((zc.argmax(1) == c).float().mean()), 'top5': float((top5 == c).any(1).float().mean()),
          'auroc_far': auroc(s, sq[np.isin(Qy, far)]), 'auroc_near': auroc(s, sq[np.isin(Qy, near)]),
          'n_far': len(far)}
     nown = sel.n_own(c)
     tot = Ec['all'][:, j].cpu().numpy()
     r['E_class'] = float(tot[c])
+    r['E_class_units'] = float(Ec['units'][c, j])        # comparable between runs with and without a tracked head
     if nown:
       null = tot[nown]
       r['E_class_null_p95'] = float(np.percentile(null, 95))
@@ -135,11 +150,12 @@ def analyse(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, run_s
       r['E_own'], r['E_own_region'] = reg['all'], reg
       r['n_own_groups'] = int(len(own))
       if nown:
-        null = np.array([float(Ef['all'][own_groups(spec, k), j].sum()) for k in nown])
-        r['E_null'] = null.tolist()
-        r['E_null_p95'] = float(np.percentile(null, 95))
-        r['E_pct'] = pct_rank(r['E_own'], null)
-        r['E_pass'] = bool(r['E_own'] > r['E_null_p95'])
+        for tag, k_ in (('', 'all'), ('_units', 'units')):     # units: without the head (descriptive)
+          null = np.array([float(Ef[k_][own_groups(spec, k), j].sum()) for k in nown])
+          r[f'E{tag}_null'] = null.tolist()
+          r[f'E{tag}_null_p95'] = float(np.percentile(null, 95))
+          r[f'E{tag}_pct'] = pct_rank(reg[k_], null)
+          r[f'E{tag}_pass'] = bool(reg[k_] > r[f'E{tag}_null_p95'])
     if train_x is not None and c in train_x:
       x, y = train_x[c]
       if len(x):
@@ -151,7 +167,7 @@ def analyse(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, run_s
     targets = [r for r in recs if r['condition'] == 'rare' and r['level'] == 100 and r['kind'] == 'selected']
     for r in targets:
       c = r['cls']
-      x = V[Vpos[c][1::2]]
+      x = xs[c][1::2]
       base = float(zeta(logits_of(model, x, device), c).mean())
       undo = excise(mods, parts_f, own_groups(spec, c), keys)
       try:
@@ -164,8 +180,9 @@ def analyse(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, run_s
   ex = None
   if exact:
     e, x = np.array(exact).T
-    ex = {'n': len(e), 'corr_E_X': float(np.corrcoef(e, x)[0, 1]) if len(e) > 2 else None,
-          'median_ratio_E_over_X': float(np.nanmedian(e / np.where(x == 0, np.nan, x))) if (x != 0).any() else None,
+    nz = x != 0
+    ex = {'n': len(e), 'corr_E_X': float(np.corrcoef(e, x)[0, 1]) if len(e) > 2 and e.std() > 0 and x.std() > 0
+          else None, 'median_ratio_E_over_X': float(np.median(e[nz] / x[nz])) if nz.any() else None,
           'sign_agreement': float(np.mean(np.sign(e) == np.sign(x)))}
   return recs, ex
 
@@ -181,7 +198,8 @@ def fold_check(parts_f, parts_c, group_class, n_classes):
     Cb = rec['Cb'].float() / rec.get('Cb_scale', 1.0)
     d = max(float((folded[k]['C'] - C).abs().max()), float((folded[k]['Cb'] - Cb).abs().max()))
     out[k] = d / max(float(C.abs().max()), float(Cb.abs().max()), 1e-30)
-  return {'max_rel': max(out.values()) if out else None, 'per_map': out}
+  mx = max(out.values()) if out else None
+  return {'max_rel': mx, 'ok': bool(mx is not None and mx < 2e-3), 'per_map': out}   # fp16 storage of both splits
 
 
 def run_one(a):
@@ -202,20 +220,10 @@ def run_one(a):
   pf = os.path.join(a.run, f'attrF_{a.step:05d}.pt')
   parts_f = load_parts(pf) if os.path.exists(pf) and spec is not None else None
   classes = sorted(sel.rows)
-  if a.images:                                     # pre-built images (tests): {'V', 'Vlabels', 'Q', 'Qy'}
-    d = torch.load(a.images, weights_only=False)
-    V, vlab, Q, Qy = d['V'], np.asarray(d['Vlabels']), d['Q'], np.asarray(d['Qy'])
-    Vpos = {c: np.flatnonzero(vlab == c) for c in classes}
-  else:
-    from experiments.convnext_atlas import probe_set
-    vlabels = val_class_index(a.val)
-    gidx = np.concatenate([np.flatnonzero(vlabels == c) for c in classes])
-    V = load_val_images(a.val, gidx, a.val_cache)
-    vlab = vlabels[gidx]
-    Vpos = {c: np.flatnonzero(vlab == c) for c in classes}
-    Q, Qy = probe_set(a.val, 8, a.probe_cache)
-    Qy = Qy.numpy()
-  log(f'images: V {tuple(V.shape)}, Q {tuple(Q.shape)}; run set {run_set}; fine split {parts_f is not None}')
+  V, Vpos, Q, Qy = load_probe_images(a.val, sel, a.val_cache, a.probe_cache, a.images)
+  noise_x = noise_images([spec] + [load_npz(p) for p in a.noise_specs.split(',') if p], sel)
+  log(f'images: V {tuple(V.shape)}, Q {tuple(Q.shape)}, noise controls with noise images {len(noise_x)}; '
+      f'run set {run_set}; fine split {parts_f is not None}')
   train_x = None
   if a.train and spec is not None and os.path.exists(os.path.join(a.train, 'data.bin')):
     train_x = {}
@@ -225,7 +233,7 @@ def run_one(a):
       train_x[c] = (train_center_u8(a.train, idx, spec.get('noise', ())), spec['labels'][idx])
     log('training crops loaded')
   recs, ex = analyse(model, sel, spec, parts_c, parts_f, V, Vpos, Q, Qy, run_set, dev, train_x,
-                     excision=not a.no_excision, log=log)
+                     excision=not a.no_excision, log=log, noise_x=noise_x)
   out = {'run': a.run, 'step': a.step, 'run_set': run_set, 'fine_split': parts_f is not None,
          'tracked_maps': len(parts_f if parts_f is not None else parts_c), 'head_tracked': 'head' in parts_c,
          'verdict': verdict(recs) if run_set in ('A', 'B') else None, 'excision_vs_first_order': ex,
@@ -271,7 +279,9 @@ def main():
   p.add_argument('--out', required=True)
   p.add_argument('--set', default=None, choices=['A', 'B', 'C'], help='override the run set (default: spec meta)')
   p.add_argument('--probe_cache', default='/dev/shm/probe_8.pt')
-  p.add_argument('--val_cache', default='/marimo/work/rare_val_v2.pt')
+  p.add_argument('--val_cache', default='/marimo/work/rare_val_v2_src.pt', help='the same file as convnext_rare')
+  p.add_argument('--noise_specs', default='/marimo/work/specs/spec_A.npz,/marimo/work/specs/spec_B.npz',
+                 help='specs that flag the noise controls\' images (probes of noise controls in every run)')
   p.add_argument('--train', default='', help='packed training set (/dev/shm/imagenet256): adds fit_T')
   p.add_argument('--images', default='', help='pre-built images {V, Vlabels, Q, Qy} (tests)')
   p.add_argument('--device', default=None)

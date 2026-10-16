@@ -53,7 +53,8 @@ Flow weights (subcommand flow): f_n = sum over checkpoints t of l_t mean over T_
 summed learning rate of the interval starting at t, T_c the class's own training images (relabelled or noise images in
 a control's rare run), 4 augmentations each mixed with a random kept partner at lam ~ Beta(0.8, 0.8), L the mixup loss;
 lam grad is the own group's share of the update under the soft-group split. f^D: the gradient scaled by
-D = 1 / (sqrt(v_hat_t) + eps) from snap_t.
+D = 1 / (sqrt(v_hat) + eps) from snap_t (for t = 0, whose v is still zero, and for checkpoints without a snapshot,
+the nearest snapshot with t > 0, also from the run's history/ folder; the steps used are saved as snap_steps).
 
 S1, builders from cross-writes (atlas_{step}.pt of the class split): for unit n,
   beta^x_n(k) = sum over c' in top20(n), c' not in {c, k} of [max(0, s^v V[n, c', k]) + max(0, s^g G[n, c', k])]
@@ -72,7 +73,8 @@ S4, churn (subcommand churn, descriptive): for n in K(c) and consecutive checkpo
   |Far|) / (traffic_Near10 / 10). With --split attrR (E1r) the same sets index random groups: the noise floor.
 S7, consolidation (phase 0, descriptive, on Q): over the units of stages 2 and 3, Delta~Q = DeltaQ[:, c] - median over
   k != c; C1 = max Delta~Q+ / sum Delta~Q+, PR = (sum Delta~Q+)^2 / sum (Delta~Q+)^2, for the 548 stratum candidates,
-  with Spearman correlations with cos10 and nW.
+  with Spearman correlations with cos10 and nW; with the atlas, N = the share of c's own writes in the builder row of
+  c on its top carrier, raw[c, c] / sum_k raw[c, k] (raw as in S1 without the cross-write rule; c must be a pole).
 M4 (phase 0): removing the 10 Near10 class parts from all 36 unit maps at once, X^U_Near10 on V_c against matched
   draws, with the probe accuracy after removal (documents the collapse).
 
@@ -81,7 +83,10 @@ in their rare run. Paired bootstrap over classes (10,000 resamples) of the media
 P(b >= 0)); Holm over P1 to P3; contrasts rare - C0 against the same-seed floor D0 = other-set run - C0 (Wilcoxon
 signed-rank of D - D0, normal approximation with tie correction); floors C0 - E1 (instrumentation) and E1r - E1
 (seed); seed-1 replication: same sign, one-sided p < 0.05; universality: signatures against pseudo-own signatures,
-one-sided binomial test at the pseudo rate (k + 1) / (n + 2).
+one-sided binomial test at the pseudo rate (k + 1) / (n + 2). The P2 primary D(c) = lambda_3(rare, Own_m) -
+lambda_3^ref(C0, whole class) has the floor D0(c) = lambda_3(other-set run, Own_m) - lambda_3^ref(C0). Decision rules
+(section 7): a count against the essay needs Holm significance, the floor (P2) and seed-1 replication; without
+seed-1 runs it is listed as pending.
 
 Subcommands:
   measure  --run R --step S [--flow flow.npz] [--train /dev/shm/imagenet256] -> rare_measure_{S}.json (+ .npz arrays)
@@ -103,8 +108,9 @@ import torch
 import torch.nn.functional as F
 
 from experiments.rare_common import (Selection, auroc, by_region, class_gradients, clean_json, excise, group_effects,
-                                     load_parts, load_spec, logits_of, normalize, own_groups, pct_rank, rankdata,
-                                     spearman, tracked_modules, zeta)
+                                     load_npz, load_parts, load_probe_images, load_spec, logits_of, nearest_snapshot,
+                                     noise_images, normalize, own_groups, pct_rank, probe_kind, probes, rankdata,
+                                     snapshot_files, spearman, tracked_modules, zeta)
 
 N_DRAWS = 1000
 K_UNITS = 8
@@ -672,34 +678,6 @@ def s2_sigma(model, parts_f: Dict[str, dict], groups: Sequence[int], x, c: int) 
 
 # ------------------------------------------------------------------------------------------------------- probes
 
-def probes(sel: Selection, c: int, V, Vpos, noise_x=None) -> torch.Tensor:
-  """uint8 probe images of class c: its 50 validation images; for a relabel control the source class's; for a noise
-  control its 10 noise images. V_sel = even positions, V_est = odd positions."""
-  row = sel.rows[c]
-  if row['kind'] == 'relabel':
-    return V[Vpos[row['source']]]
-  if row['kind'] == 'noise' and noise_x is not None:
-    return noise_x[c]
-  return V[Vpos[c]]
-
-
-def noise_images(specs: Sequence[dict], sel: Selection) -> Dict[int, torch.Tensor]:
-  """uint8 (10, 3, 224, 224) noise images of each noise control: the images its rare run's spec flags as noise and
-  labels c (center 224 of smooth_noise), so every run probes the same images. specs: the run's spec and, for runs
-  where the controls are common (C0, the other set's run), spec_A and spec_B."""
-  from rcdl.imagenet import smooth_noise
-  out = {}
-  for r in sel.sel.get('noise', []):
-    for sp in specs:
-      if sp is None or not len(sp.get('noise', ())):
-        continue
-      mine = [int(i) for i in sp['noise'] if sp['labels'][i] == r['cls']]
-      if mine:
-        out[r['cls']] = torch.stack([smooth_noise(i)[:, 16:240, 16:240] for i in mine])
-        break
-  return out
-
-
 # ------------------------------------------------------------------------------------------------------- measure
 
 def class_counts(spec, n_classes, labels_path=''):
@@ -760,8 +738,9 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
   mods = tracked_modules(model, list(own_split))
   grads_est = class_gradients(model, mods, [xs[c][1::2] for c in classes], classes, device, dtype)
   grads_all = class_gradients(model, mods, [xs[c] for c in classes], classes, device, dtype)
-  set_id = {k: i for i, k in enumerate(classes)}
-  E_unit = unit_effects(own_split, grads_est, [own_of(k) for k in classes], model).numpy()   # (S, n_cls, n_units)
+  set_classes = sorted(set(sel.rows) | set(classes))   # every special class's own set (the nulls), even with --only
+  set_id = {k: i for i, k in enumerate(set_classes)}
+  E_unit = unit_effects(own_split, grads_est, [own_of(k) for k in set_classes], model).numpy()  # (S, n_cls, n_units)
   E_reg = by_region(group_effects(own_split, grads_all))
   E_reg_w = by_region(group_effects(parts_c, {k: grads_all[k] for k in parts_c if k in grads_all}))
   log(f'first-order effects {time.time() - t0:.0f}s')
@@ -773,10 +752,11 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
     row = sel.rows[c]
     x = normalize(xs[c], device).to(dtype)
     near, pool = sel.near10(c), sel.pi(c)
-    nown = [k for k in sel.n_own(c) if k in set_id]
+    nown = sel.n_own(c)
     draws = matched_draws(near, pool, cdec, ndec, n_draws, np.random.default_rng([seed, c]))
     rec = {'cls': c, 'name': row['name'], 'kind': row['kind'], 'set': row['set'], 'stratum': row['stratum'],
-           'level': row['level'], 'cell': sel.cell(c), 'condition': sel.condition(c, run_set), 'n_nown': len(nown)}
+           'level': row['level'], 'cell': sel.cell(c), 'condition': sel.condition(c, run_set), 'n_nown': len(nown),
+           'probe': probe_kind(sel, c, noise_x)}
     has_own = len(own_of(c)) > 0
     # accuracy on the probes (zeta_c against the Q images of Far(c) and Near10(c))
     z = logits_of(model, x, device, dtype=dtype)
@@ -898,6 +878,11 @@ def per_example_row_norms(model, x, y, y2, lam, D: Optional[Dict[str, tuple]] = 
   """(B, n_units): ||lam_i grad_{rows n of gate and value} L_i|| per example, L_i = -(lam_i log p_y + (1 - lam_i)
   log p_y2) of the mixed image; with D, every gradient coordinate is first scaled by D (AdamW's 1 / (sqrt(v_hat) +
   eps), (weight, bias) per map)."""
+  return row_norms(model, x, y, y2, lam, [D])[0]
+
+
+def row_norms(model, x, y, y2, lam, Ds: Sequence[Optional[Dict[str, tuple]]]) -> List[torch.Tensor]:
+  """per_example_row_norms for several scalings Ds (None: unscaled) from one forward and backward pass."""
   caps, hooks = {}, []
   for b, blk in model.blocks():
     for m in ('pw_gate', 'pw_value'):
@@ -915,9 +900,9 @@ def per_example_row_norms(model, x, y, y2, lam, D: Optional[Dict[str, tuple]] = 
   finally:
     for h in hooks:
       h.remove()
-  out = []
+  outs = [[] for _ in Ds]
   for b, blk in model.blocks():
-    sq = 0
+    sqs = [0] * len(Ds)
     for m in ('pw_gate', 'pw_value'):
       cp = caps[f'{b}.{m}']
       B = cp['h'].shape[0]
@@ -925,11 +910,31 @@ def per_example_row_norms(model, x, y, y2, lam, D: Optional[Dict[str, tuple]] = 
       d = cp['d'].reshape(B, -1, cp['d'].shape[-1])
       G = torch.bmm(d.transpose(1, 2), h)                 # (B, U, d)
       Gb = d.sum(1)                                       # (B, U)
-      if D is not None:
-        G, Gb = G * D[f'{b}.{m}'][0], Gb * D[f'{b}.{m}'][1]
-      sq = sq + G.pow(2).sum(2) + Gb.pow(2)
-    out.append(sq.sqrt() * lam[:, None])
-  return torch.cat(out, 1).detach()
+      for i, D in enumerate(Ds):
+        Gs, Gbs = (G, Gb) if D is None else (G * D[f'{b}.{m}'][0], Gb * D[f'{b}.{m}'][1])
+        sqs[i] = sqs[i] + Gs.pow(2).sum(2) + Gbs.pow(2)
+    for i in range(len(Ds)):
+      outs[i].append(sqs[i].sqrt() * lam[:, None])
+  return [torch.cat(o, 1).detach() for o in outs]
+
+
+def step_scales(snap_attr: Dict[str, dict], device=None) -> Dict[str, tuple]:
+  """{unit map: (D_weight, D_bias)}, D = 1 / (sqrt(v / (1 - beta2^t)) + eps), from a snapshot's 'attr' (t > 0)."""
+  D = {}
+  for k, st in snap_attr.items():
+    if k == 'head' or st.get('v') is None:
+      continue
+    assert st['t'] > 0, f'{k}: no second moment at t = 0'
+    c2 = 1 - BETA2 ** st['t']
+    D[k] = tuple((1.0 / ((v.to(device).double() / c2).sqrt() + EPS)).to(v.dtype) for v in (st['v'], st['vb']))
+  return D
+
+
+def flow_snapshot(snaps: Dict[int, str], t: int) -> Optional[int]:
+  """The snapshot whose second moment scales the interval starting at checkpoint t: snap_t itself when t > 0, else
+  (t = 0: v is still zero, D would be 1 / eps) or when snap_t is missing (E1: history snapshots at other steps) the
+  nearest snapshot with t > 0."""
+  return t if t > 0 and t in snaps else nearest_snapshot(snaps, t)
 
 
 def cmd_flow(a):
@@ -959,18 +964,13 @@ def cmd_flow(a):
   model = build_convnext(cfg['size']).to(dev).eval()
   f = np.zeros((len(classes), sum(b.pw_gate.out_features for _, b in model.blocks())))
   fD = np.zeros_like(f)
+  snaps, used = snapshot_files(a.run), {}
   for t, l in lt.items():
     model.load_state_dict(torch.load(os.path.join(a.run, f'model_{t:05d}.pt'), map_location=dev))
-    sp = os.path.join(a.run, f'snap_{t:05d}.pt')
-    D = None
-    if os.path.exists(sp):
-      snap = torch.load(sp, map_location=dev, weights_only=False)['attr']
-      D = {}
-      for k, st in snap.items():
-        if k == 'head' or st.get('v') is None:
-          continue
-        c2 = 1 - BETA2 ** st['t'] if st['t'] > 0 else 1.0
-        D[k] = (1.0 / ((st['v'] / c2).sqrt() + EPS), 1.0 / ((st['vb'] / c2).sqrt() + EPS))
+    ss = flow_snapshot(snaps, t)
+    used[t] = ss
+    D = step_scales(torch.load(snaps[ss], map_location='cpu', weights_only=False)['attr'], dev) if ss is not None \
+      else None
     for ci, c in enumerate(classes):
       idx = np.repeat(T[c], a.n_aug)
       if not len(idx):
@@ -985,17 +985,18 @@ def cmd_flow(a):
         x = lam[:, None, None, None] * x1 + (1 - lam[:, None, None, None]) * x2
         y = loader.labels_gpu[torch.as_tensor(idx[i:i + 64], device=dev)]
         y2 = loader.labels_gpu[torch.as_tensor(part[i:i + 64], device=dev)]
-        acc = acc + per_example_row_norms(model, x, y, y2, lam).sum(0).cpu().numpy()
+        nr = row_norms(model, x, y, y2, lam, [None] + ([D] if D is not None else []))
+        acc = acc + nr[0].sum(0).cpu().numpy()
         if D is not None:
-          model.zero_grad(set_to_none=True)
-          accD = accD + per_example_row_norms(model, x, y, y2, lam, D).sum(0).cpu().numpy()
+          accD = accD + nr[1].sum(0).cpu().numpy()
         model.zero_grad(set_to_none=True)
       f[ci] += l * acc / len(idx)
       if D is not None:
         fD[ci] += l * accD / len(idx)
-    print(json.dumps({'checkpoint': t, 'l_t': l}), flush=True)
+    print(json.dumps({'checkpoint': t, 'l_t': l, 'snapshot': ss}), flush=True)
   np.savez(a.out or os.path.join(a.run, 'rare_flow.npz'), classes=np.array(classes), f=f, fD=fD,
-           ckpts=np.array(sorted(lt)), l=np.array([lt[t] for t in sorted(lt)]))
+           ckpts=np.array(sorted(lt)), l=np.array([lt[t] for t in sorted(lt)]),
+           snap_steps=np.array([-1 if used[t] is None else used[t] for t in sorted(lt)]))
 
 
 def load_flow(path):
@@ -1060,6 +1061,7 @@ def cmd_churn(a):
   """S4 (descriptive): set traffic over all checkpoint intervals on K(c) (from a measure file)."""
   from rcdl.convnext import build_convnext
   dev = torch.device(a.device or ('cuda' if torch.cuda.is_available() else 'cpu'))
+  torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = False   # p* and h as in measure
   cfg = json.load(open(os.path.join(a.run, 'config.json')))
   sel = Selection(a.classes, a.wordnet, a.visual)
   spec = load_spec(a.run)
@@ -1125,12 +1127,6 @@ def cmd_churn(a):
             open(a.out or os.path.join(a.run, f'rare_churn_{a.split}.json'), 'w'), indent=1)
 
 
-def load_npz(path):
-  if not path or not os.path.exists(path):
-    return None
-  return dict(np.load(path))
-
-
 # --------------------------------------------------------------------------------------------------- phase 0
 
 @torch.no_grad()
@@ -1169,7 +1165,9 @@ def m4_collapse(model, mods, parts_c, sel: Selection, classes, V, Vpos, Q, Qy, c
 def s7_consolidation(DeltaQ: torch.Tensor, units, sel: Selection, atlas: Optional[List[dict]] = None) -> dict:
   """S7 for the stratum candidates of experiments/rare_select.py (dense: nW >= 8 and cos10 <= its 60th percentile;
   iso: nW <= 4 and cos10 >= its median): C1, PR over the units of stages 2 and 3 on Q, the own niche share N on the
-  top carrier (with the atlas: raw builder vector, c included), and Spearman correlations with cos10 and nW."""
+  top carrier (with the atlas: N = raw[c, c] / sum_k raw[c, k], the share of c's own writes among the writes that
+  build c's response on that unit, defined when c is one of its top-20 poles, as the atlas stores writer vectors of
+  the poles only), and Spearman correlations with cos10 and nW."""
   nW, cos10 = sel.nW, sel.cos10
   cand = {'dense': np.flatnonzero((nW >= 8) & (cos10 <= np.percentile(cos10, 60))),
           'iso': np.flatnonzero((nW <= 4) & (cos10 >= np.percentile(cos10, 50)))}
@@ -1184,9 +1182,13 @@ def s7_consolidation(DeltaQ: torch.Tensor, units, sel: Selection, atlas: Optiona
       r = {'cls': int(c), 'stratum': st, 'cos10': float(cos10[c]), 'nW': int(nW[c]),
            'C1': float(tp.max() / tot) if tot > 0 else None,
            'PR': float(tot ** 2 / (tp ** 2).sum()) if tot > 0 else None}
-      if atlas is not None:
-        beta = atlas[late[int(np.argmax(t))]]['raw'].sum(0)
-        r['N'] = float(beta[c] / beta.sum()) if beta.sum() > 0 else None
+      if atlas is not None:                         # c's own row of the top carrier's builder matrix, if c is a pole
+        bm = atlas[late[int(np.argmax(t))]]
+        if int(c) in bm['top']:
+          beta = bm['raw'][bm['top'].index(int(c))]
+          r['N'] = float(beta[c] / beta.sum()) if beta.sum() > 0 else None
+        else:
+          r['N'] = None
       rows.append(r)
   out = {'classes': rows}
   for k in ('C1', 'PR', 'N'):
@@ -1274,17 +1276,22 @@ def cmd_compare(a):
     pi = [rr[c]['PI'] for c in prim if rr[c].get('defined')]
     res['P1'] = bootstrap_median(pi)
     res['P1']['n_no_route'] = len(prim) - len(pi)
-    d2 = []
+    d2, f2 = [], []
     for c in prim:
       l3, ref = get(rr[c], 'P2.lambda3'), get(cc.get(c, {}), 'P2_whole.lambda3')
       if get(rr[c], 'P2.defined') and l3 is not None and ref is not None:
         d2.append(l3 - ref)
+        o = get(other.get(c, {}), 'P2.lambda3')         # floor D0: the same contrast where c is common (other set)
+        if o is not None:
+          f2.append((l3 - ref) - (o - ref))
     res['P2'] = bootstrap_median(d2)
+    res['P2']['floor_wilcoxon'] = wilcoxon(f2) if f2 else None
     l3r = [get(rr[c], 'P2.lambda3') for c in prim if get(rr[c], 'P2.defined') and get(rr[c], 'P2.lambda3') is not None]
     res['P2']['median_lambda3_rare'] = float(np.median(l3r)) if l3r else None
     res['P2']['frac_lambda3_gt_half'] = float(np.mean([v > 0.5 for v in l3r])) if l3r else None
     df = [get(rr[c], 'P3.Delta_flow') for c in prim if get(rr[c], 'P3.defined')]
-    res['P3'] = bootstrap_median([v for v in df if v is not None])
+    df = [v for v in df if v is not None]                # None: no flow weights for the class
+    res['P3'] = bootstrap_median(df)
     gap = [get(rr[c], 'P3.R_flow') - get(rr[c], 'P3.R_mis') for c in prim
            if get(rr[c], 'P3.R_flow') is not None and get(rr[c], 'P3.R_mis') is not None]
     res['P3']['delta'] = 0.2 * float(np.median(gap)) if gap else None
@@ -1369,9 +1376,9 @@ def cmd_compare(a):
                               'passes': bool(srcF and np.median([x - y for x, y in srcF]) > 0)}
     cal = [get(cc.get(c, {}), 'O_whole') for c in prim]
     cal = [v for v in cal if v is not None]
+    orare = [rr[c]['O'] for c in prim if rr[c].get('O') is not None]
     res['C0_calibration'] = {'median_O_whole_C0': float(np.median(cal)) if cal else None,
-                             'median_O_rare': float(np.median([rr[c]['O'] for c in prim if rr[c].get('O') is not None]))
-                             if prim else None}
+                             'median_O_rare': float(np.median(orare)) if orare else None}
     return res
 
   out = {}
@@ -1385,7 +1392,9 @@ def cmd_compare(a):
   out['holm_seed0'] = holm(pv)
   if rare1:
     rr1 = rare_recs(rare1)
-    cc1 = by_cls(c1[0]) if c1 else {}
+    # without C1 the protocol uses E1r for class-split measures (the P2 reference P2_whole, the C0 calibration)
+    cc1 = by_cls(c1[0]) if c1 else (by_cls(e1r[0]) if e1r else {})
+    out['seed1_reference'] = 'C1' if c1 else ('E1r' if e1r else None)
     other1 = {}
     for o in rare1:
       other1.update(by_cls(o, 'common'))
@@ -1414,31 +1423,44 @@ def cmd_compare(a):
   out['floor_instrumentation_C0_minus_E1'] = floor(c0, e1)
   out['floor_seed_E1r_minus_E1'] = floor(e1r, e1)
   out['floor_seed_C1_minus_C0'] = floor(c1, c0, ('auroc_far', 'top1', 'F', 'O', 'PI', 'O_whole', 'P2_whole.lambda3'))
-  # decision rules (section 7)
+  # decision rules (section 7): a count against the essay needs Holm significance (P1, P2), the same-seed floor (P2,
+  # the only rare - C0 primary contrast) and seed-1 replication; without seed-1 runs it is only 'pending'
   hp = out['holm_seed0']
   sig = lambda k: hp.get(k) is not None and hp[k] < 0.05
   rep = out.get('replication', {})
-  replicated = lambda k: bool(rep.get(k) and rep[k]['replicated'])
-  against, support = [], []
-  if sig('P1') and s0['P1']['median'] < 0:
-    against.append('median PI < 0')
-  if sig('P2') and s0['P2']['median'] < 0:
-    against.append('median lambda_3 difference < 0')
+  s1 = out.get('seed1')
+  replicated = lambda k: (rep.get(k) or {}).get('replicated') if rep else None
+  floor_ok = lambda r: bool(r.get('floor_wilcoxon') and r['floor_wilcoxon'].get('p') is not None
+                            and r['floor_wilcoxon']['p'] < 0.05)
   d = s0['P3'].get('delta')
-  if s0['P3'].get('n') and d is not None and s0['P3']['ci95'][1] < -d:
-    against.append('Delta_flow interval below -delta')
+  below = lambda r, dd: bool(r.get('n') and dd is not None and r['ci95'][1] < -dd)
+  items = []
+  if sig('P1') and s0['P1']['median'] < 0:
+    items.append({'claim': 'median PI < 0', 'replicated': replicated('P1'), 'floor_ok': True})
+  if sig('P2') and s0['P2']['median'] < 0:
+    items.append({'claim': 'median lambda_3 difference < 0', 'replicated': replicated('P2'),
+                  'floor_ok': floor_ok(s0['P2'])})
+  if below(s0['P3'], d):
+    items.append({'claim': 'Delta_flow interval below -delta', 'floor_ok': True,
+                  'replicated': below(s1['P3'], s1['P3'].get('delta')) if s1 else None})
   u = s0['universality']
   if u.get('p_excess') is not None and u['p_excess'] < 0.05:
-    against.append('excess of packing signatures')
+    items.append({'claim': 'excess of packing signatures', 'floor_ok': True,
+                  'replicated': bool(s1['universality'].get('p_excess') is not None
+                                     and s1['universality']['p_excess'] < 0.05) if s1 else None})
+  counts = [i['claim'] for i in items if i['floor_ok'] and i['replicated']]
+  pending = [i['claim'] for i in items if i['floor_ok'] and i['replicated'] is None]
   ok_p3 = s0['P3'].get('n') and d is not None and s0['P3']['ci95'][0] >= -d and \
-    s0['P3_own_minus_mis'].get('median', -1) > 0
-  if sig('P1') and s0['P1']['median'] > 0 and sig('P2') and s0['P2']['median'] > 0 and \
+    (s0['P3_own_minus_mis'].get('median') or -1) > 0
+  support = []
+  if sig('P1') and s0['P1']['median'] > 0 and sig('P2') and s0['P2']['median'] > 0 and floor_ok(s0['P2']) and \
      (s0['P2'].get('median_lambda3_rare') or 0) > 0.5 and ok_p3:
-    support.append('all of P1 > 0, P2 > 0 with lambda_3 > 0.5, P3 within -delta with R_own > R_mis')
+    support.append('all of P1 > 0, P2 > 0 (beyond the floor) with lambda_3 > 0.5, P3 within -delta with R_own > R_mis')
   controls_ok = s0['noise_control']['passes'] and s0['relabel_control']['passes']
-  out['decision'] = {'against_essay': against, 'support_for_essay': support, 'controls_pass': controls_ok,
+  out['decision'] = {'against_essay': counts, 'against_pending_seed1': pending, 'against_candidates': items,
+                     'support_for_essay': support, 'controls_pass': controls_ok,
                      'replicated': {k: replicated(k) for k in ('P1', 'P2', 'P3')} if rep else 'no seed-1 runs',
-                     'rule': 'a count against the essay needs Holm significance, the floors (floor_wilcoxon) and '
+                     'rule': 'a count against the essay needs Holm significance, the same-seed floor (P2) and '
                              'seed-1 replication',
                      'note': None if controls_ok else 'positive controls failed: primaries are unvalidated'}
   json.dump(clean_json(out), open(a.out, 'w'), indent=1)
@@ -1449,21 +1471,7 @@ def cmd_compare(a):
 
 def load_images(a, sel: Selection):
   """V (validation images of the special classes and the relabel sources), Vpos, Q, Qy."""
-  if a.images:
-    d = torch.load(a.images, weights_only=False)
-    V, vlab, Q, Qy = d['V'], np.asarray(d['Vlabels']), d['Q'], np.asarray(d['Qy'])
-  else:
-    from experiments.convnext_atlas import probe_set
-    from experiments.rare_common import load_val_images, val_class_index
-    vlabels = val_class_index(a.val)
-    need = sorted(set(sel.rows) | {r['source'] for r in sel.sel['relabel']})
-    gidx = np.concatenate([np.flatnonzero(vlabels == c) for c in need])
-    V = load_val_images(a.val, gidx, a.val_cache)
-    vlab = vlabels[gidx]
-    Q, Qy = probe_set(a.val, 8, a.probe_cache)
-    Qy = Qy.numpy()
-  Vpos = {int(c): np.flatnonzero(vlab == c) for c in np.unique(vlab)}
-  return V, Vpos, Q, Qy
+  return load_probe_images(a.val, sel, a.val_cache, a.probe_cache, a.images)
 
 
 def cmd_measure(a):
@@ -1495,8 +1503,9 @@ def cmd_measure(a):
     ps = probe_stats(pm, Q, Qy, int(pm.head.weight.shape[0]), dev)
     pole_R = torch.cat([ps[b]['R'] for b, _ in pm.blocks()]).numpy()
     del pm
-  snp = os.path.join(a.run, f'snap_{a.step:05d}.pt')
-  snap = torch.load(snp, map_location='cpu', weights_only=False) if os.path.exists(snp) else None
+  snaps = snapshot_files(a.run)                    # the checkpoint's own snapshot, else the nearest (E1: history/)
+  snap_step = a.step if a.step in snaps and a.step > 0 else nearest_snapshot(snaps, a.step)
+  snap = torch.load(snaps[snap_step], map_location='cpu', weights_only=False) if snap_step is not None else None
   atlas = None
   for f in (f'atlas_{a.step:05d}.pt', f'atlas_prelim_{a.step:05d}.pt'):
     if os.path.exists(os.path.join(a.run, f)):
@@ -1519,7 +1528,7 @@ def cmd_measure(a):
   DeltaQ = out.pop('_DeltaQ')
   out.update({'run': a.run, 'step': a.step, 'run_set': run_set, 'own': 'Own_m (fine split)' if parts_f is not None
               else 'whole class (class split)', 'pole_step': pole_step, 'atlas': atlas is not None,
-              'snapshot': snap is not None, 'flow': bool(a.flow)})
+              'snapshot': snap is not None, 'snapshot_step': snap_step, 'flow': bool(a.flow)})
   for rec in out['classes']:                       # relabel controls: F with the source class's Near10
     if rec['kind'] == 'relabel' and rec.get('K'):
       rec['F_src'] = relabel_source_F(model, sel, rec, parts_c, V, Vpos, counts, dev, out['sigma'], a.n_draws, a.seed)
@@ -1560,7 +1569,7 @@ def relabel_source_F(model, sel, rec, parts_c, V, Vpos, counts, dev, sigma, n_dr
     Pg, Pv = unit_parts(up_c, b, n, d['h'][:, n])
     sets = [[int(k) for k in near]] + [list(dd) for dd in draws]
     L = knockout(d['g'][:, n], d['v'][:, n], set_sums(Pg, sets), set_sums(Pv, sets), s, sigma[j])
-    Fn.append(float(L[0] - L[1:].median()))
+    Fn.append(float(L[0]) - float(np.median(L[1:].cpu().numpy())))    # as summarize_p1 (np.median, not torch's lower)
   return float(np.median(Fn)) if Fn else None
 
 
