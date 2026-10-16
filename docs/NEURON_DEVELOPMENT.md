@@ -462,8 +462,13 @@ second one: the data order is rebuilt exactly, the random crops of the resumed e
 |---|---|---|---|---|---|---|
 | top-1, AdamW (E1) | 1.5% | 4.5% | 9.9% | 13.5% | 17.3% | 18.52% |
 | top-1, Muon (E4) | 3.0% | 6.7% | 10.4% | 13.5% | 16.7% | 19.07% |
+| top-1, AdamW seed 1 (E1r) | 1.7% | 5.2% | 11.2% | 14.4% | 17.7% | 19.51% |
 
-- Muon learns faster in the first 2,500 steps and ends 0.55 points higher.
+- Muon learns faster in the first 2,000 steps: its lead at 1,000 and 2,000 steps (3.0% and 6.7% against 1.5-1.7% and
+  4.5-5.2%) is larger than the difference between the two AdamW seeds. From 5,000 steps on, Muon lies inside or below
+  the AdamW seed range, and its final 19.07% lies between the two AdamW seeds (18.52% and 19.51%), so the final
+  difference is not resolved. (E1r also differs from E1 in its seed and in a resume after a lost sandbox; the
+  intermediate values use the first 10,000 validation images.)
 - Dead units: 58 of 1,152 under Muon (50 in stage 0, 26% of its 192 units; 8 in stages 2 and 3), none under AdamW. A
   dead unit responds almost the same to every class (spread below 0.1% of its largest response).
 - Car units: the best car AUROC (mean pooling) is 0.889 at the end against 0.916 for AdamW and 0.840 / 0.856 for the
@@ -479,8 +484,9 @@ second one: the data order is rebuilt exactly, the random crops of the resumed e
   entering classes depend less on their own writes than incumbents (+0.098 beyond the one-class baseline, t = 7.2).
 - Reading: an optimizer that equalizes the step size over all singular directions of each update did not remove the
   weak co-timing of near classes, and it increased it in early blocks, by WordNet but not by visual distance. It left a
-  quarter of the stage-0 units dead, and its car units are slightly less selective. One seed per optimizer; the E1r
-  run gives the AdamW seed-to-seed spread. SGD (the third arm of E4) is not run.
+  quarter of the stage-0 units dead, and its car units are slightly less selective. One Muon seed; the AdamW
+  seed-to-seed spread from E1r is about 1 point of final accuracy, and E1r's spread on the other measures is pending.
+  SGD (the third arm of E4) is not run.
 
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
