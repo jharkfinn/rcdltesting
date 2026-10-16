@@ -8,11 +8,12 @@ Arm A, learning-rate selection (lr_select): for every lr, tau and censoring of t
 Arm E, random relabel triples (select_e): with rng = np.random.default_rng(2026), six times: c_i uniform over classes
   with E1 validation accuracy >= 0.4, not the target (bee), umbrella, any selection arm's source, their relatives
   (WordNet distance <= 4 or visual rank <= 10) or an earlier triple's classes; t_i uniform over classes with WordNet
-  distance >= 10 and visual rank > 100 from c_i (both directions), E1 accuracy within 0.1 of bee's, and not excluded;
-  j_i = the best validation image of c_i (not the first 8) by the step-1 rule (top-1 = c_i and p_{t_i} <= 0.01,
-  ranked by |p_{c_i} - 0.45|; without the p condition if no image passes); A_i, B_i: classes far from both (WordNet >= 10,
-  visual rank > 100, not relatives) with E1 accuracy closest to t_i's and to c_i's. Written as selection arms 'E0'-'E5'
-  in the format of convnext_umbrella select (so convnext_umbrella run --sel <file> --arm E<i> needs no change).
+  distance >= 10 and visual rank > 100 from c_i (both directions), E1 accuracy within 0.1 of bee's, and not excluded
+  (a c_i without such a class is skipped and another is drawn); j_i = the best validation image of c_i (not the first
+  8) by the step-1 rule (top-1 = c_i and p_{t_i} <= 0.01, ranked by |p_{c_i} - 0.45|; without the p condition if no
+  image passes); A_i, B_i: classes far from both (WordNet >= 10, visual rank > 100, not relatives) with E1 accuracy
+  closest to t_i's and to c_i's. Written as selection arms 'E0'-'E5' in the format of convnext_umbrella select (so
+  convnext_umbrella run --sel <file> --arm E<i> needs no change).
 Arm J, seed replicate (select_j): E1r's selection (convnext_umbrella select on E1r) with each arm's passing photos
   reordered so that photos also among E1's photos or reserve for the same source come first.
 Arm I, leave-group-out continuations (lgo): from a primary taught run's state at tau (snap_tau.pt), --steps phase-2
@@ -22,7 +23,12 @@ Arm I, leave-group-out continuations (lgo): from a primary taught run's state at
   uniformly (default_rng([seed, 3_000_001, step])); variants target, source and A replace the last 32 base slots by 32
   images of that class (its per-class permutation walk, as StratifiedReplay); crops from default_rng([seed, 3_000_000 +
   step]) for every variant. Writes lgo_result.json (m_P at tau and at the end) and DONE.
-Queue helpers: photos (an arm's photo specs), full_saves (tau and tau + phase2 of finished taught runs), lr_star.
+Photo re-verification at a branch point (verify): the branch state theta_w of (arm, replay spec, seed, lr) is computed
+  or loaded with convnext_umbrella.branch (the namespace comes from convnext_umbrella's own run parser, so the branch
+  key and the defaults are the runs'); each photo still top-1 for the source at theta_w keeps its slot, a photo that
+  is not is replaced by the next reserve photo that is; the scores and replacements are recorded.
+Queue helpers: photos (an arm's photo specs, or a verify file's), full_saves (tau and tau + phase2 of finished taught
+  runs), lr_star.
 """
 
 import argparse
@@ -101,13 +107,16 @@ def draw_triples(acc: np.ndarray, wn: np.ndarray, rank: np.ndarray, excluded, ac
   rng = np.random.default_rng(seed)
   used = set(int(k) for k in excluded)
   out = []
-  for _ in range(n):
+  while len(out) < n:
     cs = [k for k in range(len(acc)) if acc[k] >= acc_min and k not in used]
+    if not cs:
+      raise ValueError(f'only {len(out)} triples can be drawn')
     c = int(rng.choice(cs))
     ts = [k for k in range(len(acc)) if k != c and k not in used and wn[c, k] >= 10 and wn[k, c] >= 10
           and min(rank[c, k], rank[k, c]) > 100 and abs(acc[k] - acc_ref) <= acc_tol]
-    if not ts:
-      raise ValueError(f'no target class for source {c}')
+    if not ts:                                           # no admissible target: this source is skipped
+      used.add(c)
+      continue
     t = int(rng.choice(ts))
     out.append((c, t))
     used |= {c, t} | set(relatives_of(c, wn, rank)) | set(relatives_of(t, wn, rank))
@@ -154,7 +163,8 @@ def cmd_select_e(a):
   wn, rank = np.load(a.wordnet)['dist'], np.load(a.visual)['rank_dist']
   sel = json.load(open(a.sel))
   bee = sel['target']
-  excl = {bee, sel['source_requested']} | set(relatives_of(bee, wn, rank)) | set(relatives_of(sel['source_requested'], wn, rank))
+  umb = sel['source_requested']
+  excl = {bee, umb} | set(relatives_of(bee, wn, rank)) | set(relatives_of(umb, wn, rank))
   for arm in sel['arms'].values():
     excl |= {arm['source'], arm['A'], arm['B']} | set(arm['rel_source'])
   triples = draw_triples(acc, wn, rank, excl, acc[bee])
@@ -206,6 +216,70 @@ def cmd_select_j(a):
   json.dump(out, open(a.out + '.tmp', 'w'), indent=1)
   os.replace(a.out + '.tmp', a.out)
   print({k: (v['source'], v['n_in_both'], [r['photo'] for r in v['photos']]) for k, v in out['arms'].items()}, flush=True)
+
+
+# ------------------------------------------------------------------------------------- branch re-verification
+
+def umbrella_args(argv: list):
+  """The namespace that convnext_umbrella's run subcommand builds from argv (its defaults included), without running."""
+  import sys
+  import experiments.convnext_umbrella as U
+  got, orig, old_argv = {}, U.cmd_run, sys.argv
+  U.cmd_run = lambda ns: got.setdefault('a', ns)
+  argv = [x for x in argv if x != '--']
+  sys.argv = ['convnext_umbrella', 'run'] + argv + ([] if '--out' in argv else ['--out', 'unused'])
+  try:
+    U.main()
+  finally:
+    U.cmd_run, sys.argv = orig, old_argv
+  return got['a']
+
+
+def replace_photos(photos: list, reserve: list, n: int) -> tuple:
+  """photos, reserve: [{'photo', 'ok'}] in selection order. Each photo with ok keeps its slot, one without is replaced by
+  the next reserve photo with ok (dropped when none is left). Returns (specs, [(replaced, replacement or None)])."""
+  spare = iter([r for r in reserve if r['ok']])
+  out, swaps = [], []
+  for r in photos[:n]:
+    if r['ok']:
+      out.append(r['photo'])
+      continue
+    new = next(spare, None)
+    swaps.append((r['photo'], None if new is None else new['photo']))
+    if new is not None:
+      out.append(new['photo'])
+  return out, swaps
+
+
+@torch.no_grad()
+def cmd_verify(a):
+  import experiments.convnext_umbrella as U
+  from rcdl.imagenet import GPUTrainLoader
+  if os.path.exists(a.out):
+    print('\n'.join(json.load(open(a.out))['photos']), flush=True)
+    return
+  ua = umbrella_args(a.umbrella_args)
+  dev = torch.device('cuda')
+  torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = False
+  sel = json.load(open(ua.sel))['arms'][ua.arm]
+  model = build_convnext('tiny').to(dev)
+  br = U.branch(ua, sel, model, GPUTrainLoader(ua.train, 256, dev, seed=0), dev)
+  model.load_state_dict(br['model'])
+  model.eval()
+  t, s = sel['target'], sel['source']
+
+  def score(r):
+    p = F.softmax(model(U.photo_tensor(r['photo'], ua.val, dev, ua.train))[0].double(), -1)
+    return {'photo': r['photo'], 'top1_w': int(p.argmax()), 'p_source_w': float(p[s]), 'p_target_w': float(p[t]),
+            'ok': int(p.argmax()) == s}
+  rows = [score(r) for r in sel['photos'][:a.n]]
+  res_rows = [score(r) for r in sel.get('reserve', [])]
+  photos, swaps = replace_photos(rows, res_rows, a.n)
+  out = {'arm': ua.arm, 'seed': ua.seed, 'lr': ua.lr, 'branch_key': br['key'], 'photos': photos, 'replaced': swaps,
+         'scores': rows, 'reserve_scores': res_rows}
+  json.dump(out, open(a.out + '.tmp', 'w'), indent=1)
+  os.replace(a.out + '.tmp', a.out)
+  print('\n'.join(photos), flush=True)
 
 
 # ------------------------------------------------------------------------------------------------- arm I
@@ -344,9 +418,14 @@ def main():
   q.add_argument('--train', default='/dev/shm/imagenet256')
   q.add_argument('--device', default=dev)
   q.add_argument('--out', required=True)
-  q = sub.add_parser('photos', help='print the photo specs of an arm, one per line')
-  q.add_argument('--sel', required=True)
-  q.add_argument('--arm', required=True)
+  q = sub.add_parser('verify', help='re-verify the photos at their branch point (prints the photo specs)')
+  q.add_argument('--n', type=int, default=5)
+  q.add_argument('--out', required=True)
+  q.add_argument('umbrella_args', nargs=argparse.REMAINDER, help="-- <convnext_umbrella run arguments>")
+  q = sub.add_parser('photos', help='print the photo specs of an arm (or of a verify file), one per line')
+  q.add_argument('--sel', default=None)
+  q.add_argument('--arm', default=None)
+  q.add_argument('--verified', default=None)
   q.add_argument('--n', type=int, default=5)
   q = sub.add_parser('full_saves', help='print tau,tau+phase2,... of finished taught runs')
   q.add_argument('--phase2', type=int, default=500)
@@ -355,15 +434,18 @@ def main():
   q.add_argument('--file', required=True)
   a = p.parse_args()
   if a.cmd == 'photos':
-    for r in json.load(open(a.sel))['arms'][a.arm]['photos'][:a.n]:
-      print(r['photo'])
+    specs = json.load(open(a.verified))['photos'] if a.verified else \
+        [r['photo'] for r in json.load(open(a.sel))['arms'][a.arm]['photos']]
+    for spec in specs[:a.n]:
+      print(spec)
   elif a.cmd == 'full_saves':
     print(','.join(str(v) for v in full_saves(a.runs, a.phase2)))
   elif a.cmd == 'lr_star':
     v = json.load(open(a.file)).get('lr_star')
     print('' if v is None else v)
   else:
-    {'lr_select': cmd_lr_select, 'select_e': cmd_select_e, 'select_j': cmd_select_j, 'lgo': cmd_lgo}[a.cmd](a)
+    {'lr_select': cmd_lr_select, 'select_e': cmd_select_e, 'select_j': cmd_select_j, 'lgo': cmd_lgo,
+     'verify': cmd_verify}[a.cmd](a)
 
 
 if __name__ == '__main__':

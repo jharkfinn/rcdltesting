@@ -9,6 +9,7 @@ Class sets (from rare_classes_v2.json, the WordNet distances D and the DINOv2 cl
   Pi(c)         classes not special, not in Near10(c), not c (common in every run)
   Far(c)        classes k in Pi(c) with vrank[c, k] > 200 and D[c, k] > 6
   N_own(c)      the other selected classes of c's set, level and stratum (13 per class at levels 10 and 100)
+  cos10[c]      mean cosine distance to the classes of Near10(c); nW[c] = number of classes at WordNet distance <= 4
 
 Fine groups (spec.npz of the run, experiments/rare_spec.py): Own_m(c) is the set of groups with owner c and kind own
 image (1), own tenth (2), own subset (3), relabelled image (6) or noise image (7), i.e. the groups of c's own m_c
@@ -59,6 +60,8 @@ class Selection:
     self.D = D.copy()
     np.fill_diagonal(self.D, 99)
     self.order = np.argsort(CS + np.eye(n) * 9, 1)[:, :n - 1]     # as rare_select.py (same ties)
+    self.cos10 = np.take_along_axis(CS, self.order[:, :10], 1).mean(1)
+    self.nW = (self.D <= 4).sum(1)
     self.vrank = np.zeros((n, n), int)
     self.vrank[np.arange(n)[:, None], self.order] = np.arange(1, n)[None, :]
     self.sel = sel
@@ -135,8 +138,8 @@ def fold(parts_f: Dict[str, dict], group_class: np.ndarray, n_classes: int, chun
   out = {}
   gc = torch.as_tensor(np.asarray(group_class, np.int64))
   for k, rec in parts_f.items():
-    C = torch.zeros((n_classes,) + tuple(rec['C'].shape[1:]))
-    Cb = torch.zeros((n_classes,) + tuple(rec['Cb'].shape[1:]))
+    C = torch.zeros((n_classes,) + tuple(rec['C'].shape[1:]), dtype=torch.float32)
+    Cb = torch.zeros((n_classes,) + tuple(rec['Cb'].shape[1:]), dtype=torch.float32)
     for i in range(0, rec['C'].shape[0], chunk):
       C.index_add_(0, gc[i:i + chunk], rec['C'][i:i + chunk].float() / rec.get('C_scale', 1.0))
       Cb.index_add_(0, gc[i:i + chunk], rec['Cb'][i:i + chunk].float() / rec.get('Cb_scale', 1.0))
@@ -183,9 +186,10 @@ def excise(mods: Dict[str, nn.Linear], parts: Dict[str, dict], groups, keys: Seq
     lin.bias.sub_(db.to(lin.bias.dtype))
 
   def undo():
-    for lin, w, b in saved:
-      lin.weight.copy_(w)
-      lin.bias.copy_(b)
+    with torch.no_grad():
+      for lin, w, b in saved:
+        lin.weight.copy_(w)
+        lin.bias.copy_(b)
   return undo
 
 
@@ -196,13 +200,15 @@ def normalize(x_u8: torch.Tensor, device) -> torch.Tensor:
 
 
 @torch.no_grad()
-def logits_of(model, x_u8: torch.Tensor, device, batch: int = 250, dtype=torch.float32) -> torch.Tensor:
-  """(N, n_classes) logits on the CPU for uint8 images (or float images already normalized, if x is float)."""
+def logits_of(model, x_u8: torch.Tensor, device, batch: int = 250, dtype=None) -> torch.Tensor:
+  """(N, n_classes) logits on the CPU for uint8 images (or float images already normalized, if x is float), in the
+  model's dtype unless given."""
+  dtype = dtype or next(model.parameters()).dtype
   out = []
   for i in range(0, len(x_u8), batch):
     xb = x_u8[i:i + batch]
     xb = normalize(xb, device) if xb.dtype == torch.uint8 else xb.to(device)
-    out.append(model(xb.to(dtype)).float().cpu())
+    out.append(model(xb.to(dtype)).cpu())
   return torch.cat(out)
 
 
@@ -213,9 +219,10 @@ def zeta(z: torch.Tensor, c) -> torch.Tensor:
 
 
 def class_gradients(model, mods: Dict[str, nn.Linear], xs: List[torch.Tensor], classes: Sequence[int], device,
-                    dtype=torch.float32) -> Dict[str, torch.Tensor]:
+                    dtype=None) -> Dict[str, torch.Tensor]:
   """{map: (n_cls, out * in + out)} gradient of mean_x zeta_c(x) over xs[i] (uint8 or normalized) for c = classes[i],
   with respect to each map's weight and bias (flattened as flat_parts)."""
+  dtype = dtype or next(model.parameters()).dtype
   params = [p for k in mods for p in (mods[k].weight, mods[k].bias)]
   prev = [p.requires_grad for p in params]
   for p in params:
@@ -236,10 +243,12 @@ def class_gradients(model, mods: Dict[str, nn.Linear], xs: List[torch.Tensor], c
 
 @torch.no_grad()
 def group_effects(parts: Dict[str, dict], grads: Dict[str, torch.Tensor], chunk: int = 512,
-                  dtype=torch.float32) -> Dict[str, torch.Tensor]:
-  """{map: (G, n_cls)} first-order effects E_g(c) = <grad_c, part_g> of every group g, per tracked map."""
+                  dtype=None) -> Dict[str, torch.Tensor]:
+  """{map: (G, n_cls)} first-order effects E_g(c) = <grad_c, part_g> of every group g, per tracked map (in the
+  gradients' dtype unless given)."""
   out = {}
   for k, gr in grads.items():
+    dtype = dtype or gr.dtype
     rec = parts[k]
     G = rec['C'].shape[0]
     res = torch.empty(G, gr.shape[0], dtype=dtype, device=gr.device)

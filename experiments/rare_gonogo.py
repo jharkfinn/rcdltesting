@@ -165,7 +165,7 @@ def analyse(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, run_s
   if exact:
     e, x = np.array(exact).T
     ex = {'n': len(e), 'corr_E_X': float(np.corrcoef(e, x)[0, 1]) if len(e) > 2 else None,
-          'median_ratio_E_over_X': float(np.median(e / np.where(x == 0, np.nan, x))),
+          'median_ratio_E_over_X': float(np.nanmedian(e / np.where(x == 0, np.nan, x))) if (x != 0).any() else None,
           'sign_agreement': float(np.mean(np.sign(e) == np.sign(x)))}
   return recs, ex
 

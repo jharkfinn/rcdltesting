@@ -67,8 +67,8 @@ def per_image_group_terms(inc, h1, h2, rec):
     I = inc[M]
     Q0, Q1 = rec[f'Q0_{M}'], rec[f'Q1_{M}']
     T = T + (torch.einsum('kud,nud->knu', I.nu, h1) + I.nub[:, None]) * Q0 + torch.einsum('kud,nud->knu', I.nu, Dh) * Q1
-    F_ = F_ + (I.rho - 1) * (torch.einsum('kud,nud->knu', I.C1, h1) * Q0 + torch.einsum('kud,nud->knu', I.C1, Dh) * Q1) \
-         + (I.rhob - 1) * I.Cb1[:, None] * Q0
+    dec = torch.einsum('kud,nud->knu', I.C1, h1) * Q0 + torch.einsum('kud,nud->knu', I.C1, Dh) * Q1
+    F_ = F_ + (I.rho - 1) * dec + (I.rhob - 1) * I.Cb1[:, None] * Q0
   return T, F_
 
 
@@ -383,3 +383,182 @@ def test_class_sums_accumulate_like_one_batch():
   for k in ('Hbar_gate', 'Hcross_value', 'qbar_value', 'Phi', 'dR', 'R1'):
     assert (one[k] - two[k]).abs().max() < 1e-13
   assert float(one['Pi'].abs().max()) == 0.0
+
+
+# ------------------------------------------------------------------------- the exits pipeline on a toy ConvNeXt run
+
+TOY_GRID = (0, 5, 10, 20, 30, 40, 50, 60)
+TOY_SNAPS = (10, 25, 40, 55)                    # 10 and 40 are also checkpoints (integrity check I2)
+TOY_BLOCKS = ('stage0.block2', 'stage2.block4', 'stage3.block2')
+TOY_PARAMS = dict(P=3, best=2, gone=5, est_step=10, anchor_k=2, anchor_min=1, n_boot=40, n_perm=10, n_rand=40,
+                  x5_min_len=5, d_window=15, d_min_step=10, visual_near=2, unrel_wn=6, unrel_vis=3)
+
+
+def build_toy_run(root, C=10, per_train=16, per_probe=4, size=32, steps=60, seed=0):
+  """A run directory in the layout of experiments/convnext_train.py and convnext_snapshots --full: tiny ConvNeXt on
+  32 px class-template images, AdamW with weight decay, the class split of three blocks' gate and value maps and a
+  random shadow split, compact checkpoints, history snapshots with fp32 full states (nonzero remainders)."""
+  import json
+  import numpy as np
+  from rcdl.convnext import build_convnext
+  hist, full = root / 'history', root / 'full'
+  hist.mkdir()
+  full.mkdir()
+  torch.manual_seed(seed)
+  g = torch.Generator().manual_seed(seed + 1)
+  templ = torch.rand(C, 3, size, size, generator=g)
+  def images(n_per, gen):
+    y = torch.arange(C).repeat_interleave(n_per)
+    x = 0.6 * templ[y] + 0.4 * torch.rand(len(y), 3, size, size, generator=gen)
+    return (x * 255).round().clamp(0, 255).to(torch.uint8), y
+  xtr, ytr = images(per_train, g)
+  xpr, ypr = images(per_probe, torch.Generator().manual_seed(seed + 2))
+  torch.save({'x': xpr, 'y': ypr}, root / 'probe.pt')
+  rand = ytr[torch.randperm(len(ytr), generator=g)]
+  np.save(root / 'rand_groups.npy', rand.numpy().astype(np.int16))
+  model = build_convnext('tiny', n_classes=C)
+  named = dict(model.blocks())
+  layers = {f'{n}.{k}': getattr(named[n], k) for n in TOY_BLOCKS for k in ('pw_gate', 'pw_value')}
+  kw = dict(n_groups=C, optimizer='adamw', lr=4e-3, weight_decay=0.05, bias_weight_decay=0.0)
+  attr = GroupAttribution(layers, **kw)
+  attr_r = GroupAttribution(layers, shadow=True, **kw)
+  torch.save({k: {'W0': tr.W0, 'b0': tr.b0} for k, tr in attr.tracked.items()}, root / 'attr_init.pt')
+  opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=4e-3, weight_decay=0.05)
+  json.dump({'size': 'tiny', 'opt': 'adamw', 'lr': 4e-3, 'muon_lr': 2e-2, 'wd': 0.05, 'steps': steps, 'warmup': 5,
+             'ckpt_steps': list(TOY_GRID)}, open(root / 'config.json', 'w'))
+  mean = torch.tensor([0.485, 0.456, 0.406])[:, None, None] * 255
+  std = torch.tensor([0.229, 0.224, 0.225])[:, None, None] * 255
+  log = []
+  def save(step):
+    if step in TOY_GRID:
+      torch.save(model.state_dict(), root / f'model_{step:05d}.pt')
+      torch.save(attr.compact_state(), root / f'attr_{step:05d}.pt')
+      torch.save(attr_r.compact_state(), root / f'attrR_{step:05d}.pt')
+      log.append({'step': step, 'val_acc': step / 1000, 'n_val': 0, 'sec': float(step)})
+      json.dump(log, open(root / 'log.json', 'w'))
+    if step in TOY_SNAPS:
+      torch.save({'step': step, 'model': copy.deepcopy(model.state_dict()), 'log': list(log)},
+                 hist / f'snap_{step:05d}.pt')
+      torch.save({'step': step, 'attr': copy.deepcopy(attr.full_state())}, full / f'full_{step:05d}.pt')
+  save(0)
+  for step in range(steps):
+    idx = torch.randint(0, len(ytr), (24,), generator=g)
+    lr = 4e-3 * ((step + 1) / 5 if step < 5 else 0.5 * (1 + np.cos(np.pi * (step - 5) / (steps - 5))))
+    for pg in opt.param_groups:
+      pg['lr'] = lr
+    opt.zero_grad()
+    F.cross_entropy(model((xtr[idx].float() - mean) / std), ytr[idx]).backward()
+    attr.step(ytr[idx], lr)
+    attr_r.step(rand[idx], lr)
+    opt.step()
+    save(step + 1)
+  rng = np.random.default_rng(seed)
+  M = rng.integers(1, 200, (C, C))
+  vis = np.argsort(np.argsort(M + M.T, 1), 1)
+  vis = np.minimum(vis, vis.T)
+  np.fill_diagonal(vis, 0)
+  wn = rng.integers(2, 14, (C, C))
+  wn = np.minimum(wn, wn.T)
+  np.fill_diagonal(wn, 0)
+  np.savez(root / 'visual.npz', rank_dist=vis.astype(np.int16))
+  np.savez(root / 'wordnet.npz', dist=wn.astype(np.int16))
+
+
+@pytest.fixture(scope='module')
+def toy_exits(tmp_path_factory):
+  """The toy run with every stage of experiments.convnext_exits run through its command line (one CPU thread: the
+  test machine oversubscribes threads badly)."""
+  import json
+  import sys
+  from experiments import convnext_exits as X
+  threads = torch.get_num_threads()
+  torch.set_num_threads(1)
+  root = tmp_path_factory.mktemp('toyrun')
+  try:
+    build_toy_run(root)
+    common = ['--run', str(root), '--out', str(root / 'exits'), '--history', str(root / 'history'), '--full',
+              str(root / 'full'), '--probe', str(root / 'probe.pt'), '--visual', str(root / 'visual.npz'), '--wordnet',
+              str(root / 'wordnet.npz'), '--batch', '16', '--device', 'cpu', '--grid', ','.join(map(str, TOY_GRID)),
+              '--params', json.dumps(TOY_PARAMS)]
+    argv = sys.argv
+    for stage in ('integrity', 'stock', 'events', 'intervals', 'gradstate', 'tests'):
+      sys.argv = ['convnext_exits', stage] + common
+      X.main()
+    sys.argv = argv
+    yield root
+  finally:
+    torch.set_num_threads(threads)
+
+
+def test_exits_pipeline_checks_and_outputs(toy_exits):
+  """Every stage runs; snapshots pass the integrity checks; every interval file adds up exactly (fp64), after fp32
+  storage, with the other position reference, and against the random split; the X1 excess shares sum to 1."""
+  import json
+  root = toy_exits / 'exits'
+  integ = json.load(open(root / 'integrity.json'))
+  assert integ['usable'] == list(TOY_SNAPS)
+  assert integ['snapshots']['10']['I2']['ok'] and integ['snapshots']['40']['I2']['ok']
+  assert all(r['I3_remainder_rel'] > 0 for r in integ['snapshots'].values())        # fp32 parts do not add up exactly
+  ev = json.load(open(root / 'events.json'))
+  assert ev['counts']['s0m1']['exits'] > 50 and ev['counts']['s0m1']['with_C1'] > 10
+  res = json.load(open(root / 'exits_tests.json'))
+  m = res['interval_checks']['max']
+  assert m['complete_rel'] < 1e-12 and m['complete_rel_p2'] < 1e-12 and m['image_resid'] < 1e-12
+  assert m['complete_rel_stored'] < 1e-6 and m['class_vs_random_total_rel'] < 1e-12 and m['zcheck'] < 1e-5
+  ck = res['checks']
+  assert ck['complete_rel_max'] < 1e-6 and ck['view_check'] < 1e-6 and ck['prov_check'] < 1e-5
+  assert ck['event_check'] < 1e-6
+  for gname in ('all', 'late'):
+    sh = res['pooled'][gname]['s0m1']['X1']['anchored_replicated']['excess_vs_C1']
+    if sh.get('shares'):
+      assert abs(sum(v['est'] for v in sh['shares'].values()) - 1) < 1e-9
+      assert abs(sum(v['est'] for v in sh['fine'].values()) - 1) < 1e-9
+  assert set(res['primary']['p']) == {'X1_own_excess_share', 'X2_own_rise_dropped_minus_persistent',
+                                      'X3_S1_withdrawn_minus_C1', 'X4_F2_relatives', 'X5_loop_own'}
+  assert res['X5']['chains']['snap'] and res['path_dependence'] and res['carryover'] and res['rho']
+  assert res['units'] and res['X4']['s0m1']['stage']['all']['F2']['n'] > 0
+
+
+def test_exits_components_equal_brute_force_and_stock(toy_exits):
+  """For exits with controls and for entries: the accumulated components equal a brute-force recomputation from the
+  definitions (every group, every class), and they add up to the margin change (rise) measured by the independent
+  stock passes at the window's ends."""
+  import argparse
+  import numpy as np
+  from experiments import convnext_exits as X
+  T = str(toy_exits)
+  a = argparse.Namespace(out=f'{T}/exits', visual=f'{T}/visual.npz', wordnet=f'{T}/wordnet.npz', class_counts='',
+                         prm=X.defaults() | TOY_PARAMS, skip_integrity=False)
+  run = X.Run(T, f'{T}/history', f'{T}/full', grid=list(TOY_GRID),
+              snaps=X.usable_snaps(a, T, f'{T}/history', f'{T}/full'))
+  ctx = X.Ctx(a, run)
+  b = 'stage2.block4'
+  rec = X.analyze_block(ctx, b)
+  g = run.g16
+  exits = [ac for ac in rec['accs'] if ac.kind == 'exit' and len(ac.xs) > 1][:6]
+  entries = [ac for ac in rec['accs'] if ac.kind == 'entry' and len(ac.xs) > 1][:6]
+  assert exits and entries
+  for ac in exits + entries:
+    e, (s_, m_) = ac.e, X.DIRS[ac.d]
+    n = e['n']
+    lo, hi = (e['pk'], e['out']) if ac.kind == 'exit' else (e['pre'], e['first'])
+    tot = np.zeros((len(ac.xs), len(X.COMP)))
+    for j in range(lo + 1, hi + 1):
+      xb = ctx.xhw(g[j - 1], g[j])['blocks'][b]
+      ct = column_terms(run.inc(g[j - 1], g[j], b), {M: xb[f'Hbar_{M}'][m_, n].double() for M in MAPS},
+                        {M: xb[f'qbar_{M}'][m_, n].double() for M in MAPS}, n)
+      Tm, Fm, F0, E = ct['T'].numpy(), ct['F'].numpy(), ct['F0'].numpy(), ct['E'].numpy()
+      Phi, Pi = xb['Phi'][m_, n].numpy(), xb['Pi'][m_, n].numpy()
+      for i, (x, Q, cat) in enumerate(zip(ac.xs.tolist(), ac.Qs, ac.cat.numpy())):
+        rest = lambda s: Fm[:, s].sum() - Fm[x, s] + F0[s]
+        on_c = [Tm[cat == k, x].sum() for k in range(5)] + [Fm[x, x], rest(x), Phi[x], Pi[x], E[x]]
+        on_q = [[Tm[cat == k, s].sum() for k in range(5)] + [Fm[x, s], rest(s), Phi[s], Pi[s], E[s]] for s in Q]
+        tot[i, 0::2] += on_c
+        if Q:
+          tot[i, 1::2] -= np.mean(on_q, 0)
+    got = ac.comp['nom'].numpy()
+    assert np.abs(got - tot).max() <= 1e-12 * np.abs(tot).max()
+    R0, R1 = ctx.R[g[lo]][b][m_][n], ctx.R[g[hi]][b][m_][n]
+    for i, (x, Q) in enumerate(zip(ac.xs.tolist(), ac.Qs)):
+      dM = (R1[x] - R0[x]) - (np.mean([R1[s] - R0[s] for s in Q]) if Q else 0.0)
+      assert abs(got[i].sum() - dM) <= 1e-6 * np.abs(R0).max()

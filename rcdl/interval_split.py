@@ -379,18 +379,28 @@ def set_terms(inc: Dict[str, Increments], cm: dict, member: torch.Tensor, which:
   return out
 
 
-def split_completeness(inc: Dict[str, Increments], cm: dict) -> dict:
-  """Completeness of the class-mean split for every unit and class: total = sum_k T_k + sum_k F_k + F_0 + E (from the
-  per-group parts) + Phi + Pi against dR. Returns max_abs, rel (max_abs / max |R1, R2|) and the weights-only identity
-  check (the per-group sum against Dw . Hbar + Dbeta qbar)."""
+def group_total(inc: Dict[str, Increments], cm: dict) -> torch.Tensor:
+  """sum_k T_k(c) + sum_k F_k(c) + F_0(c) + E(c) for every unit and class (U, C), summed from the per-group parts of
+  one split (weights and bias); every split of the same weights gives the same total (Dw . Hbar + Dbeta qbar)."""
   tot = 0
-  wonly = 0
   for M in MAPS:
     I = inc[M]
     H, q = cm[f'Hbar_{M}'].to(I.nu.dtype), cm[f'qbar_{M}'].to(I.nu.dtype)
     Wsum = I.nu.sum(0) + (I.rho - 1) * I.C1.sum(0) + I.F0w + I.eps
     bsum = I.nub.sum(0) + (I.rhob - 1) * I.Cb1.sum(0) + I.F0b + I.epsb
     tot = tot + torch.einsum('nd,ncd->nc', Wsum, H) + bsum[:, None] * q
+  return tot
+
+
+def split_completeness(inc: Dict[str, Increments], cm: dict) -> dict:
+  """Completeness of the class-mean split for every unit and class: total = sum_k T_k + sum_k F_k + F_0 + E (from the
+  per-group parts) + Phi + Pi against dR. Returns max_abs, rel (max_abs / max |R1, R2|) and the weights-only identity
+  check (the per-group sum against Dw . Hbar + Dbeta qbar)."""
+  tot = group_total(inc, cm)
+  wonly = 0
+  for M in MAPS:
+    I = inc[M]
+    H, q = cm[f'Hbar_{M}'].to(I.nu.dtype), cm[f'qbar_{M}'].to(I.nu.dtype)
     wonly = wonly + torch.einsum('nd,ncd->nc', I.dW, H) + I.db[:, None] * q
   dt = tot.dtype
   total = tot + cm['Phi'].to(dt) + cm['Pi'].to(dt)

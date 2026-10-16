@@ -30,6 +30,15 @@ DT = torch.float64
 LR = 3e-3
 
 
+@pytest.fixture(scope='module', autouse=True)
+def one_thread():
+  """One intra-op thread in this module (small tensors; no oversubscription when other jobs share the CPUs)."""
+  n = torch.get_num_threads()
+  torch.set_num_threads(1)
+  yield
+  torch.set_num_threads(n)
+
+
 def toy_model(seed=0):
   torch.manual_seed(seed)
   m = build_convnext('tiny', n_classes=K).to(DT)
@@ -396,7 +405,7 @@ def test_analysis_end_to_end_on_the_toy(toy_analysis):
   assert set(M3['q']) == {'B_pole', 'U_pole_fading'}
   q = arrays['q_t']
   assert q.min() >= 0 and q.max() <= 1
-  assert len(summ['per_class']['I1']['top_feed']) == K - 0 or len(summ['per_class']['I1']['top_feed']) == min(10, K)
+  assert len(summ['per_class']['I1']['top_feed']) == min(10, K)
   assert 'M1' not in solo and 'M3' not in solo and len(solo['M2']['G_t']) == TAU
 
 
@@ -462,8 +471,8 @@ def test_eval_sets_exclude_candidates():
   ex = UA.candidate_exclusions([sel])
   v = UA.eval_set_indices(labels, arm, ex, first_n=10, n_classes=6)
   assert set(labels[v['V_ref']]) == {0, 4, 5} and len(v['V_ref']) == 29          # class 0 loses one candidate
-  assert int(np.flatnonzero(labels == 2)[9]) not in v['V_umb'] and len(v['V_umb']) == 11
-  assert len(v['V_bee']) == 12 and not set(v['V_ref']) & ex
+  assert int(np.flatnonzero(labels == 2)[9]) not in v['V_umb'] and len(v['V_umb']) == 12 - 8 - 1
+  assert len(v['V_bee']) == 12 - 8 and not set(v['V_ref']) & ex
 
 
 # ------------------------------------------------------------------------------------------------ decisions
@@ -502,7 +511,8 @@ def test_decision_rules_on_synthetic_records():
 # ------------------------------------------------------------------------------------------------ arm helpers
 
 def test_lr_rule():
-  rows = [{'lr': 1e-4, 'tau': 120, 'censored': False, 'drift': 0.1}, {'lr': 3e-4, 'tau': 60, 'censored': False, 'drift': 0.4},
+  rows = [{'lr': 1e-4, 'tau': 120, 'censored': False, 'drift': 0.1},
+          {'lr': 3e-4, 'tau': 60, 'censored': False, 'drift': 0.4},
           {'lr': 1e-3, 'tau': 20, 'censored': False, 'drift': 0.8}, {'lr': 3e-3, 'tau': 8, 'censored': False, 'drift': 2.0}]
   r = UR.lr_rule(rows)
   assert r['lr_star'] == 1e-3 and not r['flagged']
@@ -516,12 +526,12 @@ def test_lr_rule():
 
 def test_draw_triples_is_deterministic_and_follows_the_rule():
   rng = np.random.default_rng(1)
-  n = 60
+  n = 200
   acc = rng.uniform(0, 0.8, n)
-  wn = rng.integers(2, 20, (n, n))
+  wn = rng.integers(6, 20, (n, n))
   wn = np.minimum(wn, wn.T)
   np.fill_diagonal(wn, 0)
-  rank = rng.integers(1, 200, (n, n))
+  rank = rng.integers(1, 1000, (n, n))
   excl = {0, 1, 2}
   a = UR.draw_triples(acc, wn, rank, excl, acc_ref=0.3)
   assert a == UR.draw_triples(acc, wn, rank, excl, acc_ref=0.3) and len(a) == UR.N_TRIPLES
@@ -543,7 +553,8 @@ def test_draw_triples_is_deterministic_and_follows_the_rule():
 
 def test_order_j_prefers_photos_passing_in_both():
   mk = lambda ps: [{'photo': p} for p in ps]
-  sel_r = {'arms': {'strong_source': {'source': 7, 'photos': mk(['val:1', 'val:2', 'val:3']), 'reserve': mk(['val:4', 'val:5'])}}}
+  sel_r = {'arms': {'strong_source': {'source': 7, 'photos': mk(['val:1', 'val:2', 'val:3']),
+                                      'reserve': mk(['val:4', 'val:5'])}}}
   sel_e = {'arms': {'s': {'source': 7, 'photos': mk(['val:5', 'val:2']), 'reserve': mk(['val:9'])}}}
   out = UR.order_j(sel_r, sel_e)['arms']['strong_source']
   assert [r['photo'] for r in out['photos']] == ['val:2', 'val:5', 'val:1'] and out['n_in_both'] == 2
@@ -597,3 +608,102 @@ def test_frozen_v_continuation_repeats_the_frozen_run():
   for p1, p2 in zip(m1.parameters(), m2.parameters()):
     assert torch.allclose(p1, p2, atol=1e-13, rtol=0)
   assert UR.full_saves([], 500) == []
+
+
+def test_cli_run_and_decide(toy, tmp_path, monkeypatch, capsys):
+  """The run and decide subcommands on the toy (model, photo and selection replaced by the toy's), and the queue
+  helpers of the arms module."""
+  import sys
+  import experiments.convnext_umbrella as U
+  e1dir = tmp_path / 'e1'
+  e1dir.mkdir()
+  for name, key in (('atlas_25020.pt', 'atlas'), ('attr_25020.pt', 'attr'), ('attr_init.pt', 'init'),
+                    ('model_25020.pt', 'state')):
+    torch.save(toy['e1'][key], e1dir / name)
+  sel = tmp_path / 'selection.json'
+  json.dump({'arms': {'toy': {'target': T, 'source': S, 'rel_target': RELB, 'rel_source': RELU, 'A': A_, 'B': B_,
+                              'photos': [{'photo': 'val:3'}, {'photo': 'val:4'}]}}}, open(sel, 'w'))
+  monkeypatch.setattr(UA, 'build_convnext', lambda size: build_convnext('tiny', n_classes=K))
+  monkeypatch.setattr(U, 'photo_tensor', lambda spec, val, dev, train: photo_x())
+  out = tmp_path / 'an' / 'analysis.json'
+  out.parent.mkdir()
+  monkeypatch.setattr(sys, 'argv', ['x', 'run', '--run', toy['runs']['taught'], '--untaught', toy['runs']['untaught'],
+                                    '--tag', 'B', '--val', 'none', '--sel', str(sel), '--e1', str(e1dir), '--device',
+                                    'cpu', '--skip', 'M2', '--perm', '100', '--out', str(out)])
+  UA.main()
+  rec = json.load(open(out))
+  assert rec['tag'] == 'B' and rec['kind'] == 'photo' and rec['source'] == S and rec['tau'] == TAU
+  assert 'M1' in rec and 'M3' in rec and 'M4' in rec and 'M2' not in rec
+  assert rec['M3']['poles']['n_B_pole'] > 0 and os.path.exists(str(out)[:-5] + '.pt')
+  monkeypatch.setattr(sys, 'argv', ['x', 'decide', '--root', str(tmp_path), '--out', str(tmp_path / 'dec.json')])
+  UA.main()
+  dec = json.load(open(tmp_path / 'dec.json'))
+  assert dec['n']['B'] == 1 and dec['P-C1a']['per_run'][0]['photo'] == 'toy:0'
+  capsys.readouterr()
+  monkeypatch.setattr(sys, 'argv', ['x', 'photos', '--sel', str(sel), '--arm', 'toy'])
+  UR.main()
+  assert capsys.readouterr().out.split() == ['val:3', 'val:4']
+  monkeypatch.setattr(sys, 'argv', ['x', 'full_saves', toy['runs']['taught'], toy['runs']['solo'], '--phase2', '500'])
+  UR.main()
+  assert capsys.readouterr().out.strip() == f'{TAU},{TAU + 500}'
+  json.dump({'lr_star': 0.001}, open(tmp_path / 'lr.json', 'w'))
+  monkeypatch.setattr(sys, 'argv', ['x', 'lr_star', '--file', str(tmp_path / 'lr.json')])
+  UR.main()
+  assert capsys.readouterr().out.strip() == '0.001'
+
+
+def test_vsets_on_a_fake_validation_set(tmp_path):
+  """cmd_vsets and load_vsets on a 2-file validation parquet of 6 classes: sets, exclusions, images, and the shared
+  first-10 cache rebuilt after it is lost."""
+  pytest.importorskip('pyarrow')
+  import io
+  import types
+  import pyarrow as pa
+  import pyarrow.parquet as pq
+  from PIL import Image
+  from experiments.convnext_umbrella import val_images
+  rng = np.random.default_rng(0)
+  labels = np.repeat(np.arange(6), 13)[rng.permutation(78)]
+  d = tmp_path / 'val' / 'data'
+  d.mkdir(parents=True)
+  for f, part in enumerate(np.array_split(np.arange(78), 2)):
+    rows = []
+    for i in part:
+      buf = io.BytesIO()
+      Image.new('RGB', (60 + i % 7, 50), (int(labels[i]) * 40, int(i) % 256, 7)).save(buf, format='JPEG')
+      rows.append({'image': {'bytes': buf.getvalue(), 'path': None}, 'label': int(labels[i])})
+    pq.write_table(pa.Table.from_pylist(rows), d / f'validation-{f:05d}-of-00002.parquet')
+  first = lambda c, k: [int(g) for g in np.flatnonzero(labels == c)[:k]]
+  arm = {'target': 1, 'source': 2, 'rel_target': [3], 'rel_source': [], 'A': 0, 'B': 4,
+         'excluded_from_eval': first(1, 8) + first(2, 8) + [int(np.flatnonzero(labels == 2)[9])],
+         'photos': [{'photo': f'val:{int(np.flatnonzero(labels == 2)[9])}'}], 'reserve': []}
+  armE = dict(arm, target=4, source=5, excluded_from_eval=first(4, 8) + first(5, 8) + [first(0, 3)[2]],
+              photos=[{'photo': f'val:{first(0, 3)[2]}'}])
+  sel, selE = tmp_path / 'sel.json', tmp_path / 'selE.json'
+  json.dump({'arms': {'strong_source': arm}}, open(sel, 'w'))
+  json.dump({'arms': {'E0': armE}}, open(selE, 'w'))
+  out, f10 = tmp_path / 'vsets.pt', tmp_path / 'cache' / 'first10.pt'
+  UA.cmd_vsets(types.SimpleNamespace(sel=[str(sel), str(selE)], arm='strong_source', val=str(tmp_path / 'val'),
+                                     first10=str(f10), out=str(out)))
+  vs = UA.load_vsets(str(out))
+  assert sorted(set(labels[vs['V_ref']['idx']])) == [0, 4, 5]
+  assert first(0, 3)[2] not in vs['V_ref']['idx'] and len(vs['V_ref']['idx']) == 29        # the arm-E photo is out
+  assert set(first(4, 8) + first(5, 8)) <= set(vs['V_ref']['idx'])                          # other arms' probe_8 stay
+  assert len(vs['V_umb']['idx']) == 13 - 9 and len(vs['V_bee']['idx']) == 13 - 8
+  assert torch.equal(vs['V_ref']['x'], val_images(str(tmp_path / 'val'), vs['V_ref']['idx']))
+  assert vs['V_umb']['x'].dtype == torch.uint8 and vs['V_umb']['x'].shape[1:] == (3, 224, 224)
+  os.remove(f10)
+  assert torch.equal(UA.load_vsets(str(out))['V_ref']['x'], vs['V_ref']['x'])
+
+
+def test_verify_helpers():
+  """The namespace for convnext_umbrella.branch comes from the fine-tuning script's own parser (same branch key and
+  defaults), and a photo that fails at the branch point is replaced in its slot by the next passing reserve photo."""
+  a = UR.umbrella_args(['--', '--sel', 's.json', '--arm', 'strong_source', '--snapshot', 'snap.pt', '--val', 'v',
+                        '--branch_dir', 'b', '--mode', 'untaught', '--lr', '1e-3', '--seed', '2'])
+  assert (a.arm, a.seed, a.lr, a.replay, a.rest, a.rest_exclude, a.warmup, a.warmup_ramp, a.wd) == \
+         ('strong_source', 2, 1e-3, 'T:32,S:32,A:32,B:32', 127, '', 300, 100, 0.05)
+  ok = lambda p, o: {'photo': p, 'ok': o}
+  specs, swaps = UR.replace_photos([ok('a', True), ok('b', False), ok('c', True), ok('d', False)],
+                                   [ok('r1', False), ok('r2', True)], 4)
+  assert specs == ['a', 'r2', 'c'] and swaps == [('b', 'r2'), ('d', None)]

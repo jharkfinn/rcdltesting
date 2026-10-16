@@ -33,6 +33,11 @@ Notation (per run):
   paths     fine: every saved step (phase 1: every step); common: steps saved with shadow states in both the taught
             and the untaught run (0, multiples of 25, tau, tau + 500), so that real and pseudo-group buckets share one
             path; V sets: each interval as one segment.
+  V sets    every set leaves out all candidate photos of every selection arm (arm E included) and the probe_8 images
+            (the first 8 in parquet order) of the arm's source and target: V_ref = the first 10 validation images of
+            every class except t, s, RELb and RELu; V_umb = the source class's images; V_bee = the target class's;
+            V_near = the 100 images of V_ref u V_umb nearest to x_P by cosine of theta_w's pooled final-LayerNorm
+            features (model.features); M_P (M1) = the 10 images of V_umb with margin at theta_w closest to x_P's.
 
 M1 feed and shelter (C1), on the common path, F restricted to the block maps unless stated:
   DiD^w(I) = F^w(I; taught) - F^w(I; untaught); the 64 pseudo-groups give DiD^{r,g}; z^w = (DiD^w - mean) / sd over
@@ -92,7 +97,8 @@ out, E = relabel triples, J = E1r replicate, C = solo):
         carrier-mass share of selective non-pole units rises from tau to end and reaches 0.5; H: fewer than half of
         C50 in a pole set and median q^t within 0.1 of 0.5.
   P-C4  O: S_late >= 0.8, argmax theta^P(stage3) = t, argmax theta^P(head) != t; S_head >= 0.5 is a deviation.
-  Verdict: C1 supported if P-C1a and P-C1b are O, contradicted if both are 'against'; C2, C3, C4 separately.
+  Verdict: C1 supported if P-C1a and P-C1b are O, contradicted if both are 'against', else mixed; C2 = P-C2's verdict;
+  C3 and C4 (secondary, descriptive) = the majority label over the primary runs.
 
 Subcommands: vsets (evaluation sets of one selection arm), provenance (E1 writers for an arm's target and source),
 run (one taught or solo run: M1-M4 and checks -> analysis.json, analysis.pt), decide (all analyses under a root).
@@ -397,7 +403,7 @@ def _segment(model, cap, maps, th1, th2, bk, x, fns, nodes, rsel, batch):
         for m in maps:
           g, gb = grads[k][m]
           if G[k][m] is None:
-            G[k][m] = [w * g, w * gb]
+            G[k][m] = [float(w) * g, float(w) * gb]
           else:
             G[k][m][0].add_(g, alpha=float(w))
             G[k][m][1].add_(gb, alpha=float(w))
@@ -721,6 +727,7 @@ def match_noncarriers(carriers, pool_mask, block_of, key, k: int = 3) -> dict:
   return out
 
 
+@torch.no_grad()
 def own_upstream_split(st_tau, st_w, model_tau, model_w, bk_I1, keys_names, blocks, e1=None) -> dict:
   """Exact split of every unit's change at its strongest position on x_P (module docstring, M3). st_*: block_states
   of x_P (batch 1) at theta_tau and theta_w; bk_I1: buckets of [0, tau]; e1: optional {'attr', 'init', 'state'}
@@ -851,13 +858,18 @@ def readout(model, theta: dict, xP, t: int, s: int) -> dict:
 
 # -------------------------------------------------------------------------------------------- evaluation sets
 
-def candidate_exclusions(sels) -> set:
-  """Global validation indices never used for evaluation: every arm's excluded_from_eval (the source and target
-  probe_8 images, every passing validation candidate) and every photo and reserve image, over all selection files."""
+def candidate_exclusions(sels, vlabels=None) -> set:
+  """Global validation indices never used for evaluation: every arm's candidate photos (its excluded_from_eval without
+  the probe_8 images of its source and target, when vlabels is given) and every photo and reserve image, over all
+  selection files (all arms, arm E included)."""
   ex = set()
   for sel in sels:
     for arm in sel['arms'].values():
-      ex |= {int(i) for i in arm.get('excluded_from_eval', [])}
+      probe = set()
+      if vlabels is not None:
+        for c in (arm['source'], arm['target']):
+          probe |= {int(i) for i in np.flatnonzero(vlabels == c)[:8]}
+      ex |= {int(i) for i in arm.get('excluded_from_eval', [])} - probe
       for r in arm.get('photos', []) + arm.get('reserve', []):
         kind, idx = r['photo'].split(':')
         if kind == 'val':
@@ -867,16 +879,18 @@ def candidate_exclusions(sels) -> set:
 
 def eval_set_indices(vlabels: np.ndarray, arm: dict, excluded, first_n: int = 10, n_classes: int = 1000) -> dict:
   """V_ref: the first first_n validation images (parquet order) of every class except the target, the source and
-  their relatives; V_umb: the source's images; V_bee: the target's; all without the excluded indices."""
+  their relatives; V_umb: the source's images; V_bee: the target's; all without the excluded indices, and V_umb and
+  V_bee without the probe_8 images (the first 8) of the source and target."""
   t, s = arm['target'], arm['source']
   drop = {t, s} | set(arm['rel_target']) | set(arm['rel_source'])
   ex = set(int(i) for i in excluded)
+  ex_st = ex | {int(i) for c in (t, s) for i in np.flatnonzero(vlabels == c)[:8]}
   ref = []
   for c in range(n_classes):
     if c not in drop:
       ref += [int(i) for i in np.flatnonzero(vlabels == c)[:first_n] if int(i) not in ex]
-  return {'V_ref': ref, 'V_umb': [int(i) for i in np.flatnonzero(vlabels == s) if int(i) not in ex],
-          'V_bee': [int(i) for i in np.flatnonzero(vlabels == t) if int(i) not in ex]}
+  return {'V_ref': ref, 'V_umb': [int(i) for i in np.flatnonzero(vlabels == s) if int(i) not in ex_st],
+          'V_bee': [int(i) for i in np.flatnonzero(vlabels == t) if int(i) not in ex_st]}
 
 
 def find_arm(sels, arm: str) -> dict:
@@ -886,20 +900,34 @@ def find_arm(sels, arm: str) -> dict:
   raise KeyError(f'arm {arm} not in the selection files')
 
 
+def first10_cache(val_dir: str, path: str) -> dict:
+  """{'idx': (10000,) global indices, 'x': uint8 (10000, 3, 224, 224)}: the first 10 validation images (parquet
+  order) of every class, loaded with convnext_umbrella.val_images; built once under a file lock and saved atomically."""
+  import fcntl
+  from experiments.convnext_umbrella import val_images, val_index
+  os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+  with open(path + '.lock', 'w') as lk:
+    fcntl.flock(lk, fcntl.LOCK_EX)
+    if not os.path.exists(path):
+      _, vlabels = val_index(val_dir)
+      idx = np.concatenate([np.flatnonzero(vlabels == c)[:10] for c in range(int(vlabels.max()) + 1)])
+      torch.save({'idx': idx, 'x': val_images(val_dir, idx)}, path + '.tmp')
+      os.replace(path + '.tmp', path)
+  return torch.load(path, weights_only=False)
+
+
 def cmd_vsets(a):
-  """Index sets of one arm, the uint8 images of V_umb and V_bee, and V_ref as positions into the first-10 cache
-  (convnext_atlas.probe_set with 10 per class, shared by all arms)."""
-  from experiments.convnext_atlas import probe_set
+  """Index sets of one arm, the uint8 images of V_umb and V_bee, and V_ref as positions into the first-10 cache (shared
+  by all arms)."""
   from experiments.convnext_umbrella import val_images, val_index
   sels = [json.load(open(f)) for f in a.sel]
   arm = find_arm(sels, a.arm)
   _, vlabels = val_index(a.val)
-  idx = eval_set_indices(vlabels, arm, candidate_exclusions(sels))
-  probe_set(a.val, 10, a.first10)                         # builds the cache if missing
-  first10 = np.concatenate([np.flatnonzero(vlabels == c)[:10] for c in range(1000)])
-  pos = {int(g): i for i, g in enumerate(first10)}
+  idx = eval_set_indices(vlabels, arm, candidate_exclusions(sels, vlabels))
+  f10 = first10_cache(a.val, a.first10)
+  pos = {int(g): i for i, g in enumerate(f10['idx'])}
   out = {'arm': a.arm, 'target': arm['target'], 'source': arm['source'], 'idx': idx, 'first10': a.first10,
-         'V_ref_pos': [pos[g] for g in idx['V_ref']],
+         'val': a.val, 'V_ref_pos': [pos[g] for g in idx['V_ref']],
          'labels': {k: [int(vlabels[i]) for i in v] for k, v in idx.items()},
          'x': {k: val_images(a.val, idx[k]) for k in ('V_umb', 'V_bee')}}
   torch.save(out, a.out + '.tmp')
@@ -908,11 +936,13 @@ def cmd_vsets(a):
 
 
 def load_vsets(path: str) -> dict:
-  """{'V_ref', 'V_umb', 'V_bee': {'x': uint8 (N, 3, 224, 224), 'idx', 'y'}}."""
+  """{'V_ref', 'V_umb', 'V_bee': {'x': uint8 (N, 3, 224, 224), 'idx', 'y'}} (the first-10 cache is rebuilt if it was
+  lost, e.g. with a new sandbox)."""
   d = torch.load(path, weights_only=False)
-  f10 = torch.load(d['first10'], weights_only=False)
-  out = {'V_ref': {'x': f10['x'][torch.tensor(d['V_ref_pos'], dtype=torch.long)], 'idx': d['idx']['V_ref'],
-                   'y': d['labels']['V_ref']}}
+  f10 = first10_cache(d['val'], d['first10'])
+  pos = torch.tensor(d['V_ref_pos'], dtype=torch.long)
+  assert [int(g) for g in np.asarray(f10['idx'])[pos.numpy()]] == list(d['idx']['V_ref']), 'first-10 cache mismatch'
+  out = {'V_ref': {'x': f10['x'][pos], 'idx': d['idx']['V_ref'], 'y': d['labels']['V_ref']}}
   for k in ('V_umb', 'V_bee'):
     out[k] = {'x': d['x'][k], 'idx': d['idx'][k], 'y': d['labels'][k]}
   return out
@@ -1026,7 +1056,9 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
   summ = {'run': run, 'mode': mode, 'opt': cfg['opt'], 'seed': cfg['seed'], 'lr': cfg['lr'], 'arm': cfg['arm'],
           'photo': cfg['photo'], 'kind': ctx['kind'], 'target': t, 'source': s, 'tau': tau,
           'censored': info['censored'], 'end': end, 'm_P': {'0': m_of(0), 'tau': m_of(tau), 'end': m_of(end)},
-          'top1_path': [r.get('top1') for r in info['log'] if r.get('phase') == 1], 'checks': {}}
+          'top1_path': [r.get('top1') for r in info['log'] if r.get('phase') == 1], 'checks': {},
+          'top1_at_w': int(zw.argmax()), 'p_at_w': {'t': float(F.softmax(zw.double(), -1)[t]),
+                                                    's': float(F.softmax(zw.double(), -1)[s])}}
   arrays = {}
   dm1 = summ['m_P']['tau'] - summ['m_P']['0']
   opt = dict(nodes=ctx['nodes'], tol=ctx['tol'], max_nodes=ctx['max_nodes'])
@@ -1053,6 +1085,11 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
     near = np.concatenate([near[near < nr], near[near >= nr]])        # the order of near_x
     arrays['cos'] = cos
     arrays['near'] = near
+    nb = len(vs['V_bee']['x'])
+    with torch.no_grad():                               # context: recognition of the two classes at theta_w
+      zb = vmodel(Images([vs['V_bee']['x']], dev, vdt).get(0, nb)).argmax(-1).cpu() if nb else torch.zeros(0)
+    summ['acc_at_w'] = {'V_bee_top1_is_t': float((zb == t).double().mean()) if nb else float('nan'),
+                        'V_umb_top1_is_s': float((zu.argmax(-1).cpu() == s).double().mean())}
 
   # M1: feed and shelter on the common path (taught runs with an untaught run)
   if mode == 'taught' and untaught is not None and 'M1' not in skip:
@@ -1194,7 +1231,7 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
     xn = Images([xP.to(vdt), near_x], dev, vdt)
     rv['I_1'] = param_ig(vmodel, vmaps, [(0, 1)], ldv, xn, m_only, **vopt)
     step = param_ig(vmodel, vmaps, segments_of(verts), ldv, xn, m_only, keep_segments=True,
-                    **(vopt | {'nodes': ctx['step_nodes']}))
+                    **(vopt | {'nodes': ctx['step_nodes'], 'max_nodes': ctx['step_nodes']}))   # descriptive
     vn = rv['I1']['names']
     iP = vn.index('P')
     ratio = {}
@@ -1274,8 +1311,6 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
       Rt = np.concatenate([e1['atlas'][b]['R'][:, t].double().numpy() for b in blocks_])
       Rs = np.concatenate([e1['atlas'][b]['R'][:, s].double().numpy() for b in blocks_])
       pole = Bp | Up
-      isC = np.zeros(len(c), bool)
-      isC[C] = True
       q_t = class_percentile(sp['T'], sp['du'], t) if 'T' in sp else None
       q_s = class_percentile(sp['T'], sp['du'], s) if 'T' in sp else None
       M3['poles'] = {'n_B_pole': int(Bp.sum()), 'n_U_pole': int(Up.sum()), 'unit_fraction': float(pole.mean()),
@@ -1433,10 +1468,12 @@ def rule_c2(B: list, Fc: list, solo: list, n_photos: int = 5) -> dict:
     Lc = [_get(c, 'M2', 'L') for c in Fc if c['seed'] == r['seed']]
     L = _get(r, 'M2', 'L')
     so = [x for x in solo if x['photo'] == r['photo']]
+    gt = lambda x: float(np.mean(x['M2']['G_t'])) if x.get('M2', {}).get('G_t') else None
     per.append({'photo': r['photo'], 'seed': r['seed'], 'L': L, 'L_controls': Lc,
                 'below_controls': bool(Lc and L < min(Lc)),
                 'within_controls': bool(Lc and min(Lc) <= L <= max(Lc)),
-                'p_umb_ref': _get(r, 'M2', 'p_umb_ref'), 'L_solo': _get(so[0], 'M2', 'L') if so else None})
+                'p_umb_ref': _get(r, 'M2', 'p_umb_ref'), 'L_solo': _get(so[0], 'M2', 'L') if so else None,
+                'G_t_mean': gt(r), 'G_t_mean_solo': gt(so[0]) if so else None})
   s0 = [p for p in per if p['seed'] == 0]
   other = {sd: [p for p in per if p['seed'] == sd] for sd in sorted({p['seed'] for p in per}) if sd != 0}
   O = (calibrated and sum(p['below_controls'] for p in s0) >= math.ceil(0.8 * n_photos)
@@ -1460,7 +1497,8 @@ def rule_c3_run(r: dict) -> dict:
   okU = (not isinstance(qU, dict)) or qU.get('n', 0) == 0 or (qU.get('median_q', 0) >= 0.9 and _get(qU, 'test', 'p') < 0.01)
   mass_ok = dr.get('pole_mass_end', 0) >= (2 / 3) * dr.get('pole_mass_tau', float('inf'))
   O = bool(own <= 0.5 and okB and okU and sel <= 1.0 and mass_ok)
-  drift_sel = dr.get('sel_nonpole_share_end', 0) > dr.get('sel_nonpole_share_tau', 0) and dr.get('sel_nonpole_share_end', 0) >= 0.5
+  sel_end, sel_tau = dr.get('sel_nonpole_share_end', 0), dr.get('sel_nonpole_share_tau', 0)
+  drift_sel = sel_end > sel_tau and sel_end >= 0.5
   Hp = bool(own >= 0.8 or sel >= 1.5 or drift_sel)
   H = bool(_get(M3, 'poles', 'C50_in_pole') < 0.5 and isinstance(qB, dict) and abs(qB.get('median_q', 0) - 0.5) < 0.1)
   return {'photo': r['photo'], 'seed': r['seed'], 'own_share': own, 'sel': sel, 'q_B': _get(qB, 'median_q'),
@@ -1501,6 +1539,10 @@ def decide(recs: list, lgo: list) -> dict:
          'P-C4': {'per_run': c4, 'n_O': sum(x['O'] for x in c4), 'n_head_deviation': sum(x['head_deviation'] for x in c4)},
          'C1': c1, 'n': {'B': len(B), 'Bp': len(Bp), 'F': len(Fc), 'C': len(C), 'E': len(E), 'J': len(J),
                          'lgo': len(lgo)}}
+  out['C2'] = out['P-C2']['verdict']
+  labels = [x['label'] for x in c3]                      # secondary claims: the majority label over the B runs
+  out['C3'] = max(('O', "H'", 'H', 'mixed'), key=labels.count) if labels else None
+  out['C4'] = ('O' if 2 * out['P-C4']['n_O'] > len(c4) else 'not O') if c4 else None
   if E:                                                  # arm E: per triple against the seed-0 controls of arm B
     per = []
     for r in E:
@@ -1531,8 +1573,8 @@ def cmd_decide(a):
   out = decide(recs, lgo)
   json.dump(_jsonable(out), open(a.out + '.tmp', 'w'), indent=1)
   os.replace(a.out + '.tmp', a.out)
-  print(json.dumps(_jsonable({k: out[k] for k in ('C1', 'n')}) | {k: out[k]['verdict'] for k in ('P-C1a', 'P-C1b', 'P-C2')}),
-        flush=True)
+  print(json.dumps(_jsonable({k: out[k] for k in ('C1', 'C2', 'C3', 'C4', 'n')})
+                   | {k: out[k]['verdict'] for k in ('P-C1a', 'P-C1b')}), flush=True)
 
 
 def main():
@@ -1543,7 +1585,7 @@ def main():
   q.add_argument('--sel', action='append', required=True, help='selection files (all candidates are excluded)')
   q.add_argument('--arm', required=True)
   q.add_argument('--val', required=True)
-  q.add_argument('--first10', default='/dev/shm/probe_10.pt')
+  q.add_argument('--first10', required=True, help='cache of the first 10 validation images per class (shared)')
   q.add_argument('--out', required=True)
   q = sub.add_parser('provenance', help="E1 writers' provenance pi for an arm's target and source")
   q.add_argument('--sel', action='append', required=True)
