@@ -38,7 +38,12 @@ T5 knockout at entry (head start; needs gate and value writers): with class mean
    writes of as many random non-relative classes (control); and the share with a positive own value part. Head start
    predicts, for entering against incumbents: higher survival without own writes, lower survival without relatives.
 
-Usage: python3 -m experiments.convnext_growth_tests --run <run dir> [--perm 500] [--out file.json]
+Distances: WordNet 3.0 by default (relatives: d <= 4); with --dist <npz> (experiments/class_embed.py) the symmetric
+DINOv2 neighbour rank of the classes instead (visual relatives: rank <= --near, e.g. 10), since the essay's growth
+follows visual facets (yellow flowers, then green objects, then dogs) more than taxonomy.
+
+Usage: python3 -m experiments.convnext_growth_tests --run <run dir> [--perm 500] [--dist file.npz --near 10]
+       [--out file.json]
 """
 
 import argparse
@@ -324,15 +329,16 @@ def main():
   p = argparse.ArgumentParser()
   p.add_argument('--run', required=True)
   p.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz')
+  p.add_argument('--dist', default=None, help='npz with rank_dist (visual neighbour ranks) in place of WordNet')
   p.add_argument('--tau', type=float, default=0.3)
   p.add_argument('--near', type=int, default=4)
   p.add_argument('--perm', type=int, default=500)
   p.add_argument('--out', default=None)
   a = p.parse_args()
-  dist = np.load(a.wordnet)['dist']
+  dist = np.load(a.dist)['rank_dist'].astype(np.int64) if a.dist else np.load(a.wordnet)['dist']
   steps, atlases = load(a.run)
   res = analyze(steps, atlases, dist, a.tau, a.near, a.perm)
-  json.dump({'steps': steps, 'tau': a.tau, 'near': a.near, 'perm': a.perm, 'blocks': res},
+  json.dump({'steps': steps, 'tau': a.tau, 'near': a.near, 'perm': a.perm, 'dist': a.dist or 'wordnet', 'blocks': res},
             open(a.out or os.path.join(a.run, 'growth_tests.json'), 'w'), indent=1)
 
 
