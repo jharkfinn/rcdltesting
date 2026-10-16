@@ -12,7 +12,15 @@ import torch
 
 from rcdl.layers import age_coefficients, rbf_attention, rms_norm
 
-torch.set_default_dtype(torch.float64)
+
+
+@pytest.fixture(autouse=True)
+def float64_default():
+  """float64 inside these tests only (a module-level set_default_dtype leaked into other test files)."""
+  old = torch.get_default_dtype()
+  torch.set_default_dtype(torch.float64)
+  yield
+  torch.set_default_dtype(old)
 
 
 def wsm(q, keys, wvals, weights):
