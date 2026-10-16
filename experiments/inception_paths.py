@@ -19,8 +19,9 @@ group's top channels write), against the same comparison between two random halv
 4c:447 and measuring the reader's maximum again (the causal effect of the car neuron on car and on dog images), and the
 class profile of each top input channel.
 
-Usage: python3 -m experiments.inception_paths --stats results/e0/val_stats.npz --val <validation parquet dir>
-       --imagenet <dir with classes.py> --weights inception5h.pth --out results/e0/paths.json
+Usage: python3 -m experiments.inception_paths [readers | readout] --stats results/e0/val_stats.npz
+       --val <validation parquet dir> --imagenet <dir with classes.py> --weights inception5h.pth --out <file>.json
+('readout' is E0c, see its docstring.)
 """
 
 import argparse
@@ -56,11 +57,12 @@ def load_images(val_dir: str, idx):
 
 
 class Probe:
-  """Captures mixed4c (as a leaf that requires grad, optionally with channels zeroed) and one mixed4d branch output."""
+  """Captures a mixed layer's output (as a leaf that requires grad, optionally with channels zeroed) and one branch
+  output of the next mixed layer."""
 
-  def __init__(self, model, branch: str):
+  def __init__(self, model, branch: str, source: str = 'mixed4c'):
     self.zero, self.x, self.z = (), None, None
-    model.mixed4c.register_forward_hook(self._cat)
+    getattr(model, source).register_forward_hook(self._cat)
     getattr(model, branch).register_forward_hook(lambda m, i, o: setattr(self, 'z', o))
 
   def _cat(self, m, i, o):
@@ -182,13 +184,89 @@ def run(stats_path, val_dir, imagenet_dir, weights, out, k_img=100, seed=0):
   print('saved', out)
 
 
+def clear_hooks(model):
+  for mod in model.modules():
+    mod._forward_hooks.clear()
+
+
+def readout(stats_path, val_dir, imagenet_dir, weights, out, k_img=100, n_readers=8, mixed=(241, 295)):
+  """E0c: does mixed4e read the car half of the mixed readers back out?
+
+  For each mixed4d unit u in `mixed`: its strongest mixed4e readers by expanded weight (inception_e0.expanded_inputs,
+  linearized through the bottlenecks), each with its class profile; then, exactly as in `run` but one layer later, the
+  share of each reader's response written by u on the reader's own strongest vehicle images and dog images; and the
+  interference test: on u's strongest dog images (where u is high because of dogs), the reader's response z, the share
+  written by u (what u's dog half pushes into it) and the reader's percentile among all 50,000 images."""
+  from experiments.inception_e0 import expanded_inputs
+  dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+  st = np.load(stats_path)
+  names = class_names(imagenet_dir)
+  labels = st['labels']
+  veh = {i for i, n in enumerate(names) if n in VEHICLES}
+  m4d, m4e = concat_stats(st, 'mixed4d', 'max'), concat_stats(st, 'mixed4e', 'max')
+  sd = torch.load(weights, map_location='cpu', weights_only=True)
+  model = load_model(weights, dev)
+  for p in model.parameters():
+    p.requires_grad_(False)
+
+  def profile(a, k=50):
+    idx = np.argsort(-a)[:k]
+    counts = {}
+    for l in labels[idx]:
+      counts[names[l]] = counts.get(names[l], 0) + 1
+    return {'top_classes': sorted(counts.items(), key=lambda t: -t[1])[:5],
+            'dogs': int(sum(l in DOGS for l in labels[idx])), 'vehicles': int(sum(l in veh for l in labels[idx]))}
+
+  def exact(reader, idx):
+    branch, ch = channel_index(model, 'mixed4e', reader)
+    probe = Probe(model, branch, source='mixed4d')
+    S, Z = [], []
+    raw = load_images(val_dir, idx)
+    for i in range(0, len(raw), 25):
+      s, z, _ = shares(model, probe, preprocess(raw[i:i + 25], dev), ch)
+      S.append(s.cpu()); Z.append(z.cpu())
+    clear_hooks(model)
+    return torch.cat(S).double(), torch.cat(Z).double()
+
+  res = {'n_val': int(len(labels)), 'units': {}}
+  for u in mixed:
+    w = torch.stack([expanded_inputs(sd, 'mixed4e', c) for c in range(m4d.shape[1])])[u]     # (832,) u -> 4e
+    rec = {'readers': []}
+    order_u = np.argsort(-m4d[:, u])
+    dog_idx_u = [int(i) for i in order_u if labels[i] in DOGS][:k_img]
+    for r in torch.argsort(-w)[:n_readers].tolist():
+      prof = profile(m4e[:, r])
+      order = np.argsort(-m4e[:, r])
+      entry = {'reader': r, 'expanded_weight': float(w[r]), **prof}
+      for gname, keep in (('vehicles', veh), ('dogs', DOGS)):
+        idx = [int(i) for i in order if labels[i] in keep][:k_img]
+        S, Z = exact(r, idx)
+        entry[f'own_top_{gname}'] = {'mean_z': float(Z.mean()), 'share_from_u': float(S[:, u].mean() / Z.mean()),
+                                     'share_from_241_295': float(S[:, list(mixed)].sum(1).mean() / Z.mean())}
+      S, Z = exact(r, dog_idx_u)
+      pct = lambda v: float((m4e[:, r] < v).mean() * 100)
+      entry['on_u_top_dog_images'] = {'mean_z': float(Z.mean()), 'percentile_of_mean_z': pct(float(Z.mean())),
+                                      'mean_write_from_u': float(S[:, u].mean()),
+                                      'mean_write_from_rest': float((S.sum(1) - S[:, u]).mean())}
+      rec['readers'].append(entry)
+      print(json.dumps({f'mixed4d:{u}': entry}), flush=True)
+    res['units'][f'mixed4d:{u}'] = rec
+  os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
+  json.dump(res, open(out, 'w'), indent=1)
+  print('saved', out)
+
+
 if __name__ == '__main__':
   p = argparse.ArgumentParser()
+  p.add_argument('cmd', nargs='?', default='readers', choices=['readers', 'readout'])
   p.add_argument('--stats', required=True)
   p.add_argument('--val', required=True)
   p.add_argument('--imagenet', required=True)
   p.add_argument('--weights', required=True)
-  p.add_argument('--out', default='results/e0/paths.json')
+  p.add_argument('--out', default=None)
   p.add_argument('--k', type=int, default=100)
   a = p.parse_args()
-  run(a.stats, a.val, a.imagenet, a.weights, a.out, a.k)
+  if a.cmd == 'readers':
+    run(a.stats, a.val, a.imagenet, a.weights, a.out or 'results/e0/paths.json', a.k)
+  else:
+    readout(a.stats, a.val, a.imagenet, a.weights, a.out or 'results/e0/readout.json', a.k)
