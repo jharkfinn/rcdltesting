@@ -97,3 +97,38 @@ def test_prepare_train_keeps_shard_and_row_order(tmp_path, monkeypatch):
     im = Image.open(io.BytesIO(data[offsets[i]:offsets[i + 1]].tobytes()))
     assert im.size[1] == 20 and abs(im.size[0] - round((40 + i) * 20 / 30)) <= 1
   assert not list((tmp_path / 'dl' / 'data').glob('*.parquet'))       # shards deleted after use
+
+
+def _pack_tiny(root, n=12, seed=0):
+  """A packed training set in the GPUTrainLoader format: n random JPEGs of varied sizes."""
+  import torch
+  from torchvision.io import encode_jpeg
+  g = torch.Generator().manual_seed(seed)
+  offsets, pos = [0], 0
+  with open(root / 'data.bin', 'wb') as f:
+    for i in range(n):
+      h, w = 40 + 7 * i, 64 - 3 * i
+      b = encode_jpeg(torch.randint(0, 256, (3, h, w), generator=g, dtype=torch.uint8)).numpy().tobytes()
+      f.write(b)
+      pos += len(b)
+      offsets.append(pos)
+  np.save(root / 'offsets.npy', np.array(offsets, dtype=np.int64))
+  np.save(root / 'labels.npy', np.arange(n, dtype=np.int64) % 5)
+
+
+def test_batch_seeded_crops_repeat_from_any_start(tmp_path):
+  """With batch_seeded, an epoch begun at batch `start` (a resume or a replay) gets the same images, labels and crops
+  as the uninterrupted epoch; without it, the order repeats but the crops do not."""
+  import torch
+  from rcdl.imagenet import GPUTrainLoader
+  _pack_tiny(tmp_path)
+  full = list(GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=3, batch_seeded=True).epoch(1))
+  part = list(GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=3, batch_seeded=True).epoch(1, start=3))
+  assert len(full) == 6 and len(part) == 3
+  for (x1, y1, i1), (x2, y2, i2) in zip(full[3:], part):
+    assert torch.equal(i1, i2) and torch.equal(y1, y2) and torch.equal(x1, x2)
+  old_full = list(GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=3).epoch(1))
+  old_part = list(GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=3).epoch(1, start=3))
+  assert all(torch.equal(a[2], b[2]) for a, b in zip(old_full[3:], old_part))           # same order
+  assert not all(torch.equal(a[0], b[0]) for a, b in zip(old_full[3:], old_part))       # different crops
+  assert all(torch.equal(a[2], b[2]) for a, b in zip(full, old_full))                   # the order does not change

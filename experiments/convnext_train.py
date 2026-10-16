@@ -20,7 +20,8 @@ optimizer states, the tracked layers' summed momentum and second moments, RNG st
 snap_{step}.pt starts from one with a NEW attribution over 1,001 groups: W_0 = the snapshot weights, group 1000
 ('history') carries the old momentum, so every part is a write made after the snapshot. Run a control replay and an
 intervention replay from the same snapshot and compare them (the random crops of the partial epoch differ from the
-original run's, the same in both replays). --zero_loss_classes gives the listed classes' label terms loss weight 0 (an
+original run's, the same in both replays; with --batch_crops in the original run and its replays, the crops are seeded
+per batch and a control replay repeats the original run up to GPU nondeterminism). --zero_loss_classes gives the listed classes' label terms loss weight 0 (an
 intervention: their examples still pass through the model, but teach nothing for those labels). --extra_ckpts adds
 checkpoints (attribution parts and model, no validation pass) for a denser record.
 """
@@ -127,6 +128,9 @@ def main():
   p.add_argument('--init_from', default=None, help='replay: start from a snapshot with a new attribution (history group)')
   p.add_argument('--zero_loss_classes', default='', help='comma-separated classes whose label terms get loss weight 0')
   p.add_argument('--extra_ckpts', default='', help='comma-separated extra checkpoint steps, or start:stop:every')
+  p.add_argument('--batch_crops', action='store_true',
+                 help='crop draws seeded per batch, so resumes and replays repeat the original crops (use the same '
+                      'setting in the original run and its replays)')
   a = p.parse_args()
   dev = torch.device('cuda')
   torch.manual_seed(a.seed)
@@ -175,7 +179,7 @@ def main():
   os.makedirs(a.out, exist_ok=True)
   json.dump(vars(a) | {'tracked': list(layers), 'params': sum(p.numel() for p in model.parameters()),
                        'ckpt_steps': sorted(ckpts)}, open(os.path.join(a.out, 'config.json'), 'w'), indent=1)
-  loader = GPUTrainLoader(a.train, a.batch, dev, seed=a.seed)
+  loader = GPUTrainLoader(a.train, a.batch, dev, seed=a.seed, batch_seeded=a.batch_crops)
   if attr_r is not None:                       # random group of example j: the label of example perm[j]
     rand_np = np.random.default_rng([a.seed, 777]).permutation(loader.labels)
     np.save(os.path.join(a.out, 'rand_groups.npy'), rand_np.astype(np.int16))
@@ -197,7 +201,7 @@ def main():
     if a.snapshots:
       torch.save({'step': step, 'model': model.state_dict(), 'opts': [o.state_dict() for o in opts],
                   'attr': attr.snapshot(), 'torch_rng': torch.get_rng_state(), 'cuda_rng': torch.cuda.get_rng_state(),
-                  'log': list(log)}, os.path.join(a.out, f'snap_{step:05d}.pt'))
+                  'log': list(log), 'batch_crops': a.batch_crops}, os.path.join(a.out, f'snap_{step:05d}.pt'))
     rec = {'step': step, 'val_acc': acc, 'n_val': n_val, 'sec': time.time() - t0}
     log.append(rec)
     json.dump(log, open(os.path.join(a.out, 'log.json'), 'w'))
@@ -229,6 +233,9 @@ def main():
     t0 -= log[-1]['sec'] if log else 0
     print(f'resumed at step {step}', flush=True)
   elif snap is not None:
+    if snap.get('batch_crops', False) != a.batch_crops:
+      print(f'WARNING: snapshot batch_crops={snap.get("batch_crops", False)}, this replay {a.batch_crops}: '
+            'the crops will not repeat the original run', flush=True)
     for o, os_ in zip(opts, snap['opts']):
       o.load_state_dict(os_)
     torch.set_rng_state(snap['torch_rng'].cpu())

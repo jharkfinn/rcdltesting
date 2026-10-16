@@ -113,7 +113,8 @@ class GPUTrainLoader:
   """Epochs over the packed set: GPU JPEG decode (in its own thread, one batch ahead), RandomResizedCrop + flip to
   `size`, normalization. Labels are indexed on the GPU, so no step waits on a host-to-device copy."""
 
-  def __init__(self, root: str, batch: int, device, size: int = 224, seed: int = 0, drop_last: bool = True):
+  def __init__(self, root: str, batch: int, device, size: int = 224, seed: int = 0, drop_last: bool = True,
+               batch_seeded: bool = False):
     self.data = np.memmap(os.path.join(root, 'data.bin'), dtype=np.uint8, mode='r')
     self.offsets = np.load(os.path.join(root, 'offsets.npy'))
     self.labels = np.load(os.path.join(root, 'labels.npy'))
@@ -122,6 +123,7 @@ class GPUTrainLoader:
     self.seed = seed
     self.rng = np.random.default_rng(seed)
     self.drop_last = drop_last
+    self.batch_seeded = batch_seeded
     self.mean, self.std = MEAN.to(device)[:, None, None], STD.to(device)[:, None, None]
 
   def __len__(self):
@@ -130,7 +132,9 @@ class GPUTrainLoader:
   def epoch(self, index: int = None, start: int = 0):
     """One epoch of batches. With `index`, the order and the augmentation draws come from a generator seeded by
     (seed, index), so a resumed run can rebuild epoch `index` and begin at batch `start` (the crops of the resumed
-    batches then differ from those of an uninterrupted run; the order does not)."""
+    batches then differ from those of an uninterrupted run; the order does not). With batch_seeded, the crop and flip
+    draws of batch i come from a generator seeded by (seed, index, i) instead, so a run resumed or replayed from any
+    batch gets the same crops as the uninterrupted run."""
     import queue
     import threading
     from torchvision.io import ImageReadMode, decode_jpeg
@@ -159,7 +163,8 @@ class GPUTrainLoader:
       if isinstance(item, BaseException):
         raise item
       i, idx, imgs = item
-      top, left, ch, cw, flip = crop_params(self.rng, np.array([im.shape[-2:] for im in imgs]))
+      rng = np.random.default_rng([self.seed, index, i]) if self.batch_seeded and index is not None else self.rng
+      top, left, ch, cw, flip = crop_params(rng, np.array([im.shape[-2:] for im in imgs]))
       x = torch.empty(len(imgs), 3, self.size, self.size, device=self.dev)
       for k, im in enumerate(imgs):
         c = im[:, top[k]:top[k] + ch[k], left[k]:left[k] + cw[k]][None].float()
