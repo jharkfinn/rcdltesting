@@ -711,7 +711,7 @@ delta = dL/du_n the teaching signal, so the push on the pole is -kappa delta, su
   units relieved more than by the control is 0.57 to 0.92). Removing only the partners' writes along e has the same
   effect; removing only their writes orthogonal to e does nothing. The effect is large only where the write space is
   most collapsed: E1 at step 2,000 (block 1 from -0.17 to +0.40, effective rank 1.9, partner sets of 23 units) and E1
-  at 12,500 (+0.21 to +0.23 in blocks 0 and 1). In E1r and E4 it is +0.00 to +0.15, with partner sets of 2 to 12
+  at 12,500 (+0.21 to +0.23 in blocks 0 and 1). In E1r and E4 it is +0.00 to +0.15, with partner sets of 2 to 10
   units at the late step.
 - Class specificity (M5): comparing the unit's top-20 classes with the other classes at the same stream state along e
   (shared quantile bins of s_out), the top classes still get a negative push (E1 at 12,500: -0.37 to -0.47; E1r -0.28
