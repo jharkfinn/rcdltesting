@@ -63,7 +63,7 @@ bit-identical.
 
 | # | Experiment | Claim tested | Status |
 |---|---|---|---|
-| E0 | Static checks on the public InceptionV1 (V neuron 4e:55, the car / dog pose circuit 4c:447, mixed5b) | the essay's re-readings of canonical neurons | model verified; needs ImageNet validation images |
+| E0 | Static checks on the public InceptionV1 (V neuron 4e:55, the car / dog pose circuit 4c:447, mixed5b) | the essay's re-readings of canonical neurons | done for 4e:55 and the car circuit (Sec. 5); mixed5b open |
 | E1 | Writer atlas: ConvNeXt-SwiGLU tiny and medium, per-class attribution of the gate and value maps of late blocks, dense early checkpoints | instrument | code ready (`rcdl/convnext.py`, `rcdl/attribution.py`); needs a GPU and ImageNet |
 | E2 | Order of growth: when each class enters a neuron's writer set, and its distance to the classes already there | recursive generalization | |
 | E3 | Head start: did the neuron already fire on a class before that class wrote into it? | circuit racing | |
@@ -73,7 +73,80 @@ bit-identical.
 | E7 | Crush where packing is predicted (long-tail classes, 13-unit last layer) | rare facts ride related circuits | |
 | E8 | Toy: relatedness against anticorrelation as the cause of shared neurons | gap 2 above | running (`experiments/toy_packing.py`) |
 
-## 5. E8 results so far (preliminary)
+## 5. E0 results: the canonical InceptionV1 neurons on all 50,000 validation images
+
+Model and images as in Sec. 2 (exact weights, LRN fixed, Lucid preprocessing, 256 -> 224 center crops). Per image and
+channel: spatial maximum and minimum of the pre-ReLU response (`experiments/inception_e0.py collect`). "Top 50" means
+the 50 images with the largest maximum (or smallest minimum). Channel numbers are Lucid's concatenation order.
+Results: `docs/data/e0/` (JSON). The per-image statistics (`val_stats.npz`, sha256 3b301c01...) and the montages
+are in the private Hugging Face dataset `joshhf/rcdl-molab-results`, folder `neuron-dev/e0`.
+
+**4e:55 (the "cat and car" neuron; the essay: a V-shape detector with an O on its negative pole).**
+- Top 50 images: cats and foxes (tabby 7, red fox 6, kit fox 5, tiger cat 5, Persian 5, Pomeranian 4), no vehicles.
+- Class means (`inception_e0 profile`): the top 9 classes are pointed-faced animals (papillon, Persian, red fox,
+  Pomeranian, tabby, tiger cat, Japanese spaniel, Arctic fox, kit fox); then 10 vehicle classes fill ranks 10 to 35 of
+  1,000 (beach wagon 10, convertible 14, pickup 18, minivan 20, limousine 21, ambulance 25, sports car 26, cab 31,
+  police van 32, minibus 35). The first vehicle image is number 56 of 50,000. Both readings have support: the car
+  response is real at the class level, and it is weaker than the response to pointed animal faces.
+- Negative pole: broad, round-muzzled dogs (bull mastiff, pug, boxer, French bulldog) and round objects (soccer and golf
+  balls, a frog in a hand, a snail shell, a hermit crab, a spider body), with the response centred on the muzzle or the
+  round object (heat montage). This fits the essay's "O". Black-and-tan dogs (coonhound, Doberman, Rottweiler, Gordon
+  setter) also rank high, so colour pattern is a second candidate.
+- In InceptionV1 a ReLU follows every branch convolution, so the negative pole of a channel sends nothing downstream.
+  The O is a property of the weights, not a signal that a later layer can read.
+- Strongest linearized inputs from mixed4d (expanded weights through the bottlenecks): 4d:493 (foxes, papillon,
+  Pomeranian; weight 0.31), 4d:511 (insects), 4d:61, 4d:352 (vehicles; 0.10).
+
+**The car circuit (Zoom In's "superposition" example; the essay: two car neurons and two "generalized pose neurons").**
+The essay's figure shows four mixed4d readers of the car neuron 4c:447: 4d:167, 241, 295 and 417.
+- 4c:447: top 50 has 28 vehicles (ambulance 11, minibus 7, minivan 7) and no dogs; its negative pole has 39 dogs of 50.
+  As above, the negative pole cannot reach mixed4d: on dog images 447 writes exactly 0 into every reader.
+- 4d:167 and 4d:417: vehicle neurons (94 and 98 vehicles in their top 100, 3 and 0 dogs). 4c:447 writes 88% and 54% of
+  their response on vehicle images; zeroing 447 lowers it by 73% and 60%. This agrees with the essay.
+- 4d:241 and 4d:295: mixed (46 vehicles and 52 dogs; 49 and 49). Class means: 295's top classes interleave
+  wire-haired terriers with station wagons, minivans and pickups; 241 interleaves vans with shaggy dogs (Bouvier,
+  otterhound, Irish water spaniel).
+
+E0b (`experiments/inception_paths.py`) asks what drives the two halves of 241 and 295. mixed4d is piecewise linear in
+the mixed4c output x for one image, so the pre-ReLU response at the strongest position splits exactly as
+
+  z = sum_c s_c + r,   s_c = sum_{y,x} x[c,y,x] * dz/dx[c,y,x],
+
+where c runs over the 512 mixed4c channels, (y, x) over positions, s_c is channel c's share and r is the part written
+by the biases (0.2% to 0.8% of z here). Check: scaling x by 1.001 changes z by exactly 0.001 * sum_c s_c (float64,
+real weights). A shared pose detector would be driven by the same mixed4c channels on its car and its dog images; a
+neuron that packs a car feature with a dog feature would be driven by car channels on cars and by dog channels on dogs.
+
+| | 4d:241 | 4d:295 |
+|---|---|---|
+| cosine of the mean share vectors, vehicle images against dog images | 0.08 | 0.12 |
+| the same between two random halves of the vehicle images / of the dog images | 0.999 / 0.987 | 0.997 / 0.993 |
+| share of z from 4c:447 on vehicle images / on dog images | 0.76 / 0 | 0.45 / 0 |
+| drop of z when 4c:447 is zeroed, vehicle images / dog images | 79% / 0% | 48% / 0% |
+| share of the dog z written by the top 10 vehicle channels | 0.14 | 0.29 |
+| top inputs on dog images (their own top 50 images) | 4c:460 (50 of 50 dogs: Westie, Norwich, Norfolk, Tibetan terriers), 4c:219 (sighthounds), 4c:506 (Great Pyrenees, kuvasz) | 4c:460 (37%), 4c:452 (poodles, wire-haired fox terriers; 48 of 50 dogs), 4c:66 (terriers) |
+
+So on natural images, 241 and 295 are each driven by a vehicle detector (447) on vehicles and by dog-breed detectors
+on dogs, with almost orthogonal input patterns. One mixed4c channel, 4c:41 (20 dogs and 18 vehicles in its top 50:
+beach wagon, pickup, Irish and Yorkshire terriers), feeds both halves (11% and 8% of z in 295, 5% and 6% in 241). It is
+the only shared input we found, and it carries a small part of z. Heat montages agree: in 295 the vehicle response
+sits on wheels and the lower side of side-on cars, and the dog response on the faces of terriers, mostly seen from the
+front, so the top images do not share a pose.
+
+Reading. For these two units, the exact input attribution matches what Zoom In described: a car feature merged into
+neurons that also detect dogs. It does not match a single detector of a pose shared across cars and dogs.
+
+Limits:
+- Only the 100 strongest images per unit are used; a pose code could live in the weaker range.
+- Pose was not labelled; the claim about shared pose rests on the montages.
+- The essay's guided ("natural path") feature visualization is not published, so its figure cannot be repeated.
+- A pose unit could, in principle, be built as an OR of class-specific pose detectors. Then its inputs would differ by
+  class, but its car and dog images would still share a pose. The montages of 295 show side-on cars and frontal
+  terriers, so that variant is not supported either.
+- Open: whether anything downstream (mixed4e) reads the car half of 241 and 295 back out, which Zoom In's account also
+  needs.
+
+## 6. E8 results so far (preliminary)
 
 Setup: 8 families of 4 features; related = embedding cosine rho within a family; exclusive families (members never
 co-occur), co-occurring families, and exclusion pairs of families; 1 or 2 active features per sample; x -> Linear(64, m)
