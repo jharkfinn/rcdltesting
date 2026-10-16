@@ -9,7 +9,7 @@ import numpy as np
 
 
 def montage(stats: str, val_dir: str, imagenet_dir: str, layer: str, channel: int, kind: str, k: int, out: str,
-            weights: str = None):
+            weights: str = None, only: str = None):
   from PIL import Image, ImageDraw
   import pyarrow.parquet as pq
   from experiments.inception_e0 import class_names, concat_stats
