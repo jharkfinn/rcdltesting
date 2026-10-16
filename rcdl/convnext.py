@@ -31,6 +31,9 @@ SIZES = {   # parameter counts without the classifier, as published (see the mod
   # E7: tiny with its last layer crushed to 13 units (the essay's medium crush is 1,024 -> 13) and no route around it:
   # the last block has no residual connection and no layer scale, so the classifier reads only that block's output
   'tiny_crush13': dict(dims=(8, 8, 24, 28), units=(64, 64, 64, 64), depths=(3, 3, 9, 3), last_units=13, last_skip=False),
+  # tiny with a 16-wide residual stream in stage 1 (the stage-1 reversal test: is it a property of the 8-wide stream?);
+  # the essay's tiny count does not fix the widths (docs/NEURON_DEVELOPMENT.md, stage-1 section)
+  'tiny_s1w16': dict(dims=(8, 16, 24, 28), units=(64, 64, 64, 64), depths=(3, 3, 9, 3)),
 }
 
 
