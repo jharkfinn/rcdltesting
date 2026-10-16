@@ -1,4 +1,4 @@
-"""E2 / E3 tests on a writer atlas (v3, after the adversarial check of 2026-10-16).
+"""E2 / E3 tests on a writer atlas (v4, after two adversarial checks of 2026-10-16).
 
 Input: atlas_{step}.pt of experiments/convnext_atlas.py for a complete run (pole classes fixed at the final checkpoint)
 and a class distance (WordNet 3.0 by default; --dist: the DINOv2 neighbour rank of experiments/class_embed.py). Per
@@ -22,16 +22,24 @@ T1  entry order within the pole, against permutations of the entry checkpoints a
       classes and a non-constant t). Symmetric in time: it measures co-timing of near classes, which a branch order and
       relatives entering together both produce. Controls: the tercile null (final strength), the Mantel of
       |log R_c - log R_c'| with d (one route of the strength confound), and a class clock: t_c minus the class's mean
-      entry checkpoint over all other units of the network where it is a final pole class (relatives that become
-      learnable at the same time everywhere give co-timing without any spread inside a unit).
+      entry checkpoint over the other units, of the whole network or of the same stage, where it is a final pole class
+      (relatives that become learnable at the same time everywhere, or within a stage, give co-timing without any
+      spread inside a unit). The clock's null permutes the entry checkpoints within every unit at once and recomputes
+      the clocks, so it carries the noise of the leave-one-out clock estimate.
+      Note: with WordNet distance, co-timing alone (related classes tied at one checkpoint) also raises the nearest-
+      earlier statistic, more than a planted order does, so only the visual nearest-earlier statistic separates order
+      from co-timing.
 T2  direction: within units, regression of the half-rise checkpoint of R_c on d(c, anchor) (anchor: the unit's strongest
     final class) with log R_c(T) as a covariate; first crossing (first checkpoint with R_c >= R_c(T)/2) and stable
     crossing (first checkpoint from which it stays there). Null: d permuted within units. Power: the observed half-rise
     checkpoints reassigned within each unit in order of d (planted outward order).
 T3  relatives' writes against own writes over time: for each pole class with oriented own and summed relatives' parts
     positive at the end, the checkpoint at which each reaches 50% of its final value (first and stable crossing); lag =
-    t_own - t_rel (positive: relatives first). Null: the same with the summed parts of as many random non-relative
-    classes (a sum of several noisy parts crosses earlier than one part even with the same time course).
+    t_own - t_rel (positive: relatives first), reported directly. Null for the relatives: the summed parts of as many
+    non-relative classes matched one to one on the final oriented part (a random sum's final value is small against its
+    fluctuations, which moves the two crossing rules in opposite directions); rel_minus_matched > 0: relatives' writes
+    reach half their final value earlier than size-matched other classes' writes. (The unmatched random null of v3 is
+    kept for reference.)
 T4  composition at the end (oriented parts): shares of the positive mass for own, relatives, others; chance as the
     median share of one random non-relative class (own) and of as many random non-relatives as relatives (rel); own
     percentile among all other classes' parts, and the mean over relatives of each relative's percentile among the
@@ -43,9 +51,12 @@ T5  knockout at entry (needs gate and value writers): approximate class response
     Sets: own, relatives, as many random non-relatives, one random non-relative. Rates for classes at their entry
     checkpoint ('entering') and for classes that entered earlier ('incumbents'), raw and conditional on surviving with
     no knockout (the approximation's calibration), and the entering - incumbent difference within each checkpoint,
-    pooled with weights = entering count. A strict head start predicts that most entering classes survive without their
-    own writes; the comparison with incumbents is a weak test (any account where own writes keep growing after entry
-    predicts entering > incumbents).
+    pooled with weights = entering count. own_value_opposes: the own value part has the opposite sign to the class's
+    value at that checkpoint. Yardstick: every class writes into every unit, and one random class's part is a large
+    fraction of the net value, so even with no special role for the own writes the own knockout drops classes; a strict
+    head start (own writes count no more than another class's at entry) predicts own-knockout survival near the
+    one-random-class survival, and no head start predicts it lower. The essay's milder head start (a unit already
+    partly on for a class is first in line to take its error, so the own writes then do the lifting) is not tested.
 
 Usage: python3 -m experiments.convnext_growth_tests --run <run dir> [--perm 500] [--dist file.npz --near 10]
        [--out file.json]
@@ -169,10 +180,86 @@ def class_clock(atlases, tau):
   return entries, s, cnt, dead
 
 
+def pair_setup(D):
+  """Pairs of a small distance matrix: indices and the centred pair distances with their norm (for mantel_fast)."""
+  i, j = np.triu_indices(len(D), 1)
+  x = D[i, j].astype(float)
+  xc = x - x.mean()
+  return i, j, xc, float(np.sqrt(xc @ xc))
+
+
+def mantel_fast(t, ps):
+  i, j, xc, xn = ps
+  y = np.abs(t[i] - t[j]).astype(float)
+  yc = y - y.mean()
+  den = xn * float(np.sqrt(yc @ yc))
+  return float(xc @ yc) / den if den > 0 else np.nan
+
+
+def clock_tests(entries, perms, perms_t, dist, K, n_perm):
+  """Mantel of the residual entry r_c = t_c - (mean entry checkpoint of c over the OTHER units of the network, or of
+  the same stage, where c is a final pole class), per unit. The null permutes the entry checkpoints within every unit
+  of the network at once (plain or within strength terciles) and recomputes the clocks, so it carries the noise of the
+  leave-one-out clock estimate (classes that are pole classes in few units have noisier clocks, and with WordNet these
+  sit in the far pairs). Returns {variant: {unit: (obs, perm (n_perm,), perm_terc (n_perm,))}}."""
+  keys = list(entries)
+  stage = {k: k[0].split('.')[0] for k in keys}
+  groups = {'network': {k: 'all' for k in keys}, 'stage': stage}
+  out = {}
+  for variant, grp in groups.items():
+    names = sorted(set(grp.values()))
+    N = {g: np.zeros(K) for g in names}
+    for k in keys:
+      np.add.at(N[grp[k]], entries[k][0], 1)
+    setup = {}
+    for k in keys:
+      cls = entries[k][0]
+      o = N[grp[k]][cls] - 1
+      ok = o > 0
+      if ok.sum() >= 3:
+        setup[k] = (ok, o[ok], pair_setup(dist[np.ix_(cls[ok], cls[ok])]))
+
+    def run(td):
+      S = {g: np.zeros(K) for g in names}
+      for k in keys:
+        np.add.at(S[grp[k]], entries[k][0], td[k])
+      res = {}
+      for k, (ok, o, ps) in setup.items():
+        cls, t = entries[k][0], td[k]
+        r = t[ok] - (S[grp[k]][cls][ok] - t[ok]) / o
+        res[k] = mantel_fast(r, ps)
+      return res
+    obs = run({k: entries[k][1] for k in keys})
+    P = {k: np.zeros(n_perm) for k in setup}
+    PT = {k: np.zeros(n_perm) for k in setup}
+    for i in range(n_perm):
+      for store, src in ((P, perms), (PT, perms_t)):
+        res = run({k: src[k][i] for k in keys})
+        for k, v in res.items():
+          store[k][i] = 0.0 if np.isnan(v) else v
+    out[variant] = {k: (obs[k], P[k], PT[k]) for k in setup if not np.isnan(obs[k])}
+  return out
+
+
 def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
   rng = np.random.default_rng(seed)
   final = atlases[-1]
   entries, clk_s, clk_n, dead = class_clock(atlases, tau)
+  K = dist.shape[0]
+  perms, perms_t, tercs = {}, {}, {}
+  for ui, (key, (cls, t)) in enumerate(entries.items()):      # permutation draws per unit, shared by every T1 test
+    b_, n_ = key
+    Rfin = atlases[-1][b_]['R'][n_, cls].numpy()
+    terc = np.minimum(np.argsort(np.argsort(-Rfin)) * 3 // len(cls), 2)
+    g_ = np.random.default_rng([seed, ui])
+    perms[key] = np.stack([g_.permutation(t) for _ in range(n_perm)])
+    pt = np.repeat(t[None], n_perm, 0)
+    for g in range(3):
+      ix = np.where(terc == g)[0]
+      if len(ix) > 1:
+        pt[:, ix] = np.stack([g_.permutation(t[ix]) for _ in range(n_perm)])
+    perms_t[key], tercs[key] = pt, terc
+  clocks = clock_tests(entries, perms, perms_t, dist, K, n_perm)
   out = {}
   for b in final:
     P = final[b]['poles'].shape[1] // 2
@@ -181,9 +268,10 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
     z = lambda: np.zeros(n_perm)
     t1 = {'obs': 0.0, 'cnt': 0, 'perm': z(), 'perm_terc': z(), 'chain': 0.0, 'rel_obs': 0, 'rel_perm': z(), 'rel_chain': 0,
           'm_obs': 0.0, 'm_n': 0, 'm_perm': z(), 'm_terc': z(), 'm_chain': 0.0, 'm_strength': 0.0,
-          'c_obs': 0.0, 'c_n': 0, 'c_perm': z(), 'c_terc': z()}
+          }
     t2_rows, t2_plant = [], []                                    # (unit, t_first, t_stable, d, logR)
-    t3 = {k: [] for k in ('rel_first', 'rel_stable', 'rnd_first', 'rnd_stable', 'diff_first', 'diff_stable')}
+    t3 = {k: [] for k in ('rel_first', 'rel_stable', 'rnd_first', 'rnd_stable', 'diff_first', 'diff_stable',
+                          'mat_first', 'mat_stable', 'diffm_first', 'diffm_stable')}
     t4 = {k: [] for k in ('own', 'rel', 'other', 'own_chance', 'rel_chance', 'own_pct', 'rel_pct', 'gross_net', 'neg_vbar')}
     t5 = {}                                                       # (group, checkpoint) -> counts
     has_gate = 'gate_writers' in final[b] and 'Gm' in final[b]
@@ -197,16 +285,8 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
       Rfin = Rt[-1, n, cls]
       seq = prim_order(Dc, int(np.argmax(Rfin)))
       tc = planted(seq, t)
-      terc = np.minimum(np.argsort(np.argsort(-Rfin)) * 3 // len(cls), 2)
-
-      def perm_terc(tt):
-        tp = tt.copy()
-        for g in range(3):
-          ix = np.where(terc == g)[0]
-          tp[ix] = rng.permutation(tt[ix])
-        return tp
-      perms = [rng.permutation(t) for _ in range(n_perm)]
-      perms_t = [perm_terc(t) for _ in range(n_perm)]
+      terc = tercs[(b, n)]
+      perms_u, perms_tu = perms[(b, n)], perms_t[(b, n)]
       # T1 nearest
       d, r = nearest_earlier(t, Dc, near)
       if len(d):
@@ -214,9 +294,9 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
         dc, rc = nearest_earlier(tc, Dc, near)
         t1['chain'] += dc.sum(); t1['rel_chain'] += int(rc.sum())
         for k in range(n_perm):
-          dp, rp = nearest_earlier(perms[k], Dc, near)
+          dp, rp = nearest_earlier(perms_u[k], Dc, near)
           t1['perm'][k] += dp.sum(); t1['rel_perm'][k] += int(rp.sum())
-          t1['perm_terc'][k] += nearest_earlier(perms_t[k], Dc, near)[0].sum()
+          t1['perm_terc'][k] += nearest_earlier(perms_tu[k], Dc, near)[0].sum()
       # T1 Mantel, plain and against the class clock
       iu = np.triu_indices(len(cls), 1)
       mx = Dc[iu]
@@ -227,27 +307,9 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
         ms = np.corrcoef(mx, np.abs(lr[:, None] - lr[None, :])[iu])[0, 1]
         t1['m_strength'] += 0.0 if np.isnan(ms) else ms
         for k in range(n_perm):
-          t1['m_perm'][k] += mantel(perms[k], mx, iu)
-          mt = mantel(perms_t[k], mx, iu)
+          t1['m_perm'][k] += mantel(perms_u[k], mx, iu)
+          mt = mantel(perms_tu[k], mx, iu)
           t1['m_terc'][k] += 0.0 if np.isnan(mt) else mt
-      others = clk_n[cls] - 1
-      ok = others > 0
-      if ok.sum() >= 3:
-        res = (t[ok] - (clk_s[cls][ok] - t[ok]) / others[ok]).astype(float)
-        iu2 = np.triu_indices(int(ok.sum()), 1)
-        Dk = Dc[np.ix_(ok, ok)]
-        m1 = mantel(res, Dk[iu2], iu2)
-        if not np.isnan(m1):
-          tk = terc[ok]
-          t1['c_obs'] += m1; t1['c_n'] += 1
-          for k in range(n_perm):
-            t1['c_perm'][k] += mantel(rng.permutation(res), Dk[iu2], iu2)
-            rp = res.copy()
-            for g in range(3):
-              ix = np.where(tk == g)[0]
-              rp[ix] = rng.permutation(res[ix])
-            mt = mantel(rp, Dk[iu2], iu2)
-            t1['c_terc'][k] += 0.0 if np.isnan(mt) else mt
       # T2
       anchor = cls[int(np.argmax(Rfin))]
       rows = []
@@ -266,7 +328,7 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
           pl[order, col] = np.sort(rows[:, col])
         t2_plant.append(pl)
       # T3, T4 (oriented value parts)
-      l_rel = {'first': [], 'stable': []}
+      l_rel, l_own = {'first': [], 'stable': []}, {'first': [], 'stable': []}
       for j, c in zip(js, cls):
         rel = np.array([k for k in np.where(dist[c] <= near)[0] if k != c], int)
         nonrel = np.setdiff1d(np.arange(K), np.append(rel, c))
@@ -274,16 +336,29 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
         W = final[b]['value_writers'][n, j].float().numpy()
         vbar = W.sum() + float(final[b]['value_init'][n, j])
         sgn = 1.0 if vbar >= 0 else -1.0
+        # size-matched null for T3: for each relative, the unused non-relative whose final oriented part is nearest
+        mat, free = [], np.ones(len(nonrel), bool)
+        for k in rng.permutation(rel):
+          cand = np.where(free)[0]
+          m_ = cand[np.argmin(np.abs(sgn * W[nonrel[cand]] - sgn * W[k]))]
+          free[m_] = False; mat.append(nonrel[m_])
+        mat = np.array(mat, int)
         own_tr = sgn * np.array([float(at[b]['value_writers'][n, j, c]) for at in atlases])
         if len(rel):
           VW = np.stack([at[b]['value_writers'][n, j].float().numpy() for at in atlases])   # (T, K)
-          rel_tr, rnd_tr = sgn * VW[:, rel].sum(1), sgn * VW[:, rnd].sum(1)
-          if own_tr[-1] > 0 and rel_tr[-1] > 0 and rnd_tr[-1] > 0:
+          rel_tr, rnd_tr, mat_tr = sgn * VW[:, rel].sum(1), sgn * VW[:, rnd].sum(1), sgn * VW[:, mat].sum(1)
+          if own_tr[-1] > 0 and rel_tr[-1] > 0:
             for mode in ('first', 'stable'):
               st = mode == 'stable'
-              a_, r_, q_ = crossing(own_tr, 0.5, st), crossing(rel_tr, 0.5, st), crossing(rnd_tr, 0.5, st)
-              t3[f'rel_{mode}'].append(a_ - r_); t3[f'rnd_{mode}'].append(a_ - q_); t3[f'diff_{mode}'].append(q_ - r_)
-              l_rel[mode].append(q_ - r_)
+              a_, r_ = crossing(own_tr, 0.5, st), crossing(rel_tr, 0.5, st)
+              t3[f'rel_{mode}'].append(a_ - r_)
+              l_own[mode].append(a_ - r_)
+              if mat_tr[-1] > 0:
+                m_ = crossing(mat_tr, 0.5, st)
+                t3[f'mat_{mode}'].append(a_ - m_); t3[f'diffm_{mode}'].append(m_ - r_); l_rel[mode].append(m_ - r_)
+              if rnd_tr[-1] > 0:
+                q_ = crossing(rnd_tr, 0.5, st)
+                t3[f'rnd_{mode}'].append(a_ - q_); t3[f'diff_{mode}'].append(q_ - r_)
         Wo = sgn * W
         pos = np.clip(Wo, 0, None)
         mass = pos.sum()
@@ -299,8 +374,9 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
             t4['rel_pct'].append(float(np.mean([(Wo[other] < Wo[k]).mean() for k in rel])))
           if abs(vbar) > 1e-9:
             t4['gross_net'].append(np.abs(W).sum() / abs(vbar))
-      t3.setdefault('_unit_diff_first', []).append(l_rel['first'])
-      t3.setdefault('_unit_diff_stable', []).append(l_rel['stable'])
+      for mode in ('first', 'stable'):
+        t3.setdefault(f'_unit_diffm_{mode}', []).append(l_rel[mode])
+        t3.setdefault(f'_unit_own_{mode}', []).append(l_own[mode])
       # T5 knockout at entry, bar recomputed over the stored pole classes
       if has_gate:
         stored = final[b]['poles'][n].numpy()                     # 2P classes with writers
@@ -323,7 +399,8 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
             r5 = t5.setdefault(key, {'n': 0, 'keep': 0, 'own_neg': 0, **{f'{s}_{m}': 0 for s in sets for m in ('fix', 'new', 'new_keep')}})
             thr0 = float(torch.sort(torch.cat([base[:c], base[c + 1:]]), descending=True).values[P - 1])
             keep = float(base[c]) >= thr0
-            r5['n'] += 1; r5['keep'] += int(keep); r5['own_neg'] += int(float(VW_[j, c]) < 0)
+            vb = float(VW_[j].sum()) + float(at['value_init'][n, j])
+            r5['n'] += 1; r5['keep'] += int(keep); r5['own_neg'] += int(float(VW_[j, c]) * (1.0 if vb >= 0 else -1.0) < 0)
             for s, S in sets.items():
               resp = base.clone()
               if S:
@@ -355,13 +432,16 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
                     'z_tercile': float((t1['m_obs'] - mt.mean()) / max(mt.std(), 1e-9)),
                     'mantel_strength_vs_dist': t1['m_strength'] / k_,
                     '_raw': {'obs': t1['m_obs'], 'perm': mp.tolist(), 'perm_terc': mt.tolist(), 'chain': t1['m_chain']}}
-    if t1['c_n']:
-      k_, cp, ct = t1['c_n'], t1['c_perm'], t1['c_terc']
-      rec['T1clock'] = {'units': k_, 'mantel_obs': t1['c_obs'] / k_, 'mantel_perm': float(cp.mean() / k_),
-                        'mantel_perm_tercile': float(ct.mean() / k_),
-                        'z': float((t1['c_obs'] - cp.mean()) / max(cp.std(), 1e-9)),
-                        'z_tercile': float((t1['c_obs'] - ct.mean()) / max(ct.std(), 1e-9)),
-                        '_raw': {'obs': t1['c_obs'], 'perm': cp.tolist(), 'perm_terc': ct.tolist()}}
+    for variant, units in clocks.items():
+      mine = [v for k, v in units.items() if k[0] == b]
+      if mine:
+        o, cp, ct = sum(v[0] for v in mine), np.sum([v[1] for v in mine], 0), np.sum([v[2] for v in mine], 0)
+        k_ = len(mine)
+        rec[f'T1clock_{variant}'] = {'units': k_, 'mantel_obs': o / k_, 'mantel_perm': float(cp.mean() / k_),
+                                     'mantel_perm_tercile': float(ct.mean() / k_),
+                                     'z': float((o - cp.mean()) / max(cp.std(), 1e-9)),
+                                     'z_tercile': float((o - ct.mean()) / max(ct.std(), 1e-9)),
+                                     '_raw': {'obs': o, 'perm': cp.tolist(), 'perm_terc': ct.tolist()}}
     if len(t2_rows) > 5:
       arr, pl = np.concatenate(t2_rows), np.concatenate(t2_plant)
       rec['T2'] = {'n': len(arr), 'units': len(t2_rows)}
@@ -378,13 +458,18 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
         rec['T2'][mode] = {'slope': obs, 'perm_mean': float(perm.mean()), 'perm_sd': float(perm.std()),
                            'p_perm_ge_obs': float((perm >= obs).mean()), 'planted_slope': wslope(pl, col)}
     if t3['rel_first']:
-      rec['T3'] = {'n': len(t3['rel_first'])}
+      rec['T3'] = {'n': len(t3['rel_first']), 'n_matched': len(t3['mat_first'])}
+      mean = lambda v: float(np.mean(v)) if len(v) else None
       for mode in ('first', 'stable'):
-        rec['T3'][mode] = {'lag_rel_mean': float(np.mean(t3[f'rel_{mode}'])), 'lag_rand_mean': float(np.mean(t3[f'rnd_{mode}'])),
-                           'rel_minus_rand': float(np.mean(t3[f'diff_{mode}'])),
-                           'rel_minus_rand_ci': boot_mean(t3[f'_unit_diff_{mode}'], rng),
+        rec['T3'][mode] = {'own_minus_rel': mean(t3[f'rel_{mode}']),
+                           'own_minus_rel_ci': boot_mean(t3[f'_unit_own_{mode}'], rng),
                            'share_rel_first': float((np.array(t3[f'rel_{mode}']) > 0).mean()),
-                           'share_own_first': float((np.array(t3[f'rel_{mode}']) < 0).mean())}
+                           'share_own_first': float((np.array(t3[f'rel_{mode}']) < 0).mean()),
+                           'own_minus_matched': mean(t3[f'mat_{mode}']),
+                           'rel_minus_matched': mean(t3[f'diffm_{mode}']),
+                           'rel_minus_matched_ci': boot_mean(t3[f'_unit_diffm_{mode}'], rng),
+                           'own_minus_unmatched_random': mean(t3[f'rnd_{mode}']),
+                           'rel_minus_unmatched_random': mean(t3[f'diff_{mode}'])}
     if t4['own']:
       rec['T4'] = {k: float(np.median(v)) for k, v in t4.items() if v and k != 'neg_vbar'}
       rec['T4']['share_neg_vbar'] = float(np.mean(t4['neg_vbar']))
@@ -398,7 +483,7 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
       rec['T5'] = {}
       for g in agg:
         a = agg[g]
-        rec['T5'][g] = {'n': a['n'], 'fire_no_knockout': a['keep'] / a['n'], 'own_value_negative': a['own_neg'] / a['n'],
+        rec['T5'][g] = {'n': a['n'], 'fire_no_knockout': a['keep'] / a['n'], 'own_value_opposes': a['own_neg'] / a['n'],
                         **{f'survive_{s}_fixed_bar': a[f'{s}_fix'] / a['n'] for s in sets},
                         **{f'survive_{s}': a[f'{s}_new'] / a['n'] for s in sets},
                         **{f'survive_{s}_given_fire': a[f'{s}_new_keep'] / max(a['keep'], 1) for s in sets}}
@@ -431,8 +516,9 @@ def pooled(blocks, names):
     ro, rp, rc = sum(r['rel_obs'] for r in R), np.sum([r['rel_perm'] for r in R], 0), sum(r['rel_chain'] for r in R)
     out['nearest'] = {'obs': o / m, 'perm': p.mean() / m, 'planted': ch / m, 'z': (o - p.mean()) / p.std(),
                       'z_tercile': (o - pt.mean()) / pt.std(), 'frac_of_planted_tercile': (o - pt.mean()) / (ch - p.mean()),
+                      'frac_of_planted_plain': (o - p.mean()) / (ch - p.mean()), 'frac_of_planted_tercile_both': (o - pt.mean()) / (ch - pt.mean()),
                       'earlier_relative': [ro / m, rp.mean() / m, rc / m], 'z_earlier_relative': (ro - rp.mean()) / rp.std()}
-  for key in ('T1m', 'T1clock'):
+  for key in ('T1m', 'T1clock_network', 'T1clock_stage'):
     have = [b for b in names if key in blocks[b]]
     if not have:
       continue
