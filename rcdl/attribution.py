@@ -111,7 +111,8 @@ class _Tracked:
     self.lin, self.opt, self.hp, self.t = lin, opt, hp, 0
     self.W0 = W.detach().to(dtype).clone()
     self.b0 = lin.bias.detach().to(dtype).clone() if lin.bias is not None else None
-    self.C = torch.zeros(K, *W.shape, dtype=dtype, device=dev)
+    self._C = torch.zeros(K, *W.shape, dtype=dtype, device=dev)   # the parts are s * _C (lazy uniform weight decay)
+    self.s = 1.0
     self.Cb = torch.zeros(K, W.shape[0], dtype=dtype, device=dev) if lin.bias is not None else None
     self.a, self.ab = 1.0, 1.0                      # decay factors of the initial weight and bias
     zeros = lambda *s: torch.zeros(*s, dtype=dtype, device=dev)
@@ -124,6 +125,17 @@ class _Tracked:
     if lin.bias is not None:
       lin.bias.requires_grad_(False)
     self.handle = lin.register_forward_hook(self._hook)
+
+  @property
+  def C(self) -> torch.Tensor:
+    """The parts (K, d_out, d_in), with the deferred decay applied."""
+    self._flush()
+    return self._C
+
+  def _flush(self):
+    if self.s != 1.0:
+      self._C.mul_(self.s)
+      self.s = 1.0
 
   def _hook(self, mod, inp, out):
     if not torch.is_grad_enabled():
@@ -138,7 +150,7 @@ class _Tracked:
 
   def per_example(self):
     """Per-example weight and bias gradients (B, d_out, d_in), (B, d_out), summed over positions, in the state dtype."""
-    dt = self.C.dtype
+    dt = self._C.dtype
     B = self.h.shape[0]
     h = self.h.reshape(B, -1, self.h.shape[-1]).to(dt)
     d = self.delta.reshape(B, -1, self.delta.shape[-1]).to(dt)
@@ -152,6 +164,8 @@ class _Tracked:
     if self.h is None or self.delta is None:
       raise RuntimeError('no (input, output gradient) captured: run forward and backward before step()')
     G, Gb = self.per_example()
+    if self.s < 1e-6:                                  # keep 1 / s bounded on long runs
+      self._flush()
     hp, W = self.hp, self.lin.weight
     wd, wd_b = hp['weight_decay'], hp['bias_weight_decay']
     self.t += 1
@@ -163,15 +177,17 @@ class _Tracked:
       g = G.sum(0)
       self.v.mul_(b2).addcmul_(g, g, value=1 - b2)
       D = 1.0 / ((self.v / c2).sqrt_() + eps)
-      self.C.mul_(1 - lr * wd).addcmul_(self.m, D, value=-lr / c1)
+      self.s *= 1 - lr * wd                            # decay of every part, deferred: no pass over C
+      self._C.addcmul_(self.m, D, value=-lr / c1 / self.s)
       self.a *= 1 - lr * wd
       upd = self.m.sum(0).mul_(D).mul_(-lr / c1)
     elif self.opt == 'sgd':
       mu, nest = hp['momentum'], hp['nesterov']
       _scatter(self.m.mul_(mu), groups, weights, G, 1.0)
-      self.C.mul_(1 - lr * wd).add_(self.m, alpha=-lr * (mu if nest else 1.0))
+      self.s *= 1 - lr * wd
+      self._C.add_(self.m, alpha=-lr * (mu if nest else 1.0) / self.s)
       if nest:
-        _scatter(self.C, groups, weights, G, -lr)
+        _scatter(self._C, groups, weights, G, -lr / self.s)
       self.a *= 1 - lr * wd
       upd = -lr * ((mu if nest else 1.0) * self.m.sum(0) + (G.sum(0) if nest else 0.0))
     elif self.opt == 'muon':
@@ -182,18 +198,19 @@ class _Tracked:
       with _no_tf32():                                 # the parts must add up to O: no TF32 in these matmuls
         O, P, transposed, norm = newton_schulz_factor(U, hp['ns_steps'], hp['ns_eps'])
         s = muon_adjusted_lr(lr, W.shape, hp['adjust_lr_fn']) / norm
-        self.C.mul_(1 - lr * wd)
-        K = self.C.shape[0]
+        self.s *= 1 - lr * wd
+        sc = s / self.s                                # step size on the stored _C
+        K = self._C.shape[0]
         if transposed:                                 # group part: U^(k) P^T
           Pt = P.T.expand(K, *P.T.shape)
-          self.C.baddbmm_(self.m, Pt, alpha=-s * (mu if nest else 1.0))
+          self._C.baddbmm_(self.m, Pt, alpha=-sc * (mu if nest else 1.0))
           if nest:
-            _scatter(self.C, groups, weights, torch.matmul(G, P.T), -s * (1 - mu))
+            _scatter(self._C, groups, weights, torch.matmul(G, P.T), -sc * (1 - mu))
         else:                                          # group part: P U^(k)
           Pe = P.expand(K, *P.shape)
-          self.C.baddbmm_(Pe, self.m, alpha=-s * (mu if nest else 1.0))
+          self._C.baddbmm_(Pe, self.m, alpha=-sc * (mu if nest else 1.0))
           if nest:
-            _scatter(self.C, groups, weights, torch.matmul(P, G), -s * (1 - mu))
+            _scatter(self._C, groups, weights, torch.matmul(P, G), -sc * (1 - mu))
       self.a *= 1 - lr * wd
       upd = O * (-s * norm)
     else:

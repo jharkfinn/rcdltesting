@@ -235,8 +235,9 @@ distances between ImageNet classes (`rcdl/imagenet_hierarchy.py`, `docs/data/ima
     the logged validation count was wrong;
   - the mixup weights forced a host-device sync every step; data packing used 3 of 18 workers; the
     RandomResizedCrop fallback differed from torchvision's; JPEG decode and crops ran in series.
-- Open for the medium model: keep C undecayed (C / a) to save a full pass per step, and stack the maps of a stage
-  into one state (36 small updates per step become 4).
+- The uniform weight decay of the parts is deferred to one scale s per map (the stored parts are C / s, flushed when
+  read or when s < 1e-6), which saves a full pass over C each step (about 6 to 10 minutes per medium run).
+- Open for the medium model: stack the maps of a stage into one state (36 small updates per step become 4).
 - molab: both sandboxes ended with HTTP 410, after about 15 and 45 minutes, the first while writing to local disk
   and the second just after training had started with 52 GB in /dev/shm. The cause is not known (a memory limit
   that counts /dev/shm, a lifetime limit, or the end of the browser session are candidates).

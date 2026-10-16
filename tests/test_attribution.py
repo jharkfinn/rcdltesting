@@ -286,3 +286,32 @@ def test_full_state_resumes_exactly(opt):
   assert torch.equal(model[0].weight, model2[0].weight)
   assert torch.equal(attr.tracked['l0'].C, attr2.tracked['l0'].C)
   assert attr.tracked['l0'].t == attr2.tracked['l0'].t == 10
+
+
+@pytest.mark.parametrize('opt', ['adamw', 'sgd', 'muon'])
+def test_lazy_decay_survives_strong_decay_and_flushes(opt):
+  """Weight decay of the parts is deferred to a scale s; with lr * wd = 0.5 per step s falls below 1e-6 after 20
+  steps and is flushed. The parts still add up, and AdamW still equals torch."""
+  model = tiny(8)
+  ref = copy.deepcopy(model)
+  kw = dict(momentum=0.9, nesterov=True) if opt != 'adamw' else {}
+  attr = GroupAttribution({'l0': model[0]}, n_groups=4, optimizer=opt, lr=0.1, weight_decay=5.0,
+                          bias_weight_decay=5.0, dtype=torch.float64, **kw)
+  ref_opt = torch.optim.AdamW(ref[0].parameters(), lr=0.1, weight_decay=5.0)
+  x, y, groups = data(30, 6, seed=15)
+  scales = []
+  for t in range(30):
+    loss_fn(model(x[t]), y[t]).backward()
+    model[2].zero_grad()
+    attr.step(groups[t])
+    scales.append(attr.tracked['l0'].s)
+    if opt == 'adamw':
+      ref_opt.zero_grad()
+      loss_fn(ref(x[t]), y[t]).backward()
+      ref_opt.step()
+      ref[2].zero_grad()
+  assert any(b > a for a, b in zip(scales, scales[1:])) and min(scales) >= 0.5e-6   # flushed, so s stays bounded
+  res = attr.residual('l0')
+  assert res['weight'] < 1e-12 * max(1.0, res['weight_scale']) and res['bias'] < 1e-12
+  if opt == 'adamw':
+    assert torch.allclose(model[0].weight, ref[0].weight, atol=1e-11, rtol=0)
