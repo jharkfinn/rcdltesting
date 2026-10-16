@@ -107,3 +107,43 @@ def test_scale_derivative_and_ablation():
   A = bp.ablate(m, x, y, P, n_top=1, n_rest=1, device='cpu')
   assert set(A) == {b for b, _ in m.blocks()}
   assert all(np.isfinite(v) for a in A.values() for v in a.values())
+
+
+def test_rest_classes_leave_out_relatives():
+  rel = np.zeros((10, 10), bool)
+  rel[0, 1:5] = rel[1:5, 0] = True
+  top = np.array([0, 9])
+  for seed in range(5):
+    r = bp.rest_classes(np.random.default_rng(seed), 10, top, rel, 3)
+    assert len(set(r)) == 3 and not set(r) & {0, 9, 1, 2, 3, 4}
+  r = bp.rest_classes(np.random.default_rng(0), 10, top, rel, 6)      # too few far classes: any non-top class
+  assert len(set(r)) == 6 and not set(r) & {0, 9}
+  r0 = np.random.default_rng(3).choice(np.setdiff1d(np.arange(10), top), 4, replace=False)
+  assert (bp.rest_classes(np.random.default_rng(3), 10, top, None, 4) == r0).all()   # without rel: as before
+
+
+def test_replay_history_group_is_left_out(tmp_path):
+  """A replay's attribution has one group more than there are classes (history): summarize and convnext_bias_self
+  use the class groups only, and bias_self reads atlas_prelim files."""
+  from experiments import convnext_bias_self as bs
+  m = _model(4)
+  x = torch.randint(0, 256, (8, 3, 64, 64), dtype=torch.uint8)
+  y = torch.arange(4).repeat_interleave(2)
+  P = bp.probe_paths(m, x, y, n_classes=4, batch=8, device='cpu')
+  name = 'stage1.block0'
+  rng = np.random.default_rng(0)
+  w = {k: rng.normal(size=(5, 6)) for k in ('gate', 'value')}
+  s5, s4 = bp.summarize(P[name], w, top_n=2), bp.summarize(P[name], {k: v[:4] for k, v in w.items()}, top_n=2)
+  assert s5['rho_writes'] == s4['rho_writes'] and s5['writes_top20'] == s4['writes_top20']
+  R, G, V = P[name]['u'].T, P[name]['g'].T, P[name]['v'].T
+  rel = np.zeros((4, 4), bool)
+  b5 = bs.block_self(w['gate'], w['value'], R, G, V, rel, np.ones(6), top_n=2)
+  b4 = bs.block_self(w['gate'][:4], w['value'][:4], R, G, V, rel, np.ones(6), top_n=2)
+  assert b5 == b4
+  for s in (1000, 1500):
+    torch.save({f'{name}.pw_{k}': {'Cb': torch.from_numpy(w[k] * s).half(), 'Cb_scale': 1.0} for k in w},
+               tmp_path / f'attr_{s:05d}.pt')
+    torch.save({name: {'R': torch.from_numpy(R), 'Gm': torch.from_numpy(G), 'Vm': torch.from_numpy(V)}},
+               tmp_path / f'atlas_prelim_{s:05d}.pt')
+  steps, cb, atl = bs.load_run(str(tmp_path))
+  assert steps == [1000, 1500] and cb[1500][f'{name}.pw_gate'].shape == (5, 6)

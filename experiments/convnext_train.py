@@ -104,13 +104,16 @@ def parse_stages(spec) -> list:
 
 def freeze_layer_scales(model, stages) -> list:
   """X3: requires_grad False on the layer scale (gamma) of every block in the given stages; returns their names. A
-  frozen parameter is left out of the optimizers (param_groups), so it keeps its value (no step, no weight decay)."""
+  frozen parameter is left out of the optimizers (param_groups), so it keeps its value (no step, no weight decay).
+  ValueError if stages are given but none of them has a layer scale (e.g. a stage index out of range)."""
   names = []
   for n, p in model.named_parameters():
     parts = n.split('.')                                 # stages.{i}.{j}.gamma
     if parts[0] == 'stages' and parts[-1] == 'gamma' and int(parts[1]) in stages:
       p.requires_grad_(False)
       names.append(n)
+  if stages and not names:
+    raise ValueError(f'--freeze_gamma {stages}: no layer scales in those stages')
   return names
 
 
@@ -263,9 +266,16 @@ def main():
     if attr_r is not None:
       attr_r.load_snapshot(snap['attr'], history_group=1000)
   tracked = [t for l in layers.values() for t in (l.weight, l.bias)]
-  frozen = freeze_layer_scales(model, parse_stages(a.freeze_gamma))
+  try:
+    frozen = freeze_layer_scales(model, parse_stages(a.freeze_gamma))
+  except ValueError as e:
+    p.error(str(e))
   if frozen:
     print(f'frozen layer scales: {frozen}', flush=True)
+    if snap is None and not os.path.exists(os.path.join(a.out, 'resume.pt')):
+      print('WARNING: --freeze_gamma on a fresh run keeps those layer scales at their initial value '
+            f'(max |gamma| {float(dict(model.named_parameters())[frozen[0]].abs().max()):g}); '
+            'meant for replays (--init_from)', flush=True)
   opts = build_optimizers(model, tracked, a.opt, a.lr, a.muon_lr, a.wd)
   base = [[g['lr'] for g in o.param_groups] for o in opts]
   sched = lambda s: (s + 1) / a.warmup if s < a.warmup else 0.5 * (1 + math.cos(math.pi * (s - a.warmup) / (a.steps - a.warmup)))

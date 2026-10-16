@@ -88,3 +88,12 @@ def test_snapshot_state_loads_with_a_frozen_stage(opt):
   ct.load_optimizer_states(opts2, [o.state_dict() for o in opts], m2, tracked2, opt, 0.05, '1', '')
   _train(m2, attr2, opts2, steps=1, seed=3)
   assert not torch.equal(m2.stages[1][0].gamma, m.stages[1][0].gamma)
+
+
+def test_stage_without_layer_scales_is_an_error():
+  torch.manual_seed(0)
+  m = ConvNeXt(dims=(8, 8, 8, 8), units=(6, 6, 6, 6), depths=(1, 2, 1, 1), n_classes=4, layer_scale=0.5)
+  with pytest.raises(ValueError):
+    ct.freeze_layer_scales(m, ct.parse_stages('4'))
+  assert all(p.requires_grad for p in m.parameters())
+  assert ct.freeze_layer_scales(m, ct.parse_stages('')) == []

@@ -24,6 +24,9 @@ Assumptions: the derivative at the class-mean pre-activations stands for the mea
 images (SiLU is not linear, so this is first order and approximate); the strongest position p* is where the response is
 read, while a bias write moves every position.
 
+With --run, the atlas files may be atlas_{step}.pt or atlas_prelim_{step}.pt (an unfinished run, or a replay from
+convnext_train.py --init_from, whose attribution also has a 'history' group 1000 that is left out: it is not a class).
+
   python3 -m experiments.convnext_bias_self --run results/e1r_tiny_adamw_s1
   python3 -m experiments.convnext_bias_self --npz e1_cb.npz --rdir e1R --out e1_bias_self.json   (extracted E1 parts)
 """
@@ -50,7 +53,9 @@ def dsilu(g):
 
 def block_self(dg, dv, R1, G1, V1, rel, sign_T, top_n=20):
   """dg, dv: (K, U) bias writes; R1, G1, V1: (U, C) response, gate and value class means at t1; rel: (C, C) bool;
-  sign_T: (U,) value sign on the top-20 classes at the end. Returns {group: {measure: value}}."""
+  sign_T: (U,) value sign on the top-20 classes at the end. Returns {group: {measure: value}}. Only the first C rows of
+  dg, dv are used (C classes; a replay's extra 'history' group is not a class)."""
+  dg, dv = dg[:R1.shape[1]], dv[:R1.shape[1]]
   z = ((R1 - R1.mean(1, keepdims=True)) / (R1.std(1, keepdims=True) + 1e-12))
   live = np.ptp(R1, 1) > 1e-3 * np.abs(R1).max()
   av, ag = silu(G1), dsilu(G1) * V1                                          # (U, C)
@@ -105,12 +110,19 @@ def load_npz(npz, rdir):
   return steps, cb, atl
 
 
+def atlas_file(run, s):
+  """atlas_{s}.pt, or atlas_prelim_{s}.pt (an unfinished run or a replay; R, Gm, Vm are the same)."""
+  f = os.path.join(run, f'atlas_{s:05d}.pt')
+  return f if os.path.exists(f) else os.path.join(run, f'atlas_prelim_{s:05d}.pt')
+
+
 def load_run(run):
   from experiments.convnext_bias_signal import load_cb
-  steps = sorted(int(f[-8:-3]) for f in glob.glob(os.path.join(run, 'atlas_[0-9]*.pt')))
+  found = glob.glob(os.path.join(run, 'atlas_[0-9]*.pt')) + glob.glob(os.path.join(run, 'atlas_prelim_[0-9]*.pt'))
+  steps = sorted({int(f[-8:-3]) for f in found})
   steps = [s for s in steps if os.path.exists(os.path.join(run, f'attr_{s:05d}.pt'))]
   cb = {s: load_cb(os.path.join(run, f'attr_{s:05d}.pt')) for s in steps}
-  atl = {s: torch.load(os.path.join(run, f'atlas_{s:05d}.pt'), map_location='cpu', weights_only=False) for s in steps}
+  atl = {s: torch.load(atlas_file(run, s), map_location='cpu', weights_only=False) for s in steps}
   return steps, cb, atl
 
 

@@ -29,8 +29,12 @@ classes of DN units and PP units (typed by their top-20 classes as in convnext_b
 Vm < 0, 'PP' if most have both positive). Every per-unit mean is over live units only (class-mean u* not constant).
 
 Older output files (before 2026-10-16) differ: the logit split's key is 'own', the gradient of +z[k], so true = -own
-and there ce = lse - own; their 'rest' includes the WordNet relatives; their n_on_*, dn_top20 and S_*_top20 include
-dead units; and the stored u*, g*, v* came from the fixed-sigma pass (forward values equal up to rounding).
+and there ce = lse - own; their 'rest' (and the ablation's 20 other classes) includes the WordNet relatives; their
+n_on_*, dn_top20 and S_*_top20 include dead units; and the stored u*, g*, v* came from the fixed-sigma pass (forward
+values equal up to rounding).
+
+On a replay directory (convnext_train.py --init_from) the attribution has one more group, 1000 ('history': the momentum
+from before the snapshot); it is not a class and is left out of the writes.
 
 Assumptions: clean images without mixup or augmentation stand for the training batches; the derivative at class-mean
 pre-activations stands for the class mean of the derivative; first order.
@@ -154,11 +158,22 @@ def probe_paths(model, x_u8, y, n_classes=1000, batch=50, device='cuda'):
   return {b: {k: (t / cnt).float().cpu().numpy() for k, t in a.items()} for b, a in acc.items()}
 
 
+def rest_classes(rng, n_classes, top, rel, n):
+  """n random classes outside top and, with rel (C, C) bool, outside the WordNet relatives of top, as summarize's
+  'rest' (all non-top classes when fewer than n remain)."""
+  pool = np.setdiff1d(np.arange(n_classes), top)
+  if rel is not None:
+    far = pool[~rel[top].any(0)[pool]]
+    pool = far if len(far) >= n else pool
+  return rng.choice(pool, n, replace=False)
+
+
 @torch.no_grad()
-def ablate(model, x_u8, y, P, alphas=(0.0, 1.25), n_top=20, n_rest=20, device='cuda', seed=0):
+def ablate(model, x_u8, y, P, alphas=(0.0, 1.25), n_top=20, n_rest=20, device='cuda', seed=0, rel=None):
   """Scale one unit's output by alpha at every position (alpha = 0: ablation) on the images of its top-20 classes (by
-  class-mean u* in P) and of n_rest other classes. Per block: per-unit means over each role of the change in
-  cross-entropy and in the true-class logit against alpha = 1, and of dCE/dalpha at alpha = 1 (from P)."""
+  class-mean u* in P) and of n_rest other classes (not WordNet relatives of the top-20 when rel is given). Per block:
+  per-unit means over each role of the change in cross-entropy and in the true-class logit against alpha = 1, and of
+  dCE/dalpha at alpha = 1 (from P)."""
   mean, std = MEAN.to(device)[:, None, None], STD.to(device)[:, None, None]
   per = int((y == y[0]).sum())
   rng = np.random.default_rng(seed)
@@ -173,7 +188,7 @@ def ablate(model, x_u8, y, P, alphas=(0.0, 1.25), n_top=20, n_rest=20, device='c
       if np.ptp(R[n]) <= 1e-3 * np.abs(R).max():
         continue
       top = np.argsort(-R[n])[:n_top]
-      rest = rng.choice(np.setdiff1d(np.arange(C), top), n_rest, replace=False)
+      rest = rest_classes(rng, C, top, rel, n_rest)
       cls = np.concatenate([top, rest])
       idx = torch.from_numpy((cls[:, None] * per + np.arange(per)[None]).ravel())
       xb = (x_u8[idx].to(device).float() - mean) / std
@@ -275,7 +290,8 @@ def summarize(P, writes=None, top_n=20, rel=None):
     out[f'units_{k}'] = int(sel.sum())
     out[f'ce_top20_{k}'] = float(np.nanmean(np.where(inT, whole / scale[None], np.nan)[:, sel], 0).mean()) \
         if sel.any() else float('nan')
-  if writes is not None:
+  if writes is not None:                        # a replay's attribution has one more group (1000: 'history', the
+    writes = {m: w[:len(whole)] for m, w in writes.items()}    # momentum from before the snapshot): not a class
     wpole = writes['value'] * pa_v[None] + writes['gate'] * pa_g[None]                # writes are -lr grad already
     out['rho_writes'] = float(np.nanmedian([spearman(whole[:, n], wpole[:, n]) for n in np.flatnonzero(live)]))
     out['writes_top20'] = role_mean(wpole / (np.abs(wpole).mean(0) + 1e-30)[None], inT)
@@ -289,7 +305,8 @@ def main():
   p.add_argument('--val', default='/marimo/work/data/imagenet/data')
   p.add_argument('--probe_cache', default='/dev/shm/probe_8.pt')
   p.add_argument('--batch', type=int, default=50)
-  p.add_argument('--ablate', action='store_true', help='also scale each unit on its top-20 and 20 other classes')
+  p.add_argument('--ablate', action='store_true', help='also scale each unit on its top-20 and 20 other classes '
+                 '(not WordNet relatives of the top-20 when --wordnet is found)')
   p.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz',
                  help="WordNet distances; relatives (dist <= 4) of the top-20 classes are left out of 'rest'")
   p.add_argument('--out', default=None)
@@ -327,7 +344,7 @@ def main():
       print(s, b, {k: round(r[k]['top20'], 2) for k in SPLITS}, 'rho', round(r.get('rho_writes', np.nan), 2),
             'writes', round(r.get('writes_top20', np.nan), 2), flush=True)
     if a.ablate:
-      A = ablate(model, x, y, P, device=dev)
+      A = ablate(model, x, y, P, device=dev, rel=rel)
       for b in A:
         res[s][b]['ablate'] = A[b]
         print(s, b, 'ablate', {k: round(v, 3) for k, v in A[b].items()}, flush=True)
