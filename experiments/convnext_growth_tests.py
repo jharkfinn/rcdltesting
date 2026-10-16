@@ -15,14 +15,17 @@ T1 order of entry against a within-pole null. Stable entry t_c = first checkpoin
    outliers of the pole, so this statistic can move the wrong way under branch order. Hence also a Mantel statistic,
    robust to ties: per unit (3 or more pole classes) the Pearson correlation over class pairs of |t_c - t_c'| with the
    WordNet distance d(c, c'), averaged over units; same permutations, same planted order. Any growth by WordNet
-   neighbourhood (branch order, or relatives entering together) predicts a positive correlation.
+   neighbourhood (branch order, or relatives entering together) predicts a positive correlation. Entry follows final
+   strength, and relatives may have similar strength, so the Mantel null is also drawn within terciles of final R
+   (strength held fixed), and the Mantel correlation of |log R_c - log R_c'| with d is reported (the confound's size).
 T2 half-rise against distance. t50_c = first checkpoint with R_c(t) >= R_c(T) / 2; d_c = WordNet distance from c to the
    unit's strongest final class. Within-unit regression of t50 on d with log R_c(T) as a covariate; null: d permuted
    within units. Recursive generalization predicts a positive slope (classes far from the core rise later).
 T3 relatives lead or follow. For each pole class with positive own and relative parts at the end: the first checkpoint
    at which its own part, and the sum of its relatives' parts, reach 25% and 50% of their final values; lag =
    t_own - t_rel (positive: relatives lead). Median and bootstrap interval over units.
-T4 positive-mass composition at the end: own, relative and other shares of the positive mass sum_k max(W_k, 0), with the
+T4 (also: own_pct, rel_pct = percentile of the own part, and of the mean relative part, among the K - 1 other classes'
+   parts; 0.5 by chance) positive-mass composition at the end: own, relative and other shares of the positive mass sum_k max(W_k, 0), with the
    chance shares by count (1 / K, n_rel / K; K classes); gross / net = sum_k |W_k| / |vbar| (vbar: the class mean of the
    value); mean_rel_over_mean_abs_other = mean of W_k over relatives / mean of |W_k| over the other classes.
 T5 knockout at entry (head start; needs gate and value writers): with class means, R'_c = SiLU(G_c - G_own) (V_c - V_own);
@@ -30,7 +33,10 @@ T5 knockout at entry (head start; needs gate and value writers): with class mean
    Rate for entering classes at their entry checkpoint against incumbents (already in the pole) at the same checkpoint.
    The essay's head start predicts entering > incumbents. Approximation: SiLU(G_c) V_c of class means stands for the class
    mean of SiLU(g) v, and the strongest position is held fixed; the rate with own writes kept (no knockout) is reported as
-   a calibration of the approximation (it is 1 if the approximation is exact).
+   a calibration of the approximation (it is 1 if the approximation is exact). Reported: rates conditional on firing with
+   own writes (P(fires after knockout | fires before)), for three knockouts: own writes, all relatives' writes, and the
+   writes of as many random non-relative classes (control); and the share with a positive own value part. Head start
+   predicts, for entering against incumbents: higher survival without own writes, lower survival without relatives.
 
 Usage: python3 -m experiments.convnext_growth_tests --run <run dir> [--perm 500] [--out file.json]
 """
@@ -120,12 +126,15 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
     T, U, K = Rt.shape
     t1 = {'obs': 0.0, 'cnt': 0, 'rel_obs': 0, 'perm': np.zeros(n_perm), 'perm_terc': np.zeros(n_perm),
           'rel_perm': np.zeros(n_perm), 'chain_obs': 0.0, 'chain_perm': np.zeros(n_perm),
-          'm_obs': 0.0, 'm_n': 0, 'm_perm': np.zeros(n_perm), 'm_chain': 0.0}
+          'm_obs': 0.0, 'm_n': 0, 'm_perm': np.zeros(n_perm), 'm_chain': 0.0, 'm_perm_terc': np.zeros(n_perm),
+          'm_strength': 0.0}
     t2_rows = []                                                  # (unit, t50, d, logR)
     t3 = {'own25': [], 'rel25': [], 'own50': [], 'rel50': []}
     lag25, lag50 = [], []
-    t4 = {'own': [], 'rel': [], 'other': [], 'own_chance': [], 'rel_chance': [], 'gross_net': [], 'mean_rel_over_mean_abs_other': []}
-    t5 = {'enter_fire': 0, 'enter_n': 0, 'inc_fire': 0, 'inc_n': 0, 'enter_keep': 0, 'inc_keep': 0}
+    t4 = {'own': [], 'rel': [], 'other': [], 'own_chance': [], 'rel_chance': [], 'gross_net': [], 'mean_rel_over_mean_abs_other': [],
+          'own_pct': [], 'rel_pct': []}
+    t5 = {g: {'n': 0, 'keep': 0, 'own_pos': 0, 'ko_own': 0, 'ko_own_keep': 0, 'ko_rel': 0, 'ko_rel_keep': 0,
+              'ko_rand': 0, 'ko_rand_keep': 0} for g in ('enter', 'inc')}
     has_gate = 'gate_writers' in final[b] and 'Gm' in final[b]
     for n in range(U):
       scale = float(np.abs(Rt[-1, n]).max())
@@ -144,13 +153,24 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
       iu = np.triu_indices(len(cls), 1)
       mx = Dc[iu]
       m0 = mantel(t, mx, iu) if len(cls) >= 3 else np.nan
+      terc = np.minimum(np.argsort(np.argsort(-Rt[-1, n, cls])) * 3 // len(cls), 2)
+      def perm_terc(tt):
+        tp = tt.copy()
+        for g in range(3):
+          ix = np.where(terc == g)[0]
+          tp[ix] = rng.permutation(tt[ix])
+        return tp
       if not np.isnan(m0):                      # t not constant, so every permutation is defined as well
         t1['m_obs'] += m0; t1['m_n'] += 1; t1['m_chain'] += mantel(tc, mx, iu)
+        lr = np.log(Rt[-1, n, cls])
+        ms = np.corrcoef(mx, np.abs(lr[:, None] - lr[None, :])[iu])[0, 1]
+        t1['m_strength'] += 0.0 if np.isnan(ms) else ms
         for k in range(n_perm):
           t1['m_perm'][k] += mantel(rng.permutation(t), mx, iu)
+          mt = mantel(perm_terc(t), mx, iu)
+          t1['m_perm_terc'][k] += 0.0 if np.isnan(mt) else mt
       if len(d):
         t1['obs'] += d.sum(); t1['cnt'] += len(d); t1['rel_obs'] += int(r.sum())
-        terc = np.minimum(np.argsort(np.argsort(-Rt[-1, n, cls])) * 3 // len(cls), 2)
         dc, _ = nearest_earlier(tc, Dc, near)
         t1['chain_obs'] += dc.sum()
         for k in range(n_perm):
@@ -197,6 +217,8 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
             t4['gross_net'].append(np.abs(W).sum() / abs(vbar))
           if rel:
             t4['mean_rel_over_mean_abs_other'].append(W[relm].mean() / max(np.abs(W[other]).mean(), 1e-12))
+            t4['rel_pct'].append(float(np.mean([(W[other] < W[k]).mean() for k in rel])))
+          t4['own_pct'].append(float((W[other | relm] < W[c]).mean()))
       lag25.append(l25); lag50.append(l50)
       # T5 knockout at entry
       if has_gate:
@@ -209,16 +231,20 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
           for jj, (j, c) in enumerate(zip(js, cls)):
             if t[jj] > ti:
               continue
-            gown, vown = float(at['gate_writers'][n, j, c]), float(at['value_writers'][n, j, c])
-            rko = float(F.silu(torch.tensor(float(Gm[c]) - gown)) * (float(Vm[c]) - vown))
+            gw, vw = at['gate_writers'][n, j].float(), at['value_writers'][n, j].float()
             others = Rapprox.clone()
             others[c] = -float('inf')
             thr = float(torch.sort(others, descending=True).values[P - 1])
-            fire, keep = rko >= thr, float(Rapprox[c]) >= thr
-            if t[jj] == ti:
-              t5['enter_n'] += 1; t5['enter_fire'] += int(fire); t5['enter_keep'] += int(keep)
-            else:
-              t5['inc_n'] += 1; t5['inc_fire'] += int(fire); t5['inc_keep'] += int(keep)
+            rel = [k for k in np.where(dist[c] <= near)[0] if k != c]
+            nonrel = np.setdiff1d(np.arange(K), np.array(rel + [c], int))
+            rnd = rng.choice(nonrel, size=len(rel), replace=False) if rel else np.array([], int)
+            ko = lambda idx: float(F.silu(Gm[c] - gw[idx].sum()) * (Vm[c] - vw[idx].sum())) >= thr
+            keep = float(Rapprox[c]) >= thr
+            r = t5['enter' if t[jj] == ti else 'inc']
+            k_own, k_rel, k_rnd = ko([c]), ko(rel), ko(list(rnd))
+            r['n'] += 1; r['keep'] += int(keep); r['own_pos'] += int(float(vw[c]) > 0)
+            for name, v in (('ko_own', k_own), ('ko_rel', k_rel), ('ko_rand', k_rnd)):
+              r[name] += int(v); r[name + '_keep'] += int(v and keep)
     rec = {}
     if t1['cnt']:
       m = t1['cnt']
@@ -243,7 +269,12 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
                     'p_perm_ge_obs': float((t1['m_perm'] >= t1['m_obs']).mean()),
                     'power_chain_obs': t1['m_chain'] / k_,
                     'power_chain_z': float((t1['m_chain'] - t1['m_perm'].mean()) / max(t1['m_perm'].std(), 1e-9)),
-                    '_raw': {'obs': t1['m_obs'], 'perm': t1['m_perm'].tolist(), 'chain': t1['m_chain']}}
+                    'mantel_perm_tercile': float(t1['m_perm_terc'].mean() / k_),
+                    'z_tercile': float((t1['m_obs'] - t1['m_perm_terc'].mean()) / max(t1['m_perm_terc'].std(), 1e-9)),
+                    'p_perm_tercile_ge_obs': float((t1['m_perm_terc'] >= t1['m_obs']).mean()),
+                    'mantel_strength_vs_wordnet': t1['m_strength'] / k_,
+                    '_raw': {'obs': t1['m_obs'], 'perm': t1['m_perm'].tolist(), 'chain': t1['m_chain'],
+                             'perm_terc': t1['m_perm_terc'].tolist()}}
     if len(t2_rows) > 10:
       arr = np.array(t2_rows, float)
       def slope(a):
@@ -276,14 +307,16 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
       med = lambda k: float(np.median(t4[k]))
       rec['T4'] = {k: med(k) for k in t4 if t4[k]}
       rec['T4']['n'] = len(t4['own'])
-    if t5['enter_n']:
-      rec['T5'] = {'entering_fire_without_own': t5['enter_fire'] / t5['enter_n'], 'entering_n': t5['enter_n'],
-                   'incumbents_fire_without_own': t5['inc_fire'] / max(t5['inc_n'], 1), 'incumbents_n': t5['inc_n'],
-                   'entering_fire_with_own': t5['enter_keep'] / t5['enter_n'],
-                   'incumbents_fire_with_own': t5['inc_keep'] / max(t5['inc_n'], 1)}
+    if t5['enter']['n']:
+      rec['T5'] = {}
+      for g in ('enter', 'inc'):
+        r = t5[g]
+        rec['T5'][g] = {'n': r['n'], 'fire_with_own': r['keep'] / r['n'], 'own_value_positive': r['own_pos'] / r['n'],
+                        **{f'{k}_raw': r[k] / r['n'] for k in ('ko_own', 'ko_rel', 'ko_rand')},
+                        **{f'{k}_given_fire': r[k + '_keep'] / max(r['keep'], 1) for k in ('ko_own', 'ko_rel', 'ko_rand')}}
     out[b] = rec
-    print(b, json.dumps({k: {kk: (round(vv, 3) if isinstance(vv, float) else vv) for kk, vv in v.items() if kk != '_raw'}
-                         for k, v in rec.items()}), flush=True)
+    rnd3 = lambda v: round(v, 3) if isinstance(v, float) else ({kk: rnd3(vv) for kk, vv in v.items()} if isinstance(v, dict) else v)
+    print(b, json.dumps({k: {kk: rnd3(vv) for kk, vv in v.items() if kk != '_raw'} for k, v in rec.items()}), flush=True)
   return out
 
 
