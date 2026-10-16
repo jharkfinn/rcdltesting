@@ -8,7 +8,8 @@ import os
 import numpy as np
 
 
-def montage(stats: str, val_dir: str, imagenet_dir: str, layer: str, channel: int, kind: str, k: int, out: str):
+def montage(stats: str, val_dir: str, imagenet_dir: str, layer: str, channel: int, kind: str, k: int, out: str,
+            weights: str = None):
   from PIL import Image, ImageDraw
   import pyarrow.parquet as pq
   from experiments.inception_e0 import class_names, concat_stats
@@ -23,6 +24,15 @@ def montage(stats: str, val_dir: str, imagenet_dir: str, layer: str, channel: in
   canvas = Image.new('RGB', (cols * cell, ((k + cols - 1) // cols) * (cell + 14)), 'white')
   draw = ImageDraw.Draw(canvas)
   tables = {}
+  model = None
+  if weights:                                          # heat overlay: where in the crop the channel responds
+    import torch
+    import torch.nn.functional as F
+    from experiments.inception_e0 import channel_index, load_model
+    model = load_model(weights, 'cpu')
+    branch, ch = channel_index(model, layer, channel)
+    grab = {}
+    getattr(model, branch).register_forward_hook(lambda m, i_, o: grab.__setitem__('a', o[0, ch]))
   for n, i in enumerate(idx):
     fi = int(np.searchsorted(starts, i, side='right') - 1)
     if fi not in tables:
@@ -33,7 +43,20 @@ def montage(stats: str, val_dir: str, imagenet_dir: str, layer: str, channel: in
     s = 256 / min(w, h)
     im = im.resize((max(256, round(w * s)), max(256, round(h * s))), Image.BILINEAR)
     W, H = im.size
-    im = im.crop(((W - 224) // 2, (H - 224) // 2, (W - 224) // 2 + 224, (H - 224) // 2 + 224)).resize((cell, cell))
+    im = im.crop(((W - 224) // 2, (H - 224) // 2, (W - 224) // 2 + 224, (H - 224) // 2 + 224))
+    if model is not None:
+      x = torch.from_numpy(np.asarray(im, dtype=np.float32)).permute(2, 0, 1)[None] - 117.0
+      with torch.no_grad():
+        model(x)
+      m = grab['a'][None, None]
+      m = (m if kind == 'max' else -m).clamp(min=0)
+      m = F.interpolate(m, size=(224, 224), mode='bilinear', align_corners=False)[0, 0]
+      m = (m / m.max().clamp(min=1e-6)).numpy()
+      arr = np.asarray(im, dtype=np.float32)
+      arr = arr * (0.35 + 0.65 * m[..., None])                       # dim where the channel is quiet
+      arr[..., 0] = np.maximum(arr[..., 0], 255 * m * 0.6)           # and tint the response red
+      im = Image.fromarray(arr.clip(0, 255).astype(np.uint8))
+    im = im.resize((cell, cell))
     x, y = (n % cols) * cell, (n // cols) * (cell + 14)
     canvas.paste(im, (x, y))
     draw.text((x + 2, y + cell), f'{names[row["label"]][:18]} {a[i]:.0f}', fill='black')
@@ -51,5 +74,6 @@ if __name__ == '__main__':
   p.add_argument('--kind', default='max', choices=['max', 'min'])
   p.add_argument('--k', type=int, default=32)
   p.add_argument('--out', required=True)
+  p.add_argument('--weights', default=None, help='inception5h.pth: overlay the channel\'s spatial response')
   a = p.parse_args()
-  montage(a.stats, a.val, a.imagenet, a.layer, a.channel, a.kind, a.k, a.out)
+  montage(a.stats, a.val, a.imagenet, a.layer, a.channel, a.kind, a.k, a.out, a.weights)
