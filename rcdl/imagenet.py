@@ -148,13 +148,24 @@ class GPUTrainLoader:
     perm = self.index[self.rng.permutation(self.n)]     # global indices (keep None: a permutation of all images)
     perm_gpu = torch.from_numpy(perm).to(self.dev)
     q, stop = queue.Queue(2), object()
+    cuda = torch.device(self.dev).type == 'cuda'
+    dstream = torch.cuda.Stream(self.dev) if cuda else None
 
     def decode():                                       # the random draws stay in the consumer: same order always
       try:
         for i in range(start, len(self)):
           idx = perm[i * self.batch:(i + 1) * self.batch]
           raw = [torch.from_numpy(np.array(self.data[self.offsets[j]:self.offsets[j + 1]])) for j in idx]
-          q.put((i, idx, decode_jpeg(raw, mode=ImageReadMode.RGB, device=self.dev)))
+          if cuda:
+            # The GPU decode writes on its own stream. Its outputs are allocated from a separate stream's pool, so it
+            # never receives a block that training kernels still queued on the default stream are using; the
+            # synchronize makes the images complete before the consumer reads them.
+            with torch.cuda.stream(dstream):
+              imgs = decode_jpeg(raw, mode=ImageReadMode.RGB, device=self.dev)
+            torch.cuda.synchronize(self.dev)
+          else:
+            imgs = decode_jpeg(raw, mode=ImageReadMode.RGB, device=self.dev)
+          q.put((i, idx, imgs))
       except BaseException as e:
         q.put(e)
         return
@@ -168,6 +179,10 @@ class GPUTrainLoader:
       if isinstance(item, BaseException):
         raise item
       i, idx, imgs = item
+      if cuda:
+        cur = torch.cuda.current_stream(self.dev)
+        for im in imgs:                                 # read on this stream: the decode pool waits before reusing
+          im.record_stream(cur)
       rng = np.random.default_rng([self.seed, index, i]) if self.batch_seeded and index is not None else self.rng
       x = self._crop(imgs, rng)
       yield x, self.labels_gpu[perm_gpu[i * self.batch:(i + 1) * self.batch]], torch.from_numpy(idx)
@@ -186,8 +201,11 @@ class GPUTrainLoader:
     """The training augmentation of the images with global indices idx, with draws from rng (synchronous)."""
     from torchvision.io import ImageReadMode, decode_jpeg
     raw = [torch.from_numpy(np.array(self.data[self.offsets[j]:self.offsets[j + 1]])) for j in idx]
+    cuda = torch.device(self.dev).type == 'cuda'
+    if cuda:      # the decode writes on its own stream: no queued kernel may still use the memory it receives
+      torch.cuda.synchronize(self.dev)
     imgs = decode_jpeg(raw, mode=ImageReadMode.RGB, device=self.dev)
-    if torch.device(self.dev).type == 'cuda':
+    if cuda:      # and the images must be complete before the crops read them
       torch.cuda.synchronize(self.dev)
     return self._crop(imgs, rng)
 
