@@ -89,6 +89,7 @@ def block_inputs(model, x, names):
   return out
 
 
+@torch.no_grad()
 def atlas_step(model, attr, init, x_u8, y, n_classes, poles_idx=None, poles=20, batch=100, device='cuda',
                chunk=None):
   """One checkpoint. poles_idx: {block: (units, 2 * poles) class indices} (None: choose from this checkpoint's R).
