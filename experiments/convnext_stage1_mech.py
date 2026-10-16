@@ -1,5 +1,6 @@
-"""Stage-1 reversal: the residual stream along a unit's write direction where the unit is active (X1), and its pole push
-with its same-direction partners turned down (X2).
+"""Stage-1 reversal: the residual stream along a unit's write direction where the unit is active, and how the network
+reads that direction (X1); the unit's pole push when its same-direction partners or the stream along its direction are
+changed (X2).
 
 convnext_bias_paths.py finds that from about step 1,000 on, a stage-1 unit's 20 strongest classes push its response down
 (late blocks: up), and convnext_unit_roles.py that most stage-1 units have a partner whose write direction is nearly
@@ -7,66 +8,102 @@ parallel (|cos| > 0.9; the 8-dimensional write space is nearly collapsed). Candi
   M1 overshoot: same-direction partners already fill the stream along the unit's direction, so more of the unit hurts
   M4 cancellation: the unit's write cancels a useful incoming component of the stream along its direction
   M5 class-specific negative readout of the direction, independent of the stream's level
-  M3 SwiGLU curvature: the push depends on the unit's own level, not on the stream's
-This script measures what separates them. Notation as in convnext_bias_paths.py: for block b, unit n, image i of class
-k and position p, u = SiLU(g) v, delta = dCE_i / du, the unit's top-20 classes P_n (by class-mean u* = max_p u), and the
-pole coefficients pa_v = mean_{c in P_n} SiLU(Gm[n, c]), pa_g = mean_{c in P_n} SiLU'(Gm[n, c]) Vm[n, c].
+  M3 SwiGLU curvature: the push comes from the unit's own nonlinearity, not from how its write is read
+Notation as in convnext_bias_paths.py: for block b, unit n, image i of class k and position p, u = SiLU(g) v, the
+unit's top-20 classes P_n (by class-mean u* = max_p u), and the pole coefficients pa_v = mean_{c in P_n} SiLU(Gm[n, c]),
+pa_g = mean_{c in P_n} SiLU'(Gm[n, c]) Vm[n, c].
 
-X1, the stream state. The block writes w_n = gamma * W_down[:, n] per unit of u_n; e = w_n / |w_n|. At every position:
-  s_in   = x_in . e                     the block's input along e
-  s_own  = u_n |w_n|                    the unit's own write along e
-  s_part = (omega - u_n w_n) . e        the other units' writes along e (with the pw_down bias write, also reported
-                                        alone as s_bias), omega = x_out - x_in
-  s_out  = x_out . e = s_in + s_own + s_part
-  kappa  = SiLU(g) pa_v + SiLU'(g) v pa_g   (the derivative of the pole response through this position's bias gradient)
-  push   = -kappa delta                 its sum over positions, class-averaged, is convnext_bias_paths' pole[k, n]
+X1. The block writes w_n = gamma * W_down[:, n] per unit of u_n; e = w_n / |w_n|. At every position:
+  s_in    = x_in . e                    the block's input along e
+  s_own   = u_n |w_n|                   the unit's own write
+  s_part  = sum_{m != n} u_m w_m . e    the other units of the block (partners)
+  s_bias  = gamma b_down . e            the block's bias write;  s_out = x_out . e = s_in + s_own + s_part + s_bias
+  s_later = x_end . e - s_out           the later blocks of the stage (x_end: the stream at the stage's end; 0 in the
+                                        stage's last block);  s_end = s_out + s_later
+  s_excl  = s_out - s_own               the stream along e without the unit
+  kappa   = SiLU(g) pa_v + SiLU'(g) v pa_g   the change of u_n here per unit of the pole's bias write
+  delta   = dCE_i / du_n = |w_n| r,  r = e . dCE_i / dx_out   the downstream readout of e (r > 0: more e raises CE)
+  push    = -kappa delta                its sum over positions, class-averaged, is convnext_bias_paths' pole[k, n]
+r does not involve unit n's own SwiGLU; kappa does, and |kappa| grows with g and v, so a push-based curve along u_n or
+along s_out (which contains s_own) moves with |kappa| under every mechanism. The r-based readouts do not.
 Roles per unit: top20 (P_n), relatives (WordNet relatives of P_n outside it, with --wordnet), rest (all other classes).
-Each quantity is a class value, then a mean over the role's classes per unit, then a mean over live units:
-  pole_{role}               class-mean push summed over positions, in units of the unit's mean |pole| over all classes
-                            (convnext_bias_paths' ce split, with the relatives left out of 'rest')
-  s_{in,own,part,bias,out}_{role}   |kappa|-weighted means at the unit's active positions (u >= 0.5 u*, u* > 0; p* is
-                            among them), in stream units; pstar_s_*_{role}: the same at p* alone (unweighted)
-  frac_sout_pos_{role}      share of (unit, class) pairs with s_out > 0 at the active positions
-  frac_m1_{role}            share with s_out > 0 and s_part > s_out / 2 (the partners supply most of the stream)
-  part_share_{role}         mean of s_part / (|s_in| + |s_own| + |s_part|)
-  frac_sin_opposes_own_{role}   share with s_in s_own < 0 (s_own > 0 at active positions, so s_in < 0)
-  frac_sout_below_sin_{role}    share with |s_out| < |s_in| (the block shrinks the stream along e)
-  frac_m4_{role}            share with both (the unit's write cancels an incoming component)
-  push_by_{v}_bin_{role}    for v in sout, sin, u (u_n): the class-mean push summed within each of 10 bins of v, in
-                            units of the unit's mean |pole| (the 10 entries add up to pole_{role})
-  push_per_pos_by_{v}_bin_{role}  push per position in each bin (pooled over the role's images) times the positions per
-                            image, same units: the pole push an image would get if all its positions were in that state
-  occ_by_{v}_bin_{role}     share of the role's positions in each bin
-  slope_by_{v}_{role}       Spearman correlation of push_per_pos with the bin index (over bins with positions)
-  role_offset_by_{v}        per unit, push_per_pos top20 minus rest at the same bin, weighted by the top20 occupancy,
-                            then averaged over units
-  rms_sin_all, rms_sout_all  RMS of s_in, s_out over all positions (the scale of the s_* values)
-The bins of v are per unit and shared by all roles: deciles of v over all positions of all probe images, each position
-weighted by |kappa| (so each bin holds a tenth of the unit's derivative mass; --edges positions: unweighted), estimated
-from --n_sample random positions per image.
-Readings: M1: s_out > 0 at the active pole positions, mostly from s_part, and push_per_pos falls with s_out on one
-curve for both roles (role_offset_by_sout near 0); M4: s_in < 0 against s_own > 0 with |s_out| < |s_in| (frac_m4
-high); M5: a role offset at fixed bins (role_offset_by_* < 0 for the reversal); M3: push_per_pos changes along the u
-bins at a fixed stream state (slope_by_u) and not along s_out.
+Each quantity is a class value (mean over the class's images), then a mean over the role's classes per unit, then a mean
+over live units, unless stated:
+  pole_{role}                 class-mean push summed over positions, in units of the unit's mean |pole| over all
+                              classes (convnext_bias_paths' ce split, with the relatives left out of 'rest')
+  pole_{q}_{role}             the same from the positions with the signs q of kappa and delta (the four add up to
+                              pole_{role}): kp_dp (kappa > 0, delta > 0: the readout is against more e; push < 0),
+                              kn_dn (kappa < 0, delta < 0: the bias write lowers u_n where more would help, the unit's
+                              own curvature; push < 0), kp_dn and kn_dp (push > 0)
+  push_act_{role}, n_act_{role}   the push from the active positions alone (same units), active positions per image
+  {k}_{role}                  for k in s_in, s_own, s_part, s_bias, s_out, s_later, s_end: |kappa|-weighted mean at the
+                              active positions (u_n >= 0.5 u_n* in the image, u_n* > 0; with --active pole: u_n >= half
+                              the unit's mean u* over P_n), in stream units
+  pstar_{k}_{role}            the same at p* alone, over the images with u_n* > 0 (unweighted)
+  {k}_rev_{role}              the same over all positions, weighted by the reversal mass max(-push, 0)
+  frac_sout_pos_{role}        share of (unit, class) pairs with s_out > 0 (the active-position means above)
+  frac_m1_{role}              s_out > 0 and s_excl > s_out / 2 (input, partners and bias supply most of a positive level)
+  part_share_{role}           mean of s_part / (|s_in| + |s_own| + |s_part| + |s_bias|)
+  frac_sin_neg_{role}         s_in < 0 (s_own > 0 at the active positions: the input opposes the unit)
+  frac_own_shrinks_{role}     |s_out| < |s_excl| (the unit reduces the stream along e)
+  frac_m4_{role}              s_in < 0 and |s_out| < |s_excl| (M4: incoming component negative, reduced by the unit)
+  frac_m4_in_{role}           s_in < 0 and |s_in + s_own| < |s_in| (the unit cancels part of the incoming component)
+Bins, for v in sout, sin, u (u_n), sexcl: per unit, deciles of v over all positions of all probe images, each position
+weighted by |kappa| (each bin holds a tenth of the unit's derivative mass; --edges positions: unweighted), estimated from
+--n_sample random positions per image, shared by all roles:
+  push_by_{v}_bin_{role}      class-mean push within each bin, same units as pole (the 10 add up to pole_{role})
+  push_per_pos_by_{v}_bin_{role}  push per position in the bin (pooled over the role's images) times the positions per
+                              image: the pole push an image would get if all its positions were in that state
+  occ_by_{v}_bin_{role}       share of the role's positions in each bin
+  r_by_{v}_bin_{role}         |kappa|-weighted mean of r in each bin, times the positions per image (the CE change of an
+                              image whose stream along e rose by 1 at every position, if all were in this state)
+  slope_by_{v}_{role}, slope_r_by_{v}_{role}   Spearman correlation of the unit-averaged push_per_pos (r) curve with
+                              the bin index (bins with positions)
+  role_offset_by_{v}          per unit, push_per_pos top20 minus rest in the same bin, weighted by the top20 occupancy
+  role_offset_r_by_{v}        the same for r, weighted by the top20 |kappa| mass in the bin
+Two-variable bins (sout x sin and sout x u, the same edges, 10 x 10 cells; the grids are in the raw file):
+  role_offset_r_by_sout_{b}   top20 minus rest r in the same cell, weighted by the top20 |kappa| mass
+  slope_r_by_{b}_within_sout_{role}   Spearman correlation of the unit-averaged r with the b bin inside each s_out row
+                              (rows with 3 or more cells), averaged over the rows
+Regression, per unit and role over all positions (|kappa|-weighted, classes weighted equally), r ~ r0 + b_excl s_excl +
+b_own s_own, times the positions per image as r_by: r0_{role}, b_excl_{role}, b_own_{role} are medians over live units.
+Block: write_eff_rank ((sum sigma)^2 / sum sigma^2 over the singular values of the write directions; at most d),
+share_cos_hi (share of units with another at |cos| > 0.9), gamma_max_over_median, cos_e_ones (mean |cos| of e with the
+all-ones direction, which a LayerNorm reading the stream directly removes: the downsample's; the blocks' own LayerNorm
+reads the depthwise convolution's output), rms_sin_all, rms_sout_all (the scale of the s values), units (live), positions.
+Readings: M1: s_out > 0 at the active pole positions mostly not from the unit (frac_m1), r rising with the level on one
+curve for both roles (slope_r_by_sout > 0, role_offset_r_by_sout and _sout_u near 0, b_excl ~ b_own > 0), reversal mass
+in kp_dp; M4: frac_m4 high; M5: r flat in the level with role_offset_r_* > 0 and r0_top20 > r0_rest; M3: reversal mass
+in kn_dn. All of X1 is correlational; X2 intervenes.
 
-X2, partner zeroing (stage-1 blocks by default). For each live unit n, with signed cos between write directions:
-S+ = {m != n: cos(w_m, w_n) > 0.9}, S- = {cos < -0.9}, rand = a random set of the size of S+ among {|cos| < 0.5}
-(seeded per unit; smaller if there are too few). For each set and alpha in --alphas (0, 0.5), the units of the set are
-scaled by alpha at every position of block b (n itself is not), and on the images of P_n and of 40 other classes
-(random, not WordNet relatives of P_n when --wordnet is given) dCE / du is recomputed by torch.autograd.grad; n's pole
-push is rebuilt with the BASELINE pa_v, pa_g (its own u, g, v do not change: the set only changes the block's output).
-Per unit: the class-mean push of the top-20 and of the 40 classes, divided by the baseline mean |push| over the 60.
-Summary per block:
-  top20_base, rest_base       baseline, all live units
-  top20_{set}_a{alpha}, rest_{set}_a{alpha}   over the units with a non-empty set (an empty set is the baseline)
-  top20_base_{set}            the baseline of the same units; units_{set}: their number; n_empty_{set}: the others
-  share_up_{set}_a{alpha}     share of those units whose top-20 push rises (less reversed) against their baseline
-  n_short_rand                units whose random set is smaller than S+
-Readings: M1: the reversal (top20 < 0) shrinks or vanishes for S+, deepens for S-, and is unchanged for rand; M5: all
-unchanged.
+X2 (stage-1 blocks by default), on the images of P_n and of 40 other classes (random; not WordNet relatives of P_n with
+--wordnet): dCE / du is recomputed by torch.autograd.grad under each config and n's pole push is rebuilt with the
+BASELINE pa_v, pa_g and kappa (n's own g, v depend only on the block's input, which no config changes; earlier blocks'
+units are left alone for that reason). Partners of n, from its active positions on its top-20 images (as in X1):
+c_m = mean u_m times w_m . e (the partner's mean write along e there) and size_m = mean |u_m| |w_m|:
+  splus, sminus     units m != n of the block with |cos(w_m, w_n)| > 0.9 and c_m > 0, c_m < 0
+  later             units of the stage's later blocks with |cos| > 0.9 and c_m > 0 (they write after x_out)
+  ctrl_{set}        per member, the unused unit of the same block with |cos| < 0.5 (live, size > 0) closest in log
+                    size (members in a random order, seeded per unit): a control matched in write size
+Configs: base; {set}_a{alpha}: the set's units scaled by alpha (--alphas); splus_e_a{alpha}: only S+'s component along
+e scaled, x_out -> x_out - (1 - alpha) sum_{m in S+} u_m (w_m . e) e; beta{b}: the whole stream along e at x_out scaled,
+x_out -> x_out + (b - 1)(x_out . e) e (--betas; autograd's delta then carries a factor b, divided out).
+Per unit: class-mean push of the top-20 and of the 40 classes over the baseline mean |push| of the 60, and the class-mean
+change of CE. Summary per block:
+  units, top20_base, rest_base, ce_top20_base, ce_rest_base, s_out_act (mean s_out at the active positions)
+  per config K: top20_K, rest_K, dce_top20_K, dce_rest_K, units_K (units with the config: its set not empty),
+    top20_base_K (their baseline), share_up_K (share of them whose top-20 push rises against their baseline)
+  per set: units_{set}, n_empty_{set}, size_{set} (mean members), ds_e_{set} (mean sum of c_m: the set's share of the
+    level along e at the active positions, against s_out_act); n_short_ctrl_{set}: controls smaller than the set
+  d_{set}_vs_ctrl_a{alpha}, share_{set}_above_ctrl_a{alpha} (set in splus, sminus, later): per unit, the top-20 push
+    under the set minus under its control; mean and share > 0
+Readings: M1: the reversal (top20 < 0) shrinks for splus, splus_e and beta < 1 (d_splus_vs_ctrl > 0 at alpha = 0),
+deepens for sminus and beta > 1; M4, M5: flat in beta, sets and controls alike.
 
 Both start from each block's input, computed once for all probe images (as convnext_unit_roles.py does). Raw arrays
-(class-level X1 accumulators, bin edges and sums, X2 per-unit rows) go to stage1_mech_raw_{step}.pt next to the JSON.
+(X1 class-level and role-level accumulators, bin edges, regression coefficients; X2 per-unit rows) go to
+stage1_mech_raw_{step}.pt next to the JSON. --geometry_only reports the block geometry alone (no probe images), e.g. on
+replay checkpoints (X3).
 
   python3 -m experiments.convnext_stage1_mech --run results/e1_tiny_adamw --steps 1000,2000,12500
 """
@@ -83,14 +120,19 @@ import torch.nn.functional as F
 
 from experiments.convnext_atlas import probe_set
 from experiments.convnext_bias_paths import dsilu, pole_coefs, spearman
-from experiments.convnext_unit_roles import block_inputs, block_out, write_dir
+from experiments.convnext_unit_roles import block_inputs, block_out, block_units, write_dir
 from rcdl.convnext import build_convnext
 
 DEFAULT_BLOCKS = 'stage0.block2,stage1.block0,stage1.block1,stage1.block2,stage2.block0'
 X2_BLOCKS = 'stage1.block0,stage1.block1,stage1.block2'
 N_BINS = 10
-BIN_VARS = ('sout', 'sin', 'u')
-PARTS = ('s_in', 's_own', 's_part', 's_bias', 's_out')
+BIN_VARS = ('sout', 'sin', 'u', 'sexcl')
+PAIRS = (('sout', 'sin'), ('sout', 'u'))
+PARTS = ('s_in', 's_own', 's_part', 's_bias', 's_out', 's_later')
+QUADS = ('kp_dp', 'kn_dn', 'kp_dn', 'kn_dp')
+ROLES = ('top20', 'relatives', 'rest')
+BIN_T = ('push', 'cnt', 'rw', 'w')              # binned: push, positions, |kappa| r, |kappa| (all class-weighted)
+X2_SETS = ('splus', 'sminus', 'later')
 
 
 def parse_block(name):
@@ -116,11 +158,24 @@ def block_guv(blk, x):
   return g, v, F.silu(g) * v
 
 
-def tail(model, i, j, x, u):
-  """Logits from block (i, j)'s input x and its units u (B, H, W, U)."""
+def stage_rest(model, i, j, x, scales=None):
+  """The stream at the end of stage i from block (i, j)'s output x. scales: {j2: (U,) factor on the units of the
+  later block j2}."""
+  for j2 in range(j + 1, len(model.stages[i])):
+    blk = model.stages[i][j2]
+    x = block_out(blk, x, block_units(blk, x) * scales[j2]) if scales and j2 in scales else blk(x)
+  return x
+
+
+def tail(model, i, j, x, u, out_fn=None, scales=None, keep=None):
+  """Logits from block (i, j)'s input x and its units u (B, H, W, U). out_fn(out, u): transform of the block's output;
+  scales: as in stage_rest; keep: a list that receives the stream at the end of stage i."""
   x = block_out(model.stages[i][j], x, u)
-  for blk in model.stages[i][j + 1:]:
-    x = blk(x)
+  if out_fn is not None:
+    x = out_fn(x, u)
+  x = stage_rest(model, i, j, x, scales)
+  if keep is not None:
+    keep.append(x)
   for down, stage in zip(model.downsample[i + 1:], model.stages[i + 1:]):
     x = stage(down(x))
   return model.head(model.norm(x.mean((2, 3))))
@@ -140,16 +195,40 @@ def write_geometry(blk):
 
 
 @torch.no_grad()
-def stream_parts(blk, x, u, geo):
-  """s_in, s_own, s_part, s_bias, s_out (B, P, U) along each unit's write direction (see the module docstring)."""
+def geometry_stats(blk, cos_hi=0.9):
+  """Block-level write geometry (see the module docstring), from the weights alone."""
+  geo = write_geometry(blk)
+  sv = torch.linalg.svdvals(geo['W'])
+  cos = (geo['E'] @ geo['E'].T).abs()
+  cos.fill_diagonal_(0)
+  out = {'write_eff_rank': float(sv.sum() ** 2 / (sv ** 2).sum().clamp(min=1e-30)),
+         'share_cos_hi': float((cos.max(1).values > cos_hi).float().mean()),
+         'cos_e_ones': float((geo['E'].mean(1).abs() * geo['E'].shape[1] ** 0.5).mean())}
+  if blk.gamma is not None:
+    g = blk.gamma.detach().abs()
+    out['gamma_max_over_median'] = float(g.max() / g.median().clamp(min=1e-30))
+  return out
+
+
+@torch.no_grad()
+def stream_parts(blk, x, u, geo, x_end=None):
+  """s_in, s_own, s_part, s_bias, s_out (B, P, U) along each unit's write direction, and s_later with x_end (the
+  stream at the end of the stage; see the module docstring)."""
   E = geo['E']
   uf = u.flatten(1, 2)
   s_in = x.permute(0, 2, 3, 1).flatten(1, 2) @ E.T
   s_own = uf * geo['norms']
+  s_part = uf @ geo['M'] - s_own
   s_bias = geo['bias_e'].expand_as(uf)
-  s_part = uf @ geo['M'] - s_own + s_bias
   s_out = block_out(blk, x, u).permute(0, 2, 3, 1).flatten(1, 2) @ E.T
-  return {'s_in': s_in, 's_own': s_own, 's_part': s_part, 's_bias': s_bias, 's_out': s_out}
+  out = {'s_in': s_in, 's_own': s_own, 's_part': s_part, 's_bias': s_bias, 's_out': s_out}
+  if x_end is not None:
+    out['s_later'] = x_end.permute(0, 2, 3, 1).flatten(1, 2) @ E.T - s_out
+  return out
+
+
+def bin_values(sp, u):
+  return {'sout': sp['s_out'], 'sin': sp['s_in'], 'u': u.flatten(1, 2), 'sexcl': sp['s_out'] - sp['s_own']}
 
 
 @torch.no_grad()
@@ -167,6 +246,29 @@ def class_stats(model, name, X, y, n_classes, batch):
       acc[k].index_add_(0, yb, t.double())
   cnt = torch.bincount(y, minlength=n_classes).double()[:, None]
   return tuple((acc[k] / cnt).T.cpu().numpy() for k in range(3))
+
+
+@torch.no_grad()
+def later_live(model, i, j, X, y, n_classes, batch):
+  """{j2: (U,) bool} for the later blocks j2 of stage i: class-mean u* not constant (as pole_coefs' live), from block
+  (i, j)'s input X."""
+  stage = model.stages[i]
+  acc = {j2: torch.zeros(n_classes, stage[j2].pw_gate.out_features, dtype=torch.float64, device=X.device)
+         for j2 in range(j + 1, len(stage))}
+  if not acc:
+    return {}
+  for s in range(0, len(X), batch):
+    x = stage[j](X[s:s + batch])
+    for j2 in acc:
+      u = block_units(stage[j2], x)
+      acc[j2].index_add_(0, y[s:s + batch], u.flatten(1, 2).amax(1).double())
+      x = block_out(stage[j2], x, u)
+  cnt = torch.bincount(y, minlength=n_classes).double()[:, None]
+  out = {}
+  for j2, a in acc.items():
+    R = (a / cnt).T.cpu().numpy()
+    out[j2] = np.ptp(R, 1) > 1e-3 * np.abs(R).max()
+  return out
 
 
 def weighted_edges(vals, w, n_bins=N_BINS):
@@ -193,6 +295,11 @@ def _nanmean(a, axis=None):
     return np.nanmean(a, axis)
 
 
+def _div(a, b):
+  with np.errstate(invalid='ignore', divide='ignore'):
+    return np.where(b != 0, a / np.where(b != 0, b, 1), np.nan)
+
+
 def roles_of(top, n_classes, rel=None):
   """{role: (C, U) bool}: top20, relatives (only with rel) and rest."""
   U = top.shape[0]
@@ -205,7 +312,20 @@ def roles_of(top, n_classes, rel=None):
   return out
 
 
-def x1_block(model, name, X, y, rel=None, stats=None, batch=100, n_sample=16, edges='kappa', seed=0, top_n=20):
+def _slope(curve):
+  ok = np.isfinite(curve)
+  return spearman(np.arange(len(curve))[ok], curve[ok]) if ok.sum() > 2 and np.ptp(curve[ok]) > 0 else float('nan')
+
+
+def _offset(d, wgt, live):
+  """Per unit the wgt-weighted mean of d over its finite cells (U, ...), then the mean over live units."""
+  d, wgt = d.reshape(len(d), -1), wgt.reshape(len(wgt), -1)
+  wgt = np.where(np.isfinite(d), wgt, 0)
+  return float(_nanmean(_div((wgt * np.nan_to_num(d)).sum(1), wgt.sum(1))[live]))
+
+
+def x1_block(model, name, X, y, rel=None, stats=None, batch=100, n_sample=16, edges='kappa', seed=0, top_n=20,
+             active='image'):
   """X1 for one block. X: inputs of the block for all probe images (on the device), y: labels (same device).
   Returns (summary, raw)."""
   i, j = parse_block(name)
@@ -217,6 +337,21 @@ def x1_block(model, name, X, y, rel=None, stats=None, batch=100, n_sample=16, ed
   top, pa_v, pa_g, live = pole_coefs(R, G, V, top_n)
   pv, pg = (torch.from_numpy(a).float().to(dev) for a in (pa_v, pa_g))
   geo = write_geometry(blk)
+  roles = roles_of(top, C, rel)
+  ridx_np = np.full((C, U), 2)
+  ridx_np[roles['top20']] = 0
+  if 'relatives' in roles:
+    ridx_np[roles['relatives']] = 1
+  ridx = torch.from_numpy(ridx_np).to(dev)
+  ncls = np.stack([(ridx_np == r).sum(0) for r in range(3)])                                 # (3, U) classes per role
+  n_img_t = torch.bincount(y, minlength=C).double()
+  wimg = (1 / n_img_t.clamp(min=1)).float()                                 # image weight: role sums of class means
+  thr = torch.from_numpy(0.5 * np.take_along_axis(R, top, 1).mean(1)).float().to(dev)       # --active pole
+  def active_mask(uf):
+    if active == 'pole':
+      return (uf >= thr) & (thr > 0)
+    ustar = uf.amax(1, keepdim=True)
+    return (uf >= 0.5 * ustar) & (ustar > 0)
   gen = torch.Generator().manual_seed(seed)
   # pass 1: bin edges from a sample of positions, and the RMS of the stream along e
   samp = {k: [] for k in BIN_VARS + ('w',)}
@@ -230,150 +365,291 @@ def x1_block(model, name, X, y, rel=None, stats=None, batch=100, n_sample=16, ed
       B, P = sp['s_in'].shape[:2]
       kap = _kappa(g, v, pv, pg).flatten(1, 2)
       idx = torch.randint(P, (B, min(n_sample, P)), generator=gen).to(dev)[..., None].expand(-1, -1, U)
-      for k, t in (('sout', sp['s_out']), ('sin', sp['s_in']), ('u', u.flatten(1, 2)), ('w', kap.abs())):
+      for k, t in list(bin_values(sp, u).items()) + [('w', kap.abs())]:
         samp[k].append(t.gather(1, idx).flatten(0, 1))
       sq[0] += (sp['s_in'].double() ** 2).sum((0, 1))
       sq[1] += (sp['s_out'].double() ** 2).sum((0, 1))
       n_pos += B * P
   w = torch.cat(samp['w']) if edges == 'kappa' else torch.ones_like(torch.cat(samp['w']))
-  E = {k: weighted_edges(torch.cat(samp[k]), w).float() for k in BIN_VARS}                # (U, N_BINS - 1)
+  edg = {k: weighted_edges(torch.cat(samp[k]), w).float().contiguous() for k in BIN_VARS}     # (U, N_BINS - 1)
   del samp
-  # pass 2: dCE/du and the accumulators
+  # pass 2: dCE/du and the accumulators: per class (C, U), and per role (3 * U * cells, class-weighted)
   f64 = lambda *s: torch.zeros(*s, dtype=torch.float64, device=dev)
-  acc = {'push': f64(C, U), 'push_act': f64(C, U), 'n_act': f64(C, U), 'den': f64(C, U),
-         **{f'num_{k}': f64(C, U) for k in PARTS}, **{f'pstar_{k}': f64(C, U) for k in PARTS},
-         **{f'bin_{t}_{k}': f64(C * U * N_BINS) for k in BIN_VARS for t in ('push', 'cnt')}}
+  cls_keys = (['push', 'push_act', 'n_act', 'den', 'n_star', 'den_rev'] + [f'push_{q}' for q in QUADS]
+              + [f'{t}_{k}' for t in ('num', 'pstar', 'rev') for k in PARTS])
+  acc = {k: f64(C, U) for k in cls_keys}
+  b1 = {(t, k): f64(3 * U * N_BINS) for t in BIN_T for k in BIN_VARS}
+  b2 = {(t, a_, b_): f64(3 * U * N_BINS * N_BINS) for t in BIN_T for a_, b_ in PAIRS}
+  reg = {(a_, b_): f64(3 * U) for a_ in range(3) for b_ in range(a_, 4)}            # b_ = 3: the product with r
   ar = torch.arange(U, device=dev)
   with no_param_grads(model):
     for s in range(0, len(X), batch):
       xb, yb = X[s:s + batch], y[s:s + batch]
       with torch.no_grad():
         g, v, u = block_guv(blk, xb)
-        sp = stream_parts(blk, xb, u, geo)
       ul = u.detach().requires_grad_(True)
-      ce = F.cross_entropy(tail(model, i, j, xb, ul).float(), yb, reduction='sum')
+      keep = []
+      ce = F.cross_entropy(tail(model, i, j, xb, ul, keep=keep).float(), yb, reduction='sum')
       delta, = torch.autograd.grad(ce, [ul])
       with torch.no_grad():
+        sp = stream_parts(blk, xb, u, geo, keep[0])
+        B, P = sp['s_in'].shape[:2]
         uf = u.flatten(1, 2)
         kap = _kappa(g, v, pv, pg).flatten(1, 2)
-        push = -kap * delta.flatten(1, 2)                                                  # (B, P, U)
+        d = delta.flatten(1, 2)
+        push = -kap * d                                                                     # (B, P, U)
+        r = d / geo['norms'].clamp(min=1e-30)                                               # e . dCE/dx_out
+        ka = kap.abs()
         ustar, pstar = uf.max(1)
-        act = (uf >= 0.5 * ustar[:, None]) & (ustar[:, None] > 0)
-        wk = kap.abs() * act
+        star = ustar > 0
+        act = active_mask(uf)
+        wk = ka * act
+        rev = (-push).clamp(min=0)
         add = lambda key, t: acc[key].index_add_(0, yb, t.double())
         add('push', push.sum(1))
         add('push_act', (push * act).sum(1))
         add('n_act', act.sum(1))
         add('den', wk.sum(1))
+        add('n_star', star)
+        add('den_rev', rev.sum(1))
+        for q, qm in zip(QUADS, ((kap > 0) & (d > 0), (kap < 0) & (d < 0), (kap > 0) & (d < 0), (kap < 0) & (d > 0))):
+          add(f'push_{q}', (push * qm).sum(1))
         for k in PARTS:
           add(f'num_{k}', (wk * sp[k]).sum(1))
-          add(f'pstar_{k}', sp[k].gather(1, pstar[:, None])[:, 0])
-        base = (yb[:, None, None] * U + ar) * N_BINS                                     # (B, 1, U)
-        for k, t in (('sout', sp['s_out']), ('sin', sp['s_in']), ('u', uf)):
-          bins = torch.searchsorted(E[k], t.permute(2, 0, 1).reshape(U, -1).contiguous())  # (U, B * P)
-          flat = (base + bins.reshape(U, *t.shape[:2]).permute(1, 2, 0)).flatten()
-          acc[f'bin_push_{k}'].index_add_(0, flat, push.flatten().double())
-          acc[f'bin_cnt_{k}'].index_add_(0, flat, torch.ones_like(flat, dtype=torch.float64))
+          add(f'pstar_{k}', sp[k].gather(1, pstar[:, None])[:, 0] * star)
+          add(f'rev_{k}', (rev * sp[k]).sum(1))
+        wt = wimg[yb][:, None, None]
+        ro = (ridx[yb][:, None, :] * U + ar).expand(B, P, U)                                # role * U + unit
+        vals = {'push': push * wt, 'cnt': wt.expand(B, P, U), 'rw': ka * r * wt, 'w': ka * wt}
+        bins = {k: torch.searchsorted(edg[k], t.permute(2, 0, 1).reshape(U, -1).contiguous()).reshape(U, B, P)
+                .permute(1, 2, 0) for k, t in bin_values(sp, u).items()}                     # (B, P, U)
+        for k in BIN_VARS:
+          ix = (ro * N_BINS + bins[k]).flatten()
+          for t in BIN_T:
+            b1[t, k].index_add_(0, ix, vals[t].flatten().double())
+        for a_, b_ in PAIRS:
+          ix = ((ro * N_BINS + bins[a_]) * N_BINS + bins[b_]).flatten()
+          for t in BIN_T:
+            b2[t, a_, b_].index_add_(0, ix, vals[t].flatten().double())
+        Z = (torch.ones_like(r), sp['s_out'] - sp['s_own'], sp['s_own'], r)      # 1, s_excl, s_own; and r
+        kw, rof = ka * wt, ro.flatten()
+        for (a_, b_), t in reg.items():
+          t.index_add_(0, rof, (kw * Z[a_] * Z[b_]).flatten().double())
   P = n_pos // len(X)
-  n_img = torch.bincount(y, minlength=C).double().cpu().numpy()                          # (C,)
-  A = {k: (t.view(C, U, N_BINS) if k.startswith('bin_') else t).cpu().numpy() for k, t in acc.items()}
-  raw = {'top': top, 'pa_v': pa_v, 'pa_g': pa_g, 'live': live, 'R': R, 'G': G, 'V': V, 'n_img': n_img, 'P': P,
-         'edges': {k: e.cpu().numpy() for k, e in E.items()}, 'edges_weight': edges, **A}
+  n_img = n_img_t.cpu().numpy()
+  A = {k: t.cpu().numpy() for k, t in acc.items()}
+  B1 = {k: t.view(3, U, N_BINS).cpu().numpy() for k, t in b1.items()}
+  B2 = {k: t.view(3, U, N_BINS, N_BINS).cpu().numpy() for k, t in b2.items()}
+  REG = {k: t.view(3, U).cpu().numpy() for k, t in reg.items()}
   pole = A['push'] / n_img[:, None]
-  raw['pole'] = pole
   scale = np.abs(pole).mean(0) + 1e-30
-  with np.errstate(invalid='ignore', divide='ignore'):
-    S = {k: A[f'num_{k}'] / A['den'] for k in PARTS}                                       # (C, U), NaN: never active
-  Sp = {k: A[f'pstar_{k}'] / n_img[:, None] for k in PARTS}
-  roles = roles_of(top, C, rel)
+  S = {k: _div(A[f'num_{k}'], A['den']) for k in PARTS}                                    # (C, U), NaN: never active
+  Sp = {k: _div(A[f'pstar_{k}'], A['n_star']) for k in PARTS}
+  Sr = {k: _div(A[f'rev_{k}'], A['den_rev']) for k in PARTS}
+  for D in (S, Sp, Sr):
+    D['s_end'] = D['s_out'] + D['s_later']
+  raw = {'top': top, 'pa_v': pa_v, 'pa_g': pa_g, 'live': live, 'R': R, 'G': G, 'V': V, 'n_img': n_img, 'P': P,
+         'pole': pole, 'roles': ROLES, 'n_classes_role': ncls, 'active': active,
+         'edges': {k: e.cpu().numpy() for k, e in edg.items()}, 'edges_weight': edges, **A,
+         **{f'bin_{t}_{k}': a for (t, k), a in B1.items()}, **{f'bin2_{t}_{a}_{b}': x for (t, a, b), x in B2.items()}}
   rm = lambda M, mask: float(_nanmean(_nanmean(np.where(mask, M, np.nan), 0)[live]))
-  out = {'units': int(live.sum()), 'edges_weight': edges, 'positions': P,
+  um = lambda M: _nanmean(M[live], 0)                                                       # mean over live units
+  out = {'units': int(live.sum()), 'edges_weight': edges, 'active': active, 'positions': P, **geometry_stats(blk),
          'rms_sin_all': float(np.sqrt(sq[0].cpu().numpy() / n_pos)[live].mean()),
          'rms_sout_all': float(np.sqrt(sq[1].cpu().numpy() / n_pos)[live].mean())}
-  si, so, sw, sx = S['s_in'], S['s_own'], S['s_part'], S['s_out']
+  si, so, sw, sb, sx = (S[k] for k in ('s_in', 's_own', 's_part', 's_bias', 's_out'))
+  se = sx - so
   fin = np.isfinite(sx)
   frac = lambda cond: np.where(fin, cond.astype(float), np.nan)
-  ppp, occ = {}, {}
+  ppp, occ, rr, rr2 = {}, {}, {}, {}
   for role, mask in roles.items():
+    ri = ROLES.index(role)
+    nc = ncls[ri][:, None]                                                                  # (U, 1)
     out[f'pole_{role}'] = rm(pole / scale[None], mask)
+    for q in QUADS:
+      out[f'pole_{q}_{role}'] = rm(A[f'push_{q}'] / n_img[:, None] / scale[None], mask)
     out[f'push_act_{role}'] = rm(A['push_act'] / n_img[:, None] / scale[None], mask)
     out[f'n_act_{role}'] = rm(A['n_act'] / n_img[:, None], mask)
-    for k in PARTS:
+    for k in PARTS + ('s_end',):
       out[f'{k}_{role}'] = rm(S[k], mask)
       out[f'pstar_{k}_{role}'] = rm(Sp[k], mask)
+      out[f'{k}_rev_{role}'] = rm(Sr[k], mask)
     with np.errstate(invalid='ignore'):
       out[f'frac_sout_pos_{role}'] = rm(frac(sx > 0), mask)
-      out[f'frac_m1_{role}'] = rm(frac((sx > 0) & (sw > 0.5 * sx)), mask)
-      out[f'part_share_{role}'] = rm(sw / (np.abs(si) + np.abs(so) + np.abs(sw) + 1e-30), mask)
-      out[f'frac_sin_opposes_own_{role}'] = rm(frac(si * so < 0), mask)
-      out[f'frac_sout_below_sin_{role}'] = rm(frac(np.abs(sx) < np.abs(si)), mask)
-      out[f'frac_m4_{role}'] = rm(frac((si * so < 0) & (np.abs(sx) < np.abs(si))), mask)
-    m3 = mask[..., None]
+      out[f'frac_m1_{role}'] = rm(frac((sx > 0) & (se > 0.5 * sx)), mask)
+      out[f'part_share_{role}'] = rm(sw / (np.abs(si) + np.abs(so) + np.abs(sw) + np.abs(sb) + 1e-30), mask)
+      out[f'frac_sin_neg_{role}'] = rm(frac(si < 0), mask)
+      out[f'frac_own_shrinks_{role}'] = rm(frac(np.abs(sx) < np.abs(se)), mask)
+      out[f'frac_m4_{role}'] = rm(frac((si < 0) & (np.abs(sx) < np.abs(se))), mask)
+      out[f'frac_m4_in_{role}'] = rm(frac((si < 0) & (np.abs(si + so) < np.abs(si))), mask)
     for k in BIN_VARS:
-      bp_, bc = A[f'bin_push_{k}'], A[f'bin_cnt_{k}']                                        # (C, U, N_BINS)
-      per_cls = bp_ / n_img[:, None, None] / scale[None, :, None]
-      out[f'push_by_{k}_bin_{role}'] = [float(x) for x in _nanmean(_nanmean(np.where(m3, per_cls, np.nan), 0)[live], 0)]
-      ps, cs = np.where(m3, bp_, 0).sum(0), np.where(m3, bc, 0).sum(0)                      # (U, N_BINS)
-      with np.errstate(invalid='ignore', divide='ignore'):
-        ppp[role, k] = np.where(cs > 0, ps / cs, np.nan) * P / scale[:, None]
-        occ[role, k] = cs / (np.where(mask, n_img[:, None], 0).sum(0)[:, None] * P)
-      curve = _nanmean(ppp[role, k][live], 0)
-      out[f'push_per_pos_by_{k}_bin_{role}'] = [float(x) for x in curve]
-      out[f'occ_by_{k}_bin_{role}'] = [float(x) for x in _nanmean(occ[role, k][live], 0)]
-      ok = np.isfinite(curve)
-      out[f'slope_by_{k}_{role}'] = spearman(np.arange(N_BINS)[ok], curve[ok]) if ok.sum() > 2 else float('nan')
-  for k in BIN_VARS:                            # top20 minus rest at the same bin, weighted by the top20 occupancy
-    d = ppp['top20', k] - ppp['rest', k]                                                     # (U, N_BINS)
-    wgt = np.where(np.isfinite(d), occ['top20', k], 0)
-    with np.errstate(invalid='ignore', divide='ignore'):
-      off = (wgt * np.nan_to_num(d)).sum(1) / wgt.sum(1)
-    out[f'role_offset_by_{k}'] = float(_nanmean(off[live]))
+      bp_, bc, brw, bw = (B1[t, k][ri] for t in BIN_T)                                       # (U, N_BINS)
+      ppp[role, k] = _div(bp_, bc) * P / scale[:, None]
+      occ[role, k] = _div(bc, nc * P)
+      rr[role, k] = _div(brw, bw) * P
+      out[f'push_by_{k}_bin_{role}'] = [float(x) for x in um(_div(bp_, nc) / scale[:, None])]
+      for key, M in ((f'push_per_pos_by_{k}_bin_{role}', ppp[role, k]), (f'occ_by_{k}_bin_{role}', occ[role, k]),
+                     (f'r_by_{k}_bin_{role}', rr[role, k])):
+        out[key] = [float(x) for x in um(M)]
+      out[f'slope_by_{k}_{role}'] = _slope(um(ppp[role, k]))
+      out[f'slope_r_by_{k}_{role}'] = _slope(um(rr[role, k]))
+    for a_, b_ in PAIRS:
+      rr2[role, a_, b_] = _div(B2['rw', a_, b_][ri], B2['w', a_, b_][ri]) * P                 # (U, N_BINS, N_BINS)
+      grid = um(rr2[role, a_, b_])
+      out[f'slope_r_by_{b_}_within_{a_}_{role}'] = float(_nanmean(np.array([_slope(row) for row in grid])))
+    XX = np.zeros((U, 3, 3))
+    XR = np.zeros((U, 3))
+    for (a_, b_), t in REG.items():
+      if b_ == 3:
+        XR[:, a_] = t[ri]
+      else:
+        XX[:, a_, b_] = XX[:, b_, a_] = t[ri]
+    beta = np.full((U, 3), np.nan)
+    for n in np.flatnonzero(live):
+      if XX[n, 0, 0] > 0 and np.linalg.cond(XX[n]) < 1e12:
+        beta[n] = np.linalg.solve(XX[n], XR[n]) * P
+    raw[f'reg_{role}'] = beta
+    for c_, nm in enumerate(('r0', 'b_excl', 'b_own')):
+      ok = np.isfinite(beta[:, c_])
+      out[f'{nm}_{role}'] = float(np.median(beta[ok, c_])) if ok.any() else float('nan')
+  for k in BIN_VARS:                                              # top20 minus rest in the same bin
+    out[f'role_offset_by_{k}'] = _offset(ppp['top20', k] - ppp['rest', k], occ['top20', k], live)
+    out[f'role_offset_r_by_{k}'] = _offset(rr['top20', k] - rr['rest', k], B1['w', k][0], live)
+  for a_, b_ in PAIRS:
+    out[f'role_offset_r_by_{a_}_{b_}'] = _offset(rr2['top20', a_, b_] - rr2['rest', a_, b_], B2['w', a_, b_][0], live)
   return out, raw
 
 
+@torch.no_grad()
+def partner_writes(model, i, j, X, n, geos, batch):
+  """Unit n's active positions (u_n >= 0.5 u_n* in the image, u_n* > 0) on the images X (inputs of block (i, j)).
+  Returns c {j2: (U,)}: every unit's mean write along e_n there (mean u_m times w_m . e_n) for block j and the later
+  blocks in geos; size {j2: (U,)}: mean |u_m| |w_m|; and the mean s_out = x_out . e_n there."""
+  stage = model.stages[i]
+  e = geos[j]['E'][n]
+  su = {j2: 0.0 for j2 in geos}
+  sa = {j2: 0.0 for j2 in geos}
+  cnt, s_out = 0.0, 0.0
+  for s in range(0, len(X), batch):
+    x = X[s:s + batch]
+    act = None
+    for j2 in sorted(geos):
+      u = block_units(stage[j2], x)
+      uf = u.flatten(1, 2)
+      if j2 == j:
+        un = uf[..., n]
+        mx = un.amax(1, keepdim=True)
+        act = ((un >= 0.5 * mx) & (mx > 0)).float()                                       # (B, P)
+      su[j2] = su[j2] + (uf * act[..., None]).sum((0, 1))
+      sa[j2] = sa[j2] + (uf.abs() * act[..., None]).sum((0, 1))
+      x = block_out(stage[j2], x, u)
+      if j2 == j:
+        s_out += float(((x.permute(0, 2, 3, 1).flatten(1, 2) @ e) * act).sum())
+    cnt += float(act.sum())
+  cnt = max(cnt, 1.0)
+  c = {j2: (su[j2] / cnt * (geos[j2]['W'] @ e)).cpu().numpy() for j2 in geos}
+  size = {j2: (sa[j2] / cnt * geos[j2]['norms']).cpu().numpy() for j2 in geos}
+  return c, size, s_out / cnt
+
+
+def x2_sets(n, j, cos, c, size, live, rng, cos_hi=0.9, cos_lo=0.5):
+  """{set: {j2: unit indices}} for splus, sminus, later and their size-matched controls ctrl_* (see the module
+  docstring). cos, c, size, live: {j2: (U,)} for block j and the later blocks."""
+  sets = {k: {} for k in X2_SETS}
+  for j2 in sorted(cos):
+    hi = np.abs(cos[j2]) > cos_hi
+    if j2 == j:
+      hi &= np.arange(len(hi)) != n
+      sets['splus'][j2], sets['sminus'][j2] = np.flatnonzero(hi & (c[j2] > 0)), np.flatnonzero(hi & (c[j2] < 0))
+    else:
+      sets['later'][j2] = np.flatnonzero(hi & (c[j2] > 0))
+  out = {}
+  for k in X2_SETS:
+    S = {j2: m for j2, m in sets[k].items() if len(m)}
+    ctrl = {}
+    for j2, mem in S.items():
+      cand = (np.abs(cos[j2]) < cos_lo) & live[j2] & (size[j2] > 0)
+      if j2 == j:
+        cand &= np.arange(len(cand)) != n
+      pool, pick = list(np.flatnonzero(cand)), []
+      for m in rng.permutation(mem):
+        if not pool:
+          break
+        dist = np.abs(np.log(size[j2][pool]) - np.log(max(size[j2][m], 1e-30)))
+        pick.append(pool.pop(int(np.argmin(dist))))
+      if pick:
+        ctrl[j2] = np.sort(np.array(pick))
+    out[k], out[f'ctrl_{k}'] = S, ctrl
+  return out
+
+
 def x2_push(model, name, X, y, by_class, cls, n, configs, pa_v, pa_g, batch=100):
-  """Class-mean pole push of unit n on the classes cls under each config {key: None (baseline) or (units, alpha)}.
-  Returns {key: (len(cls),) float64}."""
+  """Class-mean pole push of unit n on the classes cls under each config: None (baseline); ('units', {j2: indices},
+  alpha): those units of block j2 (this block or a later one of the stage) scaled by alpha; ('e_only', indices, alpha):
+  only their component along e_n scaled; ('beta', b): the stream along e_n at the block's output scaled by b.
+  Returns ({key: push (len(cls),)}, {key: class-mean CE (len(cls),)})."""
   i, j = parse_block(name)
-  blk = model.stages[i][j]
+  stage = model.stages[i]
   dev = X.device
-  U = blk.pw_gate.out_features
+  U = stage[j].pw_gate.out_features
+  geo = write_geometry(stage[j])
+  e = geo['E'][n].view(1, -1, 1, 1)
   idx = np.concatenate([by_class[c] for c in cls])
   pos = torch.from_numpy(np.repeat(np.arange(len(cls)), [len(by_class[c]) for c in cls])).to(dev)
-  scales = {}
+  as_idx = lambda a: torch.as_tensor(np.asarray(a, dtype=np.int64), device=dev)
+  plans = {}
   for key, cfg in configs.items():
-    sc = torch.ones(U, device=dev)
-    if cfg is not None:
-      sc[torch.as_tensor(np.asarray(cfg[0], dtype=np.int64), device=dev)] = float(cfg[1])
-    scales[key] = sc
+    sc, later, fn, div = torch.ones(U, device=dev), {}, None, 1.0
+    if cfg is None:
+      pass
+    elif cfg[0] == 'units':
+      for j2, members in cfg[1].items():
+        t = sc if j2 == j else later.setdefault(j2, torch.ones(stage[j2].pw_gate.out_features, device=dev))
+        t[as_idx(members)] = float(cfg[2])
+    elif cfg[0] == 'e_only':
+      Sx, al = as_idx(cfg[1]), float(cfg[2])
+      fn = lambda o, u, Sx=Sx, Mn=geo['M'][Sx, n], al=al: o - (1 - al) * (u[..., Sx] @ Mn)[:, None] * e
+    elif cfg[0] == 'beta':
+      b = float(cfg[1])
+      fn, div = (lambda o, u, b=b: o + (b - 1) * (o * e).sum(1, keepdim=True) * e), b
+    else:
+      raise ValueError(f'unknown X2 config {cfg!r}')
+    plans[key] = (sc, later, fn, div)
   acc = {k: torch.zeros(len(cls), dtype=torch.float64, device=dev) for k in configs}
+  acc_ce = {k: torch.zeros(len(cls), dtype=torch.float64, device=dev) for k in configs}
   with no_param_grads(model):
     for s in range(0, len(idx), batch):
       ib = torch.from_numpy(idx[s:s + batch]).to(dev)
       xb, yb, pb = X[ib], y[ib], pos[s:s + batch]
       with torch.no_grad():
-        g, v, u = block_guv(blk, xb)
+        g, v, u = block_guv(stage[j], xb)
         kap = _kappa(g[..., n], v[..., n], float(pa_v), float(pa_g))                      # (B, H, W)
-      for key, sc in scales.items():
+      for key, (sc, later, fn, div) in plans.items():
         ul = u.detach().requires_grad_(True)
-        ce = F.cross_entropy(tail(model, i, j, xb, ul * sc).float(), yb, reduction='sum')
-        d, = torch.autograd.grad(ce, [ul])
-        acc[key].index_add_(0, pb, (-(kap * d[..., n]).flatten(1).sum(1)).double())
+        cei = F.cross_entropy(tail(model, i, j, xb, ul * sc, fn, later).float(), yb, reduction='none')
+        d, = torch.autograd.grad(cei.sum(), [ul])
+        acc[key].index_add_(0, pb, (-(kap * d[..., n] / div).flatten(1).sum(1)).double())
+        acc_ce[key].index_add_(0, pb, cei.detach().double())
   cnt = torch.bincount(pos, minlength=len(cls)).double()
-  return {k: (a / cnt).cpu().numpy() for k, a in acc.items()}
+  return ({k: (a / cnt).cpu().numpy() for k, a in acc.items()}, {k: (a / cnt).cpu().numpy() for k, a in acc_ce.items()})
 
 
-def x2_block(model, name, X, y, rel=None, stats=None, alphas=(0.0, 0.5), n_top=20, n_other=40, batch=100, seed=0,
-             cos_hi=0.9, cos_lo=0.5, units=None):
-  """X2 for one block (see the module docstring). units: optional subset of unit indices. Returns (summary, rows)."""
+def _mean(xs):
+  return float(np.mean(xs)) if len(xs) else float('nan')
+
+
+def x2_block(model, name, X, y, rel=None, stats=None, alphas=(0.0, 0.5), betas=(0.8, 0.9, 1.1), n_top=20, n_other=40,
+             batch=100, seed=0, cos_hi=0.9, cos_lo=0.5, units=None, later=True):
+  """X2 for one block (see the module docstring). units: optional subset of unit indices; later: also the later
+  blocks' partners. Returns (summary, rows)."""
   i, j = parse_block(name)
-  blk = model.stages[i][j]
+  stage = model.stages[i]
   y_np = y.cpu().numpy()
   C = int(y_np.max()) + 1
   R, G, V = stats if stats is not None else class_stats(model, name, X, y, C, batch)
   top, pa_v, pa_g, live = pole_coefs(R, G, V, n_top)
-  E = write_geometry(blk)['E']
-  cos = (E @ E.T).cpu().numpy()
+  geos = {j2: write_geometry(stage[j2]) for j2 in range(j, len(stage) if later else j + 1)}
+  lives = {j: live, **(later_live(model, i, j, X, y, C, batch) if later else {})}
   by_class = [np.flatnonzero(y_np == c) for c in range(C)]
   rows = []
   for n in (np.flatnonzero(live) if units is None else units):
@@ -384,39 +660,53 @@ def x2_block(model, name, X, y, rel=None, stats=None, alphas=(0.0, 0.5), n_top=2
       others = far if len(far) >= n_other else others
     oth = rng.choice(others, min(n_other, len(others)), replace=False)
     cls = np.concatenate([top[n], oth])
-    not_n = np.arange(len(cos)) != n
-    sets = {'splus': np.flatnonzero(not_n & (cos[n] > cos_hi)), 'sminus': np.flatnonzero(not_n & (cos[n] < -cos_hi))}
-    cand = np.flatnonzero(not_n & (np.abs(cos[n]) < cos_lo))
-    rng_s = np.random.default_rng([seed, int(n), 1])      # nor on the sizes of its sets
-    sets['rand'] = np.sort(rng_s.choice(cand, min(len(sets['splus']), len(cand)), replace=False))
+    ib = torch.from_numpy(np.concatenate([by_class[c] for c in top[n]])).to(X.device)
+    c, size, s_act = partner_writes(model, i, j, X[ib], n, geos, batch)
+    cos = {j2: (g['E'] @ geos[j]['E'][n]).cpu().numpy() for j2, g in geos.items()}
+    sets = x2_sets(n, j, cos, c, size, lives, np.random.default_rng([seed, int(n), 1]), cos_hi, cos_lo)
     configs = {'base': None}
-    configs.update({f'{k}_a{al:g}': (S, al) for k, S in sets.items() if len(S) for al in alphas})
-    push = x2_push(model, name, X, y, by_class, cls, n, configs, pa_v[n], pa_g[n], batch)
-    norm = np.abs(push['base']).mean() + 1e-30
-    rec = {'unit': int(n), **{f'n_{k}': int(len(S)) for k, S in sets.items()},
-           'top20_base': float(push['base'][:n_top].mean() / norm),
-           'rest_base': float(push['base'][n_top:].mean() / norm)}
     for k, S in sets.items():
-      for al in alphas:
-        p = push.get(f'{k}_a{al:g}', push['base'])                                          # empty set: the baseline
-        rec[f'top20_{k}_a{al:g}'] = float(p[:n_top].mean() / norm)
-        rec[f'rest_{k}_a{al:g}'] = float(p[n_top:].mean() / norm)
+      if S:
+        configs.update({f'{k}_a{al:g}': ('units', S, al) for al in alphas})
+    if sets['splus']:
+      configs.update({f'splus_e_a{al:g}': ('e_only', sets['splus'][j], al) for al in alphas})
+    configs.update({f'beta{b:g}': ('beta', b) for b in betas})
+    push, ce = x2_push(model, name, X, y, by_class, cls, n, configs, pa_v[n], pa_g[n], batch)
+    norm = np.abs(push['base']).mean() + 1e-30
+    rec = {'unit': int(n), 's_out_act': s_act, 'ce_top20_base': float(ce['base'][:n_top].mean()),
+           'ce_rest_base': float(ce['base'][n_top:].mean())}
+    for k, S in sets.items():
+      rec[f'n_{k}'] = int(sum(len(m) for m in S.values()))
+      rec[f'ds_e_{k}'] = float(sum(c[j2][m].sum() for j2, m in S.items()))
+    for key in configs:
+      rec[f'top20_{key}'] = float(push[key][:n_top].mean() / norm)
+      rec[f'rest_{key}'] = float(push[key][n_top:].mean() / norm)
+      if key != 'base':
+        rec[f'dce_top20_{key}'] = float((ce[key] - ce['base'])[:n_top].mean())
+        rec[f'dce_rest_{key}'] = float((ce[key] - ce['base'])[n_top:].mean())
     rows.append(rec)
-  out = {'units': len(rows), 'top20_base': float(np.mean([r['top20_base'] for r in rows])),
-         'rest_base': float(np.mean([r['rest_base'] for r in rows])),
-         'n_short_rand': int(sum(r['n_rand'] < r['n_splus'] for r in rows))}
-  for k in ('splus', 'sminus', 'rand'):
+  out = {'units': len(rows), **{k: _mean([r[k] for r in rows]) for k in ('top20_base', 'rest_base', 'ce_top20_base',
+                                                                          'ce_rest_base', 's_out_act')}}
+  keys = sorted({k[len('dce_top20_'):] for r in rows for k in r if k.startswith('dce_top20_')})
+  for key in keys:
+    sel = [r for r in rows if f'top20_{key}' in r]
+    out[f'units_{key}'] = len(sel)
+    for f in ('top20', 'rest', 'dce_top20', 'dce_rest'):
+      out[f'{f}_{key}'] = _mean([r[f'{f}_{key}'] for r in sel])
+    out[f'top20_base_{key}'] = _mean([r['top20_base'] for r in sel])
+    out[f'share_up_{key}'] = _mean([r[f'top20_{key}'] > r['top20_base'] for r in sel])
+  for k in X2_SETS + tuple(f'ctrl_{k}' for k in X2_SETS):
     sel = [r for r in rows if r[f'n_{k}'] > 0]
-    out[f'units_{k}'] = len(sel)
-    out[f'n_empty_{k}'] = len(rows) - len(sel)
-    out[f'top20_base_{k}'] = float(np.mean([r['top20_base'] for r in sel])) if sel else float('nan')
-    out[f'rest_base_{k}'] = float(np.mean([r['rest_base'] for r in sel])) if sel else float('nan')
+    out[f'units_{k}'], out[f'n_empty_{k}'] = len(sel), len(rows) - len(sel)
+    out[f'size_{k}'] = _mean([r[f'n_{k}'] for r in sel])
+    out[f'ds_e_{k}'] = _mean([r[f'ds_e_{k}'] for r in sel])
+  for k in X2_SETS:
+    out[f'n_short_ctrl_{k}'] = int(sum(r[f'n_ctrl_{k}'] < r[f'n_{k}'] for r in rows))
     for al in alphas:
-      key = f'{k}_a{al:g}'
-      for role in ('top20', 'rest'):
-        out[f'{role}_{key}'] = float(np.mean([r[f'{role}_{key}'] for r in sel])) if sel else float('nan')
-      up = [r[f'top20_{key}'] > r['top20_base'] for r in sel]
-      out[f'share_up_{key}'] = float(np.mean(up)) if sel else float('nan')
+      a_, b_ = f'top20_{k}_a{al:g}', f'top20_ctrl_{k}_a{al:g}'
+      d = [r[a_] - r[b_] for r in rows if a_ in r and b_ in r]
+      out[f'd_{k}_vs_ctrl_a{al:g}'] = _mean(d)
+      out[f'share_{k}_above_ctrl_a{al:g}'] = _mean([x > 0 for x in d])
   return out, rows
 
 
@@ -426,21 +716,41 @@ def main():
   p.add_argument('--steps', required=True)
   p.add_argument('--blocks', default=DEFAULT_BLOCKS, help="X1 blocks ('' to skip X1)")
   p.add_argument('--x2_blocks', default=X2_BLOCKS, help="X2 blocks ('' to skip X2)")
-  p.add_argument('--alphas', default='0,0.5', help='X2 output scales of the partner sets')
+  p.add_argument('--alphas', default='0,0.5', help='X2 scales of the partner sets')
+  p.add_argument('--betas', default='0.8,0.9,1.1', help='X2 scales of the stream along e at the block output')
+  p.add_argument('--no_later', action='store_true', help='X2: leave out the later blocks\' partners')
   p.add_argument('--val', default='/marimo/work/data/imagenet/data')
   p.add_argument('--probe_cache', default='/dev/shm/probe_8.pt')
   p.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz')
   p.add_argument('--edges', default='kappa', choices=['kappa', 'positions'],
                  help='X1 bin edges: |kappa|-weighted deciles of all positions, or unweighted')
+  p.add_argument('--active', default='image', choices=['image', 'pole'],
+                 help='X1 active positions: u >= half the image\'s u*, or >= half the unit\'s mean pole u*')
   p.add_argument('--n_sample', type=int, default=16, help='X1: positions per image for the bin edges')
-  p.add_argument('--batch', type=int, default=50)
+  p.add_argument('--batch', type=int, default=50, help='X1 batch (and the block inputs)')
+  p.add_argument('--x2_batch', type=int, default=480, help='X2 batch (480 = one unit\'s 60 classes x 8 images)')
   p.add_argument('--seed', type=int, default=0)
-  p.add_argument('--out', default=None, help='JSON (default: stage1_mech.json in --run); raw arrays next to it')
+  p.add_argument('--geometry_only', action='store_true', help='only the block write geometry (no probe images)')
+  p.add_argument('--out', default=None, help='JSON (default: stage1_mech.json, or stage1_geometry.json, in --run); '
+                 'raw arrays next to it')
   a = p.parse_args()
   dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   cfg = json.load(open(os.path.join(a.run, 'config.json')))
   model = build_convnext(cfg['size']).to(dev).eval()
   model.requires_grad_(False)
+  steps = [int(t) for t in a.steps.split(',')]
+  b1 = [b for b in a.blocks.split(',') if b]
+  b2 = [b for b in a.x2_blocks.split(',') if b]
+  blocks = sorted(set(b1) | set(b2), key=parse_block)
+  if a.geometry_only:
+    res = {}
+    for s in steps:
+      model.load_state_dict(torch.load(os.path.join(a.run, f'model_{s:05d}.pt'), map_location=dev))
+      res[s] = {b: geometry_stats(model.stages[parse_block(b)[0]][parse_block(b)[1]]) for b in blocks}
+      print(s, {b: {k: round(v, 3) for k, v in r.items()} for b, r in res[s].items()}, flush=True)
+    json.dump(res, open(a.out or os.path.join(a.run, 'stage1_geometry.json'), 'w'), indent=1)
+    print('STAGE1_GEOMETRY_DONE', flush=True)
+    return
   xs, y = probe_set(a.val, 8, a.probe_cache)
   y = y.to(dev)
   C = int(y.max()) + 1
@@ -451,29 +761,34 @@ def main():
   else:
     print(f"no WordNet file at {a.wordnet}: 'rest' includes the relatives", flush=True)
   alphas = tuple(float(t) for t in a.alphas.split(','))
-  b1 = [b for b in a.blocks.split(',') if b]
-  b2 = [b for b in a.x2_blocks.split(',') if b]
+  betas = tuple(float(t) for t in a.betas.split(',') if t)
   out = a.out or os.path.join(a.run, 'stage1_mech.json')
   odir = os.path.dirname(os.path.abspath(out))
   os.makedirs(odir, exist_ok=True)
   res = {}
-  for s in [int(t) for t in a.steps.split(',')]:
+  for s in steps:
     model.load_state_dict(torch.load(os.path.join(a.run, f'model_{s:05d}.pt'), map_location=dev))
     res[s], raw = {'x1': {}, 'x2': {}}, {'x1': {}, 'x2': {}}
-    for b in sorted(set(b1) | set(b2), key=parse_block):
+    for b in blocks:
       i, j = parse_block(b)
       X = block_inputs(model, xs, i, j, a.batch, dev)
       stats = class_stats(model, b, X, y, C, a.batch)
       if b in b1:
-        res[s]['x1'][b], raw['x1'][b] = x1_block(model, b, X, y, rel, stats, a.batch, a.n_sample, a.edges, a.seed)
+        res[s]['x1'][b], raw['x1'][b] = x1_block(model, b, X, y, rel, stats, a.batch, a.n_sample, a.edges, a.seed,
+                                                 active=a.active)
         r = res[s]['x1'][b]
-        print(s, b, 'X1', {k: round(r[k], 3) for k in ('pole_top20', 's_in_top20', 's_own_top20', 's_part_top20',
-                                                         's_out_top20', 'frac_m1_top20', 'frac_m4_top20',
-                                                         'role_offset_by_sout', 'role_offset_by_u')}, flush=True)
+        print(s, b, 'X1', {k: round(r[k], 3) for k in (
+            'pole_top20', 'pole_kp_dp_top20', 'pole_kn_dn_top20', 's_in_top20', 's_own_top20', 's_part_top20',
+            's_out_top20', 's_later_top20', 'frac_m1_top20', 'frac_m4_top20', 'slope_r_by_sout_top20',
+            'role_offset_r_by_sout', 'role_offset_r_by_sout_u', 'b_excl_top20', 'b_own_top20', 'write_eff_rank')},
+              flush=True)
       if b in b2:
-        res[s]['x2'][b], raw['x2'][b] = x2_block(model, b, X, y, rel, stats, alphas, batch=a.batch, seed=a.seed)
+        res[s]['x2'][b], raw['x2'][b] = x2_block(model, b, X, y, rel, stats, alphas, betas, batch=a.x2_batch,
+                                                 seed=a.seed, later=not a.no_later)
         r = res[s]['x2'][b]
-        print(s, b, 'X2', {k: (round(v, 3) if isinstance(v, float) else v) for k, v in r.items()}, flush=True)
+        print(s, b, 'X2', {k: (round(v, 3) if isinstance(v, float) else v) for k, v in r.items()
+                           if k in ('units', 'top20_base', 'size_splus', 'size_later', 'ds_e_splus', 's_out_act')
+                           or k.startswith(('d_', 'top20_beta', 'top20_splus_e'))}, flush=True)
       del X
     torch.save(raw, os.path.join(odir, f'stage1_mech_raw_{s:05d}.pt'))
     json.dump(res, open(out, 'w'), indent=1)
