@@ -114,12 +114,17 @@ class GPUTrainLoader:
   `size`, normalization. Labels are indexed on the GPU, so no step waits on a host-to-device copy."""
 
   def __init__(self, root: str, batch: int, device, size: int = 224, seed: int = 0, drop_last: bool = True,
-               batch_seeded: bool = False):
+               batch_seeded: bool = False, keep: Optional[np.ndarray] = None, labels: Optional[np.ndarray] = None):
+    """keep: the global indices of the images to train on (None: all). labels: a full-length label table that
+    replaces labels.npy (relabelled images). Batches still yield global indices, so per-example tables index them
+    directly. With keep None the epochs are the same as before."""
     self.data = np.memmap(os.path.join(root, 'data.bin'), dtype=np.uint8, mode='r')
     self.offsets = np.load(os.path.join(root, 'offsets.npy'))
-    self.labels = np.load(os.path.join(root, 'labels.npy'))
+    self.labels = np.load(os.path.join(root, 'labels.npy')) if labels is None else np.asarray(labels, np.int64)
+    assert len(self.labels) == len(self.offsets) - 1, 'label table: one label per packed image'
     self.labels_gpu = torch.from_numpy(self.labels).to(device)
-    self.n, self.batch, self.dev, self.size = len(self.labels), batch, device, size
+    self.index = np.arange(len(self.labels)) if keep is None else np.asarray(keep, np.int64)
+    self.n, self.batch, self.dev, self.size = len(self.index), batch, device, size
     self.seed = seed
     self.rng = np.random.default_rng(seed)
     self.drop_last = drop_last
@@ -140,7 +145,7 @@ class GPUTrainLoader:
     from torchvision.io import ImageReadMode, decode_jpeg
     if index is not None:
       self.rng = np.random.default_rng([self.seed, index])
-    perm = self.rng.permutation(self.n)
+    perm = self.index[self.rng.permutation(self.n)]     # global indices (keep None: a permutation of all images)
     perm_gpu = torch.from_numpy(perm).to(self.dev)
     q, stop = queue.Queue(2), object()
 

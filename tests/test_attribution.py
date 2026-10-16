@@ -378,3 +378,30 @@ def test_snapshot_replay_continues_training_and_adds_up(opt):
     r = a3.residual(name)
     assert r['weight'] < 1e-12 and r['bias'] < 1e-12
     assert a3.tracked[name].C[4].abs().max() > 0          # the history group still writes (momentum, Nesterov)
+
+
+@pytest.mark.parametrize('opt', ['adamw', 'sgd'])
+def test_fine_group_shadow_folds_to_class_parts(opt):
+  """A shadow split over fine groups, each inside one class (own images of a rare class, subsets, decoy sets), with
+  mixup's soft groups: summing the fine parts of each class gives that class's part, the head included."""
+  m = tiny(9)
+  kw = dict(optimizer=opt, lr=1e-2, weight_decay=0.05, dtype=torch.float64)
+  layers = {'l0': m[0], 'head': m[2]}
+  cls = GroupAttribution(layers, n_groups=4, **kw)
+  group_class = torch.tensor([0, 0, 1, 2, 2, 2, 3, 1])           # 8 fine groups inside 4 classes
+  fine = GroupAttribution(layers, n_groups=len(group_class), shadow=True, **kw)
+  x, y, _ = data(10, 6, seed=7)
+  g = torch.Generator().manual_seed(8)
+  for t in range(10):
+    f = torch.randint(0, len(group_class), (6,), generator=g)    # each example's fine group
+    c = group_class[f]                                           # and its class
+    loss_fn(m(x[t]), y[t]).backward()
+    lam = 0.3 + 0.04 * t
+    cls.step(torch.stack([c, c.flip(0)], 1), weights=(lam, 1 - lam))
+    fine.step(torch.stack([f, f.flip(0)], 1), weights=(lam, 1 - lam))
+  for name in layers:
+    for part in ('C', 'Cb'):
+      Cf = getattr(fine.tracked[name], part)
+      folded = torch.zeros_like(getattr(cls.tracked[name], part)).index_add_(0, group_class, Cf)
+      assert torch.allclose(folded, getattr(cls.tracked[name], part), atol=1e-12)
+    assert cls.residual(name)['weight'] < 1e-12 and fine.residual(name)['weight'] < 1e-12

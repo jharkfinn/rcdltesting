@@ -132,3 +132,21 @@ def test_batch_seeded_crops_repeat_from_any_start(tmp_path):
   assert all(torch.equal(a[2], b[2]) for a, b in zip(old_full[3:], old_part))           # same order
   assert not all(torch.equal(a[0], b[0]) for a, b in zip(old_full[3:], old_part))       # different crops
   assert all(torch.equal(a[2], b[2]) for a, b in zip(full, old_full))                   # the order does not change
+
+
+def test_keep_and_label_table(tmp_path):
+  """keep=None draws the same order as before; keep trains on the listed images only, each once per epoch; a label
+  table replaces the packed labels."""
+  import torch
+  from rcdl.imagenet import GPUTrainLoader
+  _pack_tiny(tmp_path)
+  ref = np.random.default_rng([3, 1]).permutation(12)
+  got = torch.cat([b[2] for b in GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=3).epoch(1)]).numpy()
+  assert np.array_equal(got, ref)
+  keep = np.array([0, 2, 3, 5, 8, 9, 11, 10])
+  labels = (np.arange(12) * 7) % 13
+  ld = GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=3, keep=keep, labels=labels)
+  batches = list(ld.epoch(0))
+  idx = torch.cat([b[2] for b in batches]).numpy()
+  assert len(ld) == 4 and sorted(idx) == sorted(keep)
+  assert np.array_equal(torch.cat([b[1] for b in batches]).numpy(), labels[idx])

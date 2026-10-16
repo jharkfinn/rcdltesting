@@ -95,7 +95,7 @@ def atlas_step(model, attr, init, x_u8, y, n_classes, poles_idx=None, poles=20, 
   """One checkpoint. poles_idx: {block: (units, 2 * poles) class indices} (None: choose from this checkpoint's R).
   The probe set must be sorted by class with the same number of images per class. Blocks are processed `chunk` at a
   time (None: all at once), re-running the probe forward for each chunk, to bound the memory of h* for wide models."""
-  all_blocks = sorted({k.rsplit('.', 1)[0] for k in attr}, key=lambda n: [int(t) for t in n.replace('stage', '').split('.block')])
+  all_blocks = sorted({k.rsplit('.', 1)[0] for k in attr if k.startswith('stage')}, key=lambda n: [int(t) for t in n.replace('stage', '').split('.block')])
   per = int((y == y[0]).sum())
   assert torch.equal(y, torch.arange(n_classes).repeat_interleave(per)), 'probe set: sorted, equal count per class'
   mean, std = MEAN.to(device)[:, None, None], STD.to(device)[:, None, None]

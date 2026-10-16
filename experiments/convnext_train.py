@@ -24,6 +24,11 @@ original run's, the same in both replays; with --batch_crops in the original run
 per batch and a control replay repeats the original run up to GPU nondeterminism). --zero_loss_classes gives the listed classes' label terms loss weight 0 (an
 intervention: their examples still pass through the model, but teach nothing for those labels). --extra_ckpts adds
 checkpoints (attribution parts and model, no validation pass) for a denser record.
+
+Data specs (rare classes, relabelled images): --spec spec.npz trains on the images in `keep` with the full label table
+`labels`; with a per-image `group` table (and `group_class`, one entry per group), the same updates are also split over
+those fine groups (own images of a rare class, subsets, decoy sets) by a shadow GroupAttribution, saved as
+attrF_{step}.pt. --track_head adds the classifier to the tracked maps (AdamW only).
 """
 
 import argparse
@@ -131,6 +136,10 @@ def main():
   p.add_argument('--batch_crops', action='store_true',
                  help='crop draws seeded per batch, so resumes and replays repeat the original crops (use the same '
                       'setting in the original run and its replays)')
+  p.add_argument('--spec', default='', help='data spec (.npz): keep (images to train on), labels (full label table, '
+                 'relabelled images), and optionally group / group_class for a fine-group shadow split saved as '
+                 'attrF_{step}.pt (rare classes, own-image groups, decoy sets)')
+  p.add_argument('--track_head', action='store_true', help='also track the classifier (head) with the same groups')
   a = p.parse_args()
   dev = torch.device('cuda')
   torch.manual_seed(a.seed)
@@ -151,6 +160,10 @@ def main():
   zero_cls = torch.tensor([int(c) for c in filter(None, a.zero_loss_classes.split(','))], dtype=torch.long, device=dev)
   blocks = tracked_blocks(model, a.track)
   layers = {f'{n}.{k}': getattr(b, k) for n, b in blocks for k in ('pw_gate', 'pw_value')}
+  if a.track_head:
+    assert a.opt == 'adamw', 'head tracking: AdamW only (under Muon the head is an AdamW parameter of the trainer)'
+    layers['head'] = model.head                    # (B, d) -> (B, 1000): per-example gradients delta_i h_i^T
+  spec = dict(np.load(a.spec)) if a.spec else None
   n_groups = 1001 if snap is not None else 1000     # replay: group 1000 holds the momentum from before the snapshot
   if a.opt == 'adamw':
     akw = dict(n_groups=n_groups, optimizer='adamw', lr=a.lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=a.wd,
@@ -161,6 +174,9 @@ def main():
                bias_lr_scale=a.lr / a.muon_lr)                # tracked biases: AdamW at a.lr, like the other biases
   attr = GroupAttribution(layers, **akw)
   attr_r = GroupAttribution(layers, shadow=True, **akw) if a.rand_groups else None
+  attr_f = None                                 # fine groups (a shadow); a replay (--init_from) uses the spec's data only
+  if spec is not None and 'group' in spec and snap is None:
+    attr_f = GroupAttribution(layers, shadow=True, **(akw | {'n_groups': int(len(spec['group_class']))}))
   if snap is not None:
     attr.load_snapshot(snap['attr'], history_group=1000)
     if attr_r is not None:
@@ -179,7 +195,16 @@ def main():
   os.makedirs(a.out, exist_ok=True)
   json.dump(vars(a) | {'tracked': list(layers), 'params': sum(p.numel() for p in model.parameters()),
                        'ckpt_steps': sorted(ckpts)}, open(os.path.join(a.out, 'config.json'), 'w'), indent=1)
-  loader = GPUTrainLoader(a.train, a.batch, dev, seed=a.seed, batch_seeded=a.batch_crops)
+  if spec is not None:
+    np.savez(os.path.join(a.out, 'spec.npz'), **spec)
+    loader = GPUTrainLoader(a.train, a.batch, dev, seed=a.seed, batch_seeded=a.batch_crops, keep=spec['keep'],
+                            labels=spec['labels'])
+    if attr_f is not None:
+      assert len(spec['group']) == len(loader.labels), 'spec built for another packed training set'
+      assert (spec['group'][spec['keep']] >= 0).all(), 'every kept image needs a fine group'
+      fine_gpu = torch.from_numpy(spec['group'].astype(np.int64)).to(dev)    # -1 for dropped images (never drawn)
+  else:
+    loader = GPUTrainLoader(a.train, a.batch, dev, seed=a.seed, batch_seeded=a.batch_crops)
   if attr_r is not None:                       # random group of example j: the label of example perm[j]
     rand_np = np.random.default_rng([a.seed, 777]).permutation(loader.labels)
     np.save(os.path.join(a.out, 'rand_groups.npy'), rand_np.astype(np.int16))
@@ -196,6 +221,8 @@ def main():
     torch.save(attr.compact_state(), os.path.join(a.out, f'attr_{step:05d}.pt'))   # scaled fp16 parts + fp32 remainder
     if attr_r is not None:
       torch.save(attr_r.compact_state(), os.path.join(a.out, f'attrR_{step:05d}.pt'))
+    if attr_f is not None:
+      torch.save(attr_f.compact_state(), os.path.join(a.out, f'attrF_{step:05d}.pt'))
     if not os.path.exists(os.path.join(a.out, 'attr_init.pt')):   # step 0, or the first step of a replay
       torch.save({k: {'W0': tr.W0, 'b0': tr.b0} for k, tr in attr.tracked.items()}, os.path.join(a.out, 'attr_init.pt'))
     if a.snapshots:
@@ -213,6 +240,7 @@ def main():
     tmp = os.path.join(a.out, 'resume.pt.tmp')
     torch.save({'step': step, 'model': model.state_dict(), 'opts': [o.state_dict() for o in opts],
                 'attr': attr.full_state(), 'attr_r': attr_r.full_state() if attr_r is not None else None,
+                'attr_f': attr_f.full_state() if attr_f is not None else None,
                 'log': log, 'torch_rng': torch.get_rng_state(),
                 'cuda_rng': torch.cuda.get_rng_state()}, tmp)
     os.replace(tmp, os.path.join(a.out, 'resume.pt'))
@@ -226,6 +254,8 @@ def main():
     attr.load_full_state(st['attr'])
     if attr_r is not None:
       attr_r.load_full_state(st['attr_r'])
+    if attr_f is not None:
+      attr_f.load_full_state(st['attr_f'])
     log[:] = st['log']
     torch.set_rng_state(st['torch_rng'].cpu())
     torch.cuda.set_rng_state(st['cuda_rng'].cpu())
@@ -273,6 +303,10 @@ def main():
       if attr_r is not None:
         r = rand_gpu[idx.to(dev, non_blocking=True)]
         attr_r.step(torch.stack([r, r.flip(0)], 1), (a.lr if a.opt == 'adamw' else a.muon_lr) * sched(step),
+                    weights=(lam, 1 - lam))
+      if attr_f is not None:
+        f = fine_gpu[idx.to(dev, non_blocking=True)]
+        attr_f.step(torch.stack([f, f.flip(0)], 1), (a.lr if a.opt == 'adamw' else a.muon_lr) * sched(step),
                     weights=(lam, 1 - lam))
       for o in opts:
         o.step()
