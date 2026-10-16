@@ -137,7 +137,7 @@ def static_shares(rec, dist, tau=0.3, near=4):
   """One checkpoint's own poles (prelim atlas): median own / relative / other / init shares of the positive pole."""
   P = rec['poles'].shape[1] // 2
   R = rec['R']
-  own, rel, oth, ini = [], [], [], []
+  own, rel, oth, ini, rel0 = [], [], [], [], []
   for n in range(R.shape[0]):
     scale = R[n].abs().max()
     for j, c in enumerate(rec['poles'][n, :P].tolist()):
@@ -152,8 +152,12 @@ def static_shares(rec, dist, tau=0.3, near=4):
       rel.append(float(W[r].sum()) / vbar)
       ini.append(I / vbar)
       oth.append(1 - own[-1] - rel[-1] - ini[-1])
+      # chance: the writes from classes other than c, spread over them in proportion to their total writes into
+      # this unit's response to c would give relatives this share; here the same mass is split evenly by count
+      rel0.append((1 - own[-1] - ini[-1]) * len(r) / (W.shape[0] - 1))
   med = lambda x: float(np.median(x)) if x else float('nan')
-  return {'n': len(own), 'own': med(own), 'relative': med(rel), 'other': med(oth), 'init': med(ini)}
+  return {'n': len(own), 'own': med(own), 'relative': med(rel), 'other': med(oth), 'init': med(ini),
+          'relative_chance': med(rel0), 'own_chance': 1.0 / R.shape[1]}
 
 
 def prelim(run, dist, tau, near):
@@ -171,6 +175,7 @@ def prelim(run, dist, tau, near):
       avg = lambda k: float(np.nansum([x[k] * x['n'] for x in sh]) / max(w.sum(), 1))
       rows.append({'step': step, 'stage': stage, 'pole_entries': int(w.sum()), 'own': avg('own'),
                    'relative': avg('relative'), 'other': avg('other'), 'init': avg('init'),
+                   'relative_chance': avg('relative_chance'),
                    'coherence_median': float(np.median(coh)), 'coherent_units_(>=0.8)': float((coh >= 0.8).mean()),
                    'coherent_units_chance': float((chance >= 0.8).mean())})
   return rows
@@ -188,10 +193,10 @@ def main():
   dist = np.load(a.wordnet)['dist']
   if a.prelim:
     rows = prelim(a.run, dist, a.tau, a.near)
-    print('step stage | pole entries: own / relative / other / init (block medians, weighted) | coherence median,'
-          ' share of units >= 0.8 (chance)')
+    print('step stage | pole entries: own (chance 0.001) / relative (chance) / other / init (block medians, weighted) |'
+          ' coherence median, share of units >= 0.8 (chance)')
     for r in rows:
-      print(f"{r['step']:5d} {r['stage']} | {r['pole_entries']:5d}: {r['own']:.3f} / {r['relative']:.3f} / {r['other']:.3f}"
+      print(f"{r['step']:5d} {r['stage']} | {r['pole_entries']:5d}: {r['own']:.3f} / {r['relative']:.3f} ({r['relative_chance']:.3f}) / {r['other']:.3f}"
             f" / {r['init']:.3f} | {r['coherence_median']:.2f}, {r['coherent_units_(>=0.8)']:.2f} ({r['coherent_units_chance']:.2f})")
     json.dump(rows, open(a.out or os.path.join(a.run, 'growth_prelim.json'), 'w'), indent=1)
     return
