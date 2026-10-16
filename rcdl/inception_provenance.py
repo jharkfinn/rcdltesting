@@ -130,3 +130,43 @@ def compare(pb_path: str, pth_path: str) -> Dict[str, object]:
 
 if __name__ == '__main__':
   print(compare(sys.argv[1], sys.argv[2]))
+
+
+LAYERS = ('conv2d0', 'mixed3a', 'mixed3b', 'mixed4a', 'mixed4c', 'mixed4e', 'mixed5a', 'mixed5b', 'softmax2_pre_activation')
+
+
+def compare_forward(pb_path: str, pth_path: str, n_images: int = 4, size: int = 224, seed: int = 0) -> Dict[str, float]:
+  """Run Google's graph in TensorFlow and the vendored PyTorch model on the same inputs (smooth random images in Lucid's
+  value range) and return, per layer, max |TF - torch| / max |TF|. Needs tensorflow (not a dependency of this repo)."""
+  import tensorflow as tf
+  from rcdl.third_party.lucent_inceptionv1 import InceptionV1
+  g = np.random.default_rng(seed)
+  lo = g.uniform(0, 1, (n_images, 3, size // 16, size // 16)).astype('f4')
+  x = torch.nn.functional.interpolate(torch.from_numpy(lo), size=(size, size), mode='bilinear', align_corners=False)
+  x = (0.7 * x + 0.3 * torch.rand(x.shape, generator=torch.Generator().manual_seed(seed))) * 255 - 117
+  pb = zipfile.ZipFile(pb_path).read('tensorflow_inception_graph.pb') if pb_path.endswith('.zip') else open(pb_path, 'rb').read()
+  gd = tf.compat.v1.GraphDef()
+  gd.ParseFromString(pb)
+  graph = tf.Graph()
+  with graph.as_default():
+    inp = tf.compat.v1.placeholder(tf.float32, (None, size, size, 3))
+    tf.import_graph_def(gd, {'input': inp}, name='')
+    names = {l: graph.get_tensor_by_name(f'{l}:0') for l in LAYERS}
+  with tf.compat.v1.Session(graph=graph) as sess:
+    ref = sess.run(names, {inp: x.permute(0, 2, 3, 1).numpy()})
+  model = InceptionV1(pretrained=False, redirected_ReLU=False).eval()
+  model.load_state_dict(torch.load(pth_path, map_location='cpu', weights_only=True))
+  acts = {}
+  hooks = [getattr(model, l if l != 'softmax2_pre_activation' else 'softmax2_pre_activation_matmul')
+           .register_forward_hook(lambda m, i, o, l=l: acts.__setitem__(l, o.detach())) for l in LAYERS]
+  with torch.no_grad():
+    model(x)
+  for h in hooks:
+    h.remove()
+  out = {}
+  for l in LAYERS:
+    a = acts[l].numpy()
+    a = a.transpose(0, 2, 3, 1) if a.ndim == 4 else a
+    r = ref[l].reshape(a.shape)
+    out[l] = float(np.abs(a - r).max() / max(np.abs(r).max(), 1e-12))
+  return out
