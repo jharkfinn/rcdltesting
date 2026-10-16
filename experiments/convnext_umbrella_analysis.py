@@ -33,7 +33,9 @@ Notation (per run):
   paths     fine: every saved step (phase 1: every step); common: steps saved with shadow states in both the taught
             and the untaught run (0, multiples of 25, tau, tau + 500), so that real and pseudo-group buckets share one
             path; V sets: each interval as one segment.
-  V sets    every set leaves out all candidate photos of every selection arm (arm E included) and the probe_8 images
+  V sets    every set leaves out the photos and reserve images of every selection arm (arm E included; the images that
+            can be taught, as photos are replaced only from the reserve; vsets --all_passing also leaves out every
+            image that passed a selection rule) and the probe_8 images
             (the first 8 in parquet order) of the arm's source and target: V_ref = the first 10 validation images of
             every class except t, s, RELb and RELu; V_umb = the source class's images; V_bee = the target class's;
             V_near = the 100 images of V_ref u V_umb nearest to x_P by cosine of theta_w's pooled final-LayerNorm
@@ -41,7 +43,9 @@ Notation (per run):
 
 M1 feed and shelter (C1), on the common path, F restricted to the block maps unless stated:
   DiD^w(I) = F^w(I; taught) - F^w(I; untaught); the 64 pseudo-groups give DiD^{r,g}; z^w = (DiD^w - mean) / sd over
-  them (sd with ddof 1). Feed phi_BEE(I) = DiD^BEE(I) / dm_P(I1), dm_P(I1) = m_P(tau) - m_P(0) in the taught run.
+  them (sd with ddof 1); pseudo_noise: the part of that sd due to the fp16 storage of the shadow parts (in each shadow
+  the slot groups' IG must sum to the replay classes' IG; pseudo_storage_noise), reported as a ratio to sd_pseudo.
+  Feed phi_BEE(I) = DiD^BEE(I) / dm_P(I1), dm_P(I1) = m_P(tau) - m_P(0) in the taught run.
   Shelter E_OTH = -F^OTH(I2; taught) / dm_P(I1); E_dec = -F^{dec_P}(I2; taught, all maps) / dm_P(I1). Umbrella
   coupling: DiD^UMB and z over I1 and I2 per map group (blocks, stage0-3, gate+value, down, head, total). Decline
   composition: F^w(I2; taught, all maps) / (m_P(end) - m_P(tau)). Retained fraction rho = (m_P(end) - m_P(0)) /
@@ -98,7 +102,9 @@ out, E = relabel triples, J = E1r replicate, C = solo):
         C50 in a pole set and median q^t within 0.1 of 0.5.
   P-C4  O: S_late >= 0.8, argmax theta^P(stage3) = t, argmax theta^P(head) != t; S_head >= 0.5 is a deviation.
   Verdict: C1 supported if P-C1a and P-C1b are O, contradicted if both are 'against', else mixed; C2 = P-C2's verdict;
-  C3 and C4 (secondary, descriptive) = the majority label over the primary runs.
+  C3 and C4 (secondary, descriptive) = the majority label over the primary runs. '4 of 5', '3 of 5' scale with the
+  number of photos per seed (photos_per_seed: a pre-registered fallback may leave 3 or 4). Runs that miss an exactness
+  check (exactness_ok: completeness <= tol, bucket remainders <= 1e-5) are used and listed in runs_failing_checks.
 
 Subcommands: vsets (evaluation sets of one selection arm), provenance (E1 writers for an arm's target and source),
 run (one taught or solo run: M1-M4 and checks -> analysis.json, analysis.pt), decide (all analyses under a root).
@@ -165,9 +171,32 @@ def run_info(run: str) -> dict:
 
 def path_vertices(run: str, s1: int, s2: int, shadows: bool) -> list:
   ok = set(steps_of(run, 'sums')) & set(steps_of(run, 'model'))
-  if shadows:
-    ok &= set(steps_of(run, 'shadow'))
+  if shadows:                                           # compact fp16 shadow states or fp32 shadow sums
+    ok &= set(steps_of(run, 'shadow')) | set(steps_of(run, 'shadowsums'))
   return sorted(s for s in ok if s1 <= s <= s2)
+
+
+def shadow_parts(run: str, s: int, keys, cv) -> tuple:
+  """([{map: (C (G, out, in), Cb (G, out), R, a, ab)}] per shadow, fp32) at step s: from shadowsums_{s}.pt (each
+  shadow's GroupAttribution.group_sums over its single groups, fp32) when saved, else from shadow_{s}.pt (compact_state:
+  scaled fp16 parts, C = C16 / C_scale). In both, W = a W_0 + sum_g C_g + R."""
+  f = os.path.join(run, f'shadowsums_{s:04d}.pt')
+  if os.path.exists(f):
+    out = []
+    for st in _ld(run, f'shadowsums_{s:04d}.pt'):
+      rec = {}
+      for k in keys:
+        e = st[k]
+        order = sorted(e['sets'], key=lambda n: int(n.lstrip('g')))
+        rec[k] = (torch.stack([cv(e['sets'][n]['C']) for n in order]), torch.stack([cv(e['sets'][n]['Cb']) for n in order]),
+                  cv(e['R']), e['a'], e['ab'])
+      out.append(rec)
+    return out, True
+  out = []
+  for st in _ld(run, f'shadow_{s:04d}.pt'):
+    out.append({k: (cv(st[k]['C']) / st[k]['C_scale'], cv(st[k]['Cb']) / st[k]['Cb_scale'], cv(st[k]['R']), st[k]['a'],
+                    st[k]['ab']) for k in keys})
+  return out, False
 
 
 def common_path(runs, s1: int, s2: int, shadows: bool = True) -> list:
@@ -198,7 +227,8 @@ def load_buckets(run: str, s1: int, s2: int, keys: dict, shadows: bool = False, 
   'b': {map: (n, out)} over names + extra, 'unt': {param: change} of the untracked parameters that moved,
   'check': {'rem_vs_sums': max |R - (R_s2 - R_s1)| / max |W|, 'shadow_sum': max over shadows of the relative error of
   each shadow's own split, 'shadow_vs_replay': max relative difference of the 8 slot groups' writes from the class
-  writes (fp16 storage of the shadows)}}."""
+  writes (storage of the shadows: fp16 compact states, or fp32 from shadowsums_{s}.pt when saved; shadow_parts),
+  'shadow_fp16': 1 if either end was read from fp16}}."""
   init = _ld(run, 'attr_init.pt')
   S1, S2 = _ld(run, f'sums_{s1:04d}.pt'), _ld(run, f'sums_{s2:04d}.pt')
   th1, th2 = th if th is not None else (_ld(run, f'model_{s1:04d}.pt'), _ld(run, f'model_{s2:04d}.pt'))
@@ -233,21 +263,20 @@ def load_buckets(run: str, s1: int, s2: int, keys: dict, shadows: bool = False, 
   extra_W = {k: [] for k in keys}
   extra_b = {k: [] for k in keys}
   if shadows:
-    sh1, sh2 = _ld(run, f'shadow_{s1:04d}.pt'), _ld(run, f'shadow_{s2:04d}.pt')
+    (sh1, fp1), (sh2, fp2) = shadow_parts(run, s1, keys, cv), shadow_parts(run, s2, keys, cv)
+    out['check']['shadow_fp16'] = 0.0 if fp1 and fp2 else 1.0     # 1: some shadow parts were read from fp16
     err_sum = err_rep = 0.0
     for r_, (c1, c2) in enumerate(zip(sh1, sh2)):
       for k, pre in keys.items():
-        e1, e2 = c1[k], c2[k]
-        C1, C2 = cv(e1['C']) / e1['C_scale'], cv(e2['C']) / e2['C_scale']
-        rho = e2['a'] / e1['a']
+        (C1, Cb1, R1, a1, ab1), (C2, Cb2, R2, a2, ab2) = c1[k], c2[k]
+        rho = a2 / a1
         wr = C2 - rho * C1                               # (10, out, in): photo, 8 slot groups, hist
-        Cb1, Cb2 = cv(e1['Cb']) / e1['Cb_scale'], cv(e2['Cb']) / e2['Cb_scale']
-        wrb = Cb2 - (e2['ab'] / e1['ab']) * Cb1
+        wrb = Cb2 - (ab2 / ab1) * Cb1
         for g in range(1, wr.shape[0] - 1):
           extra_W[k].append(wr[g])
           extra_b[k].append(wrb[g])
         W1, W2 = cv(th1[pre + '.weight']), cv(th2[pre + '.weight'])
-        own = wr.sum(0) + (rho - 1) * C1.sum(0) + (e2['a'] - e1['a']) * cv(init[k]['W0']) + cv(e2['R'] - e1['R'])
+        own = wr.sum(0) + (rho - 1) * C1.sum(0) + (a2 - a1) * cv(init[k]['W0']) + (R2 - R1)
         scale = float(W2.abs().max().clamp(min=1e-30))
         err_sum = max(err_sum, float((own - (W2 - W1)).abs().max()) / scale)
         rep = out['W'][k][[names.index(w) for w in replay]].sum(0)
@@ -554,9 +583,11 @@ def ig_table(res_fn: dict, names, j: int, groups: dict) -> dict:
 
 
 def ig_images(res_fn: dict, names, name: str, maps_sel=None) -> np.ndarray:
-  """(N,) IG of bucket `name` per image, summed over maps_sel (all maps if None)."""
+  """(N,) IG of bucket `name` per image, summed over maps_sel (all maps if None). The untracked bucket belongs to no
+  tracked map, so it counts only when maps_sel is all maps (as in ig_table)."""
   if name == 'unt':
-    return np.asarray(res_fn['unt'])
+    u = np.asarray(res_fn['unt'])
+    return u if maps_sel is None or set(maps_sel) >= set(res_fn['ig']) else np.zeros_like(u)
   i = names.index(name)
   ms = maps_sel if maps_sel is not None else list(res_fn['ig'])
   return sum(res_fn['ig'][m][:, i] for m in ms)
@@ -571,6 +602,28 @@ def did_z(obs: float, pseudo) -> dict:
   sd = float(p.std(ddof=1)) if len(p) > 1 else float('nan')
   z = (obs - mu) / sd if sd > 0 else float('nan')
   return {'did': float(obs), 'mean_pseudo': mu, 'sd_pseudo': sd, 'z': z, 'n_pseudo': int(len(p))}
+
+
+NON_REPLAY = ('P', 'hist', 'dec_P', 'dec_rest', 'dec_0', 'R', 'unt')
+
+
+def pseudo_storage_noise(tb: dict, pseudo, replay, groups) -> dict:
+  """Storage noise of the pseudo-groups' IG, per map group. tb: {bucket: {map group: IG}} of one run and interval;
+  pseudo: 'sh{r}.g{g}' names; replay: the class buckets of the replay examples. Shadow r's slot groups split the same
+  replay examples as the classes do, so e_r = sum_g IG^{sh r.g} - sum_{w in replay} IG^w is the IG of the rounding of
+  shadow r's stored parts (scaled fp16; the class sums are fp32), not of any training signal. With independent rounding
+  per group, one pseudo-group's noise sd is sqrt(mean_r e_r^2 / G), G slot groups per shadow. The real buckets lack
+  this noise, so it inflates sd_pseudo and shrinks z; DiD noise sd = hypot(taught, untaught)."""
+  by_r = {}
+  for q in pseudo:
+    by_r.setdefault(q.split('.')[0], []).append(q)
+  G = len(next(iter(by_r.values())))
+  out = {}
+  for g in groups:
+    rep = sum(tb[w][g] for w in replay)
+    e = np.array([sum(tb[q][g] for q in qs) - rep for qs in by_r.values()])
+    out[g] = float(np.sqrt((e ** 2).mean() / G))
+  return out
 
 
 def perm_mean_diff(a, b, n: int = 10000, seed: int = 0) -> dict:
@@ -715,9 +768,10 @@ def pole_sets(atlas: dict, blocks, t: int, s: int, poles: int = 20) -> tuple:
   return np.concatenate(B), np.concatenate(U)
 
 
-def match_noncarriers(carriers, pool_mask, block_of, key, k: int = 3) -> dict:
-  """{carrier: [up to k non-carriers of the same block in pool_mask nearest on key]}."""
-  cs = set(int(c) for c in carriers)
+def match_noncarriers(carriers, pool_mask, block_of, key, k: int = 3, all_carriers=None) -> dict:
+  """{carrier: [up to k non-carriers of the same block in pool_mask nearest on key]}. all_carriers: every carrier
+  (C50), none of which may serve as a non-carrier (default: carriers, which may be a subset of C50)."""
+  cs = set(int(c) for c in (carriers if all_carriers is None else list(carriers) + list(all_carriers)))
   out = {}
   for c in carriers:
     cand = [n for n in np.flatnonzero(pool_mask) if n not in cs and block_of[n] == block_of[c]]
@@ -740,7 +794,7 @@ def own_upstream_split(st_tau, st_w, model_tau, model_w, bk_I1, keys_names, bloc
   for blk in blocks:
     a, w = st_tau[blk], st_w[blk]
     p = a['u'][0].argmax(0)                              # (units,) strongest position at theta_tau
-    take = lambda t_, p=p: t_[0][p, torch.arange(len(p))]
+    take = lambda t_, p=p: t_[0][p, torch.arange(len(p), device=p.device)]
     ht = a['h'][0][p]                                    # (units, d)
     hw = w['h'][0][p]
     gt, gw, vt, vw = take(a['g']), take(w['g']), take(a['v']), take(w['v'])
@@ -858,18 +912,22 @@ def readout(model, theta: dict, xP, t: int, s: int) -> dict:
 
 # -------------------------------------------------------------------------------------------- evaluation sets
 
-def candidate_exclusions(sels, vlabels=None) -> set:
-  """Global validation indices never used for evaluation: every arm's candidate photos (its excluded_from_eval without
-  the probe_8 images of its source and target, when vlabels is given) and every photo and reserve image, over all
-  selection files (all arms, arm E included)."""
+def candidate_exclusions(sels, vlabels=None, all_passing: bool = False) -> set:
+  """Global validation indices never used for evaluation, over all selection files (all arms, arm E included): every
+  photo and reserve image (the images that can be taught: verify replaces a photo only from the reserve). With
+  all_passing, also every image that passed an arm's selection rule (its excluded_from_eval without the probe_8 images
+  of its source and target, when vlabels is given). That literal reading empties V_umb for a well-recognized source
+  (jack-o'-lantern, 90% top-1: about 38 of its 42 non-probe images pass), leaving only the images E1 gets wrong, so
+  it is not the default."""
   ex = set()
   for sel in sels:
     for arm in sel['arms'].values():
-      probe = set()
-      if vlabels is not None:
-        for c in (arm['source'], arm['target']):
-          probe |= {int(i) for i in np.flatnonzero(vlabels == c)[:8]}
-      ex |= {int(i) for i in arm.get('excluded_from_eval', [])} - probe
+      if all_passing:
+        probe = set()
+        if vlabels is not None:
+          for c in (arm['source'], arm['target']):
+            probe |= {int(i) for i in np.flatnonzero(vlabels == c)[:8]}
+        ex |= {int(i) for i in arm.get('excluded_from_eval', [])} - probe
       for r in arm.get('photos', []) + arm.get('reserve', []):
         kind, idx = r['photo'].split(':')
         if kind == 'val':
@@ -923,16 +981,20 @@ def cmd_vsets(a):
   sels = [json.load(open(f)) for f in a.sel]
   arm = find_arm(sels, a.arm)
   _, vlabels = val_index(a.val)
-  idx = eval_set_indices(vlabels, arm, candidate_exclusions(sels, vlabels))
+  all_passing = bool(getattr(a, 'all_passing', False))
+  idx = eval_set_indices(vlabels, arm, candidate_exclusions(sels, vlabels, all_passing))
+  literal = eval_set_indices(vlabels, arm, candidate_exclusions(sels, vlabels, True))
   f10 = first10_cache(a.val, a.first10)
   pos = {int(g): i for i, g in enumerate(f10['idx'])}
   out = {'arm': a.arm, 'target': arm['target'], 'source': arm['source'], 'idx': idx, 'first10': a.first10,
-         'val': a.val, 'V_ref_pos': [pos[g] for g in idx['V_ref']],
+         'val': a.val, 'V_ref_pos': [pos[g] for g in idx['V_ref']], 'all_passing': all_passing,
+         'n_if_all_passing_excluded': {k: len(v) for k, v in literal.items()},
          'labels': {k: [int(vlabels[i]) for i in v] for k, v in idx.items()},
          'x': {k: val_images(a.val, idx[k]) for k in ('V_umb', 'V_bee')}}
   torch.save(out, a.out + '.tmp')
   os.replace(a.out + '.tmp', a.out)
-  print({k: len(v) for k, v in idx.items()}, flush=True)
+  print({k: len(v) for k, v in idx.items()}, 'with every passing image excluded:', out['n_if_all_passing_excluded'],
+        flush=True)
 
 
 def load_vsets(path: str) -> dict:
@@ -1098,8 +1160,9 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
       xm.append(Images([vs['V_umb']['x'][torch.as_tensor(mp_idx)]], dev, dt).get(0, len(mp_idx)))
     xm = torch.cat(xm)
     ut_info = run_info(untaught)
-    for k in ('seed', 'lr', 'opt', 'replay', 'rest', 'rest_exclude', 'arm'):
-      assert ut_info['cfg'].get(k) == cfg.get(k), f'untaught run: different {k} (not the same replay stream)'
+    for k in ('seed', 'lr', 'opt', 'replay', 'rest', 'rest_exclude', 'arm', 'branch_key', 'shadows', 'wd', 'snapshot',
+              'replay_classes', 'sets'):
+      assert ut_info['cfg'].get(k) == cfg.get(k), f'untaught run: different {k} (not the same branch and replay stream)'
     paths = {'I1': common_path([run, untaught], 0, tau), 'I2': common_path([run, untaught], tau, end)}
     Fr = {}
     for who, rd in (('taught', run), ('untaught', untaught)):
@@ -1108,6 +1171,8 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
         Fr[(who, I)] = param_ig(model, maps, segments_of(verts), ld, xm, fns, batch=ctx['batch'],
                                 check=(0,), **opt)
     names = Fr[('taught', 'I1')]['names']
+    for key_, r in Fr.items():
+      assert r['names'] == names, f'{key_}: buckets differ from the taught run over I1 ({r["names"]} vs {names})'
     pseudo = [n for n in names if n.startswith('sh')]
     real = [n for n in names if not n.startswith('sh')]
     M1 = {'paths': paths, 'dm_P': {'I1': dm1, 'I2': summ['m_P']['end'] - summ['m_P']['tau']}, 'F': {}, 'DiD': {},
@@ -1131,6 +1196,14 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
       M1.setdefault('z_zt', {})[I] = {g: did_z(full[('taught', I)]['zt']['BEE'][g] - full[('untaught', I)]['zt']['BEE'][g],
                                                [full[('taught', I)]['zt'][q][g] - full[('untaught', I)]['zt'][q][g]
                                                 for q in pseudo]) for g in ('blocks', 'total')}
+      if pseudo:
+        replay = [n for n in real if n not in NON_REPLAY]
+        nt, nu = (pseudo_storage_noise(full[(w, I)]['m'], pseudo, replay, groups) for w in ('taught', 'untaught'))
+        sd_did = {g: float(np.hypot(nt[g], nu[g])) for g in groups}
+        sdp = {g: M1['z'][I]['BEE'][g]['sd_pseudo'] for g in groups}
+        M1.setdefault('pseudo_noise', {})[I] = {
+            'taught': nt, 'untaught': nu, 'DiD_sd': sd_did,
+            'ratio_to_sd_pseudo': {g: sd_did[g] / sdp[g] if sdp[g] > 0 else float('nan') for g in groups}}
       if mp_idx is not None and len(mp_idx):
         trip = {}
         for n in real:
@@ -1139,6 +1212,9 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
             dP = ig_images(Fr[('taught', I)]['m'], names, n, ms) - ig_images(Fr[('untaught', I)]['m'], names, n, ms)
             trip.setdefault(n, {})[g] = float(dP[0] - dP[1:].mean())
         M1.setdefault('triple', {})[I] = trip
+    if 'pseudo_noise' in M1:
+      summ['checks']['pseudo_noise_ratio_blocks'] = max(v['ratio_to_sd_pseudo']['blocks']
+                                                        for v in M1['pseudo_noise'].values())
     zb = M1['z']['I2'].get('BEE', {}).get('blocks', {})
     d2 = M1['DiD']['I2']
     safe = lambda v, d: v / d if d != 0 else float('nan')
@@ -1306,7 +1382,10 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
     if 'resid_pre' in sp:
       summ['checks']['two_level_resid'] = float(sp['resid_pre'].max())
     e1 = ctx.get('e1')
-    if e1 is not None:
+    if 'T' in sp and len(C):                             # descriptive, without pole sets
+      M3['q_C50'] = {'median_q_t': float(np.median(class_percentile(sp['T'], sp['du'], t)[C])),
+                     'median_q_s': float(np.median(class_percentile(sp['T'], sp['du'], s)[C]))}
+    if e1 is not None and e1.get('atlas') is not None:
       Bp, Up = pole_sets(e1['atlas'], blocks_, t, s, ctx.get('poles', 20))
       Rt = np.concatenate([e1['atlas'][b]['R'][:, t].double().numpy() for b in blocks_])
       Rs = np.concatenate([e1['atlas'][b]['R'][:, s].double().numpy() for b in blocks_])
@@ -1318,7 +1397,7 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
                      'route_share': float(np.maximum(c, 0)[pole].sum() / max(np.maximum(c, 0).sum(), 1e-30))}
 
       def matched(mask, q, key, cs):
-        pairs = match_noncarriers(cs, mask, block_of, np.abs(key))
+        pairs = match_noncarriers(cs, mask, block_of, np.abs(key), all_carriers=C)
         d = [q[k] - np.mean(q[v]) for k, v in pairs.items()]
         return {'n': len(cs), 'median_q': float(np.median(q[cs])) if len(cs) else float('nan'),
                 'median_q_matched': float(np.median([np.mean(q[v]) for v in pairs.values()])) if pairs else float('nan'),
@@ -1356,7 +1435,23 @@ def analyze(run: str, ctx: dict, untaught: str = None, skip=()) -> tuple:
     arrays['M3'] = {'c_tau': rt['c'], 'c_end': res3['end']['c'], 'sel_tau': rt['sel'], 'sel_end': res3['end']['sel'],
                     'du': sp['du'], 'own': sp['own'], 'up': sp['up'], 'own_by': sp['own_by'], 'names': bkI1['names']}
     summ['M3'] = M3
+  summ['checks']['ok'] = exactness_ok(summ, ctx['tol'])
   return summ, arrays
+
+
+def exactness_ok(summ: dict, tol: float) -> dict:
+  """The protocol's exactness checks on one analysis: IG completeness on x_P <= tol on every pass (M1, the fine path,
+  M2's interval passes; the per-step pass is descriptive at fixed nodes and not counted), the buckets' remainder
+  against the saved sums and each shadow's own split <= 1e-5 relative. {'completeness', 'buckets', 'all'}."""
+  ck = summ['checks']
+  eps = [ck['fine_I1']['eps_P']] + list(ck.get('M2_eps_P', {}).values())
+  eps += [v['eps_P'] for v in summ.get('M1', {}).get('completeness', {}).values()]
+  bk = [v for k, v in ck.items() if k.startswith('buckets_')] + [ck['fine_I1']]
+  worst = max([b.get(k, 0.0) for b in bk for k in ('rem_vs_sums', 'shadow_sum')], default=0.0)
+  out = {'completeness': bool(max(eps) <= tol), 'eps_max': float(max(eps)), 'buckets': bool(worst <= 1e-5),
+         'bucket_err_max': float(worst)}
+  out['all'] = out['completeness'] and out['buckets']
+  return out
 
 
 def cmd_run(a):
@@ -1371,10 +1466,11 @@ def cmd_run(a):
   photo = cfg['photo']
   kind = 'control' if photo.split(':')[0] in ('noise', 'shuffle', 'shuffle_train') else 'photo'
   e1 = None
-  if a.e1 and os.path.exists(os.path.join(a.e1, 'atlas_25020.pt')):
-    lde = lambda f: torch.load(os.path.join(a.e1, f), map_location='cpu', weights_only=False)
-    e1 = {'atlas': lde('atlas_25020.pt'), 'attr': lde('attr_25020.pt'), 'init': lde('attr_init.pt'),
-          'state': lde('model_25020.pt')}
+  if a.e1 and os.path.exists(os.path.join(a.e1, 'attr_25020.pt')):  # the two-level split needs E1's parts only;
+    lde = lambda f: torch.load(os.path.join(a.e1, f), map_location='cpu', weights_only=False)   # poles need the atlas
+    has_atlas = os.path.exists(os.path.join(a.e1, 'atlas_25020.pt'))
+    e1 = {'atlas': lde('atlas_25020.pt') if has_atlas else None, 'attr': lde('attr_25020.pt'),
+          'init': lde('attr_init.pt'), 'state': lde('model_25020.pt')}
   ctx = {'make_model': lambda: build_convnext('tiny'), 'device': dev, 'dtype': getattr(torch, a.dtype),
          'vdtype': getattr(torch, a.vdtype), 'x_P': photo_tensor(photo, a.val, dev, a.train).cpu(),
          'target': cfg['target'] if cfg['target'] >= 0 else arm['target'],
@@ -1404,16 +1500,28 @@ def _get(d, *path, default=float('nan')):
   return d
 
 
-def rule_c1a(B: list, Bp: list, lgo: dict, n_photos: int = 5) -> dict:
+def photos_per_seed(runs: list) -> int:
+  """The number of photos of the arm: the most runs any one seed has (the rules' '4 of 5' scale with it, so that a
+  pre-registered fallback to 3 or 4 photos can still meet them; a seed that lost a run is judged against the full
+  count)."""
+  n = {}
+  for r in runs:
+    n[r['seed']] = n.get(r['seed'], 0) + 1
+  return max(n.values()) if n else 5
+
+
+def rule_c1a(B: list, Bp: list, lgo: dict, n_photos: int = None) -> dict:
   """P-C1a over primary runs B (dicts with seed, photo, M1) and standard-optimizer runs Bp; lgo: {(photo, seed):
-  {'dLGO_BEE', ...}}."""
+  {'dLGO_BEE', ...}}. n_photos: photos per seed (None: photos_per_seed)."""
+  n_photos = n_photos or photos_per_seed(B)
   per = []
   for r in B:
     did, z = _get(r, 'M1', 'feed', 'DiD_BEE_I2'), _get(r, 'M1', 'feed', 'z_BEE_I2')
     dA, dB = _get(r, 'M1', 'feed', 'DiD_A_I2'), _get(r, 'M1', 'feed', 'DiD_B_I2')
     ok = bool(did > 0 and z >= 3 and did > dA and did > dB)
     l = lgo.get((r['photo'], r['seed']), {})
-    per.append({'photo': r['photo'], 'seed': r['seed'], 'DiD_BEE': did, 'z': z, 'DiD_A': dA, 'DiD_B': dB, 'O': ok,
+    per.append({'photo': r['photo'], 'seed': r['seed'], 'censored': r.get('censored'), 'DiD_BEE': did, 'z': z,
+                'DiD_A': dA, 'DiD_B': dB, 'O': ok,
                 'null': bool(abs(z) < 2), 'dLGO_BEE': l.get('dLGO_BEE'),
                 'lgo_sign_agrees': None if l.get('dLGO_BEE') is None else bool(np.sign(l['dLGO_BEE']) == np.sign(did))})
   seeds = sorted({p['seed'] for p in per})
@@ -1428,8 +1536,9 @@ def rule_c1a(B: list, Bp: list, lgo: dict, n_photos: int = 5) -> dict:
           'lgo_agreement': [p['lgo_sign_agrees'] for p in per if p['lgo_sign_agrees'] is not None]}
 
 
-def rule_c1b(B: list, Fc: list, n_photos: int = 5) -> dict:
+def rule_c1b(B: list, Fc: list, n_photos: int = None) -> dict:
   """P-C1b: E_OTH of each photo against the seed-matched controls (those with z^BEE(I2) >= 3 excluded)."""
+  n_photos = n_photos or photos_per_seed(B)
   per = []
   for r in B:
     ctl = [c for c in Fc if c['seed'] == r['seed']]
@@ -1459,7 +1568,8 @@ def rule_c1c(B: list) -> dict:
           'n': len(per)}
 
 
-def rule_c2(B: list, Fc: list, solo: list, n_photos: int = 5) -> dict:
+def rule_c2(B: list, Fc: list, solo: list, n_photos: int = None) -> dict:
+  n_photos = n_photos or photos_per_seed(B)
   ctl0 = [c for c in Fc if c['seed'] == 0]
   Lc0 = [_get(c, 'M2', 'L') for c in ctl0]
   calibrated = sum(l >= 0.5 for l in Lc0) >= 2
@@ -1533,7 +1643,10 @@ def decide(recs: list, lgo: list) -> dict:
   solo = [r for r in C if r.get('opt') == 'frozen_v']
   c3 = [rule_c3_run(r) for r in B]
   c4 = [rule_c4_run(r) for r in B]
-  out = {'P-C1a': c1a, 'P-C1b': c1b, 'P-C1c': rule_c1c(B), 'lgo_UMB_sign_agreement': umb_lgo,
+  failing = [{'run': r.get('run'), 'tag': r.get('tag'), 'ok': _get(r, 'checks', 'ok', default=None)} for r in recs
+             if _get(r, 'checks', 'ok', 'all', default=True) is not True]
+  out = {'runs_failing_checks': failing,                 # used as they are; listed so they can be judged
+         'P-C1a': c1a, 'P-C1b': c1b, 'P-C1c': rule_c1c(B), 'lgo_UMB_sign_agreement': umb_lgo,
          'P-C2': rule_c2(B, Fc, solo), 'P-C3': {'per_run': c3, 'counts': {k: sum(x['label'] == k for x in c3)
                                                                        for k in ('O', "H'", 'H', 'mixed')}},
          'P-C4': {'per_run': c4, 'n_O': sum(x['O'] for x in c4), 'n_head_deviation': sum(x['head_deviation'] for x in c4)},
@@ -1586,6 +1699,8 @@ def main():
   q.add_argument('--arm', required=True)
   q.add_argument('--val', required=True)
   q.add_argument('--first10', required=True, help='cache of the first 10 validation images per class (shared)')
+  q.add_argument('--all_passing', action='store_true', help='also exclude every image that passed a selection rule '
+                 '(literal reading; empties V_umb for a well-recognized source)')
   q.add_argument('--out', required=True)
   q = sub.add_parser('provenance', help="E1 writers' provenance pi for an arm's target and source")
   q.add_argument('--sel', action='append', required=True)

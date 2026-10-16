@@ -18,7 +18,8 @@
 #      untaught at seed 0, analyses
 #   5  decision rules over every analysis -> decisions.json (always recomputed)
 # Every job has a DONE marker ($U/logs/<job>.done); a rerun skips finished jobs and repeats unfinished ones from the
-# start (the fine-tuning script has no mid-run resume). Failures are listed in $U/logs/FAILED.
+# start (the fine-tuning script has no mid-run resume; an unfinished run's directory is cleared first, see ft).
+# Failures are listed in $U/logs/FAILED.
 # Needs /marimo/work/.hf_token. Usage: bash experiments/molab_umbrella.sh
 #   env: WORKERS (3), W (/marimo/work), U ($W/umb), CODE ($U/code), STAGES ("A 1 2 3 4 5"), SECONDARY (1), LRS, SEEDS
 set -uo pipefail
@@ -60,6 +61,15 @@ job() {
     else echo "$(date +%T) $name failed (see $L/$name.log)" | tee -a "$L/FAILED"; fi ) &
 }
 barrier() { wait; }
+# ft <job name> <convnext_umbrella run command>: a fine-tune job. The directory (--out) of a run that did not finish is
+# cleared first: the script restarts from step 0, and files of the interrupted attempt at steps the new attempt does not
+# save (its tau and tau + 500, if tau differs) would otherwise become vertices of the analysis paths
+ft() {
+  local name=$1 out= prev= x; shift
+  for x in "$@"; do [ "$prev" = --out ] && out=$x; prev=$x; done
+  [ -n "$out" ] && [ ! -f "$L/$name.done" ] && [ ! -f "$out/DONE" ] && rm -rf "$out"
+  job "$name" "$@"
+}
 # shuffled control of a photo spec
 shuf_of() { case $1 in val:*) echo "shuffle:${1#val:}";; train:*) echo "shuffle_train:${1#train:}";; esac; }
 # an untaught run that is done but lacks some of the needed saves is removed, so that it is redone
@@ -128,8 +138,8 @@ RUN="$UMB run $UARGS"
 # --------------------------------------------------------------------------------------------- A lr selection
 if has A; then
   for lr in $LRS; do
-    job A_lr${lr}_taught $RUN --sel $SEL --arm $ARM --mode taught --photo ${P[0]} --lr $lr --seed 0 --out $R/A/lr$lr/taught
-    job A_lr${lr}_untaught $RUN --sel $SEL --arm $ARM --mode untaught --lr $lr --seed 0 --out $R/A/lr$lr/untaught
+    ft A_lr${lr}_taught $RUN --sel $SEL --arm $ARM --mode taught --photo ${P[0]} --lr $lr --seed 0 --out $R/A/lr$lr/taught
+    ft A_lr${lr}_untaught $RUN --sel $SEL --arm $ARM --mode untaught --lr $lr --seed 0 --out $R/A/lr$lr/untaught
   done
   barrier
   job A_select $ARMS lr_select --runs $R/A --e1 $E1 --vsets $C/vsets_$ARM.pt --out $U/lr_star.json
@@ -157,39 +167,39 @@ if has 1; then
   for sd in $SEEDS; do
     mapfile -t PS < <($ARMS photos --verified $U/photos_${ARM}_s$sd.json)
     for ((i = 0; i < ${#PS[@]}; i++)); do
-      job B_s${sd}_P$((i + 1)) $RUN --sel $SEL --arm $ARM --mode taught --photo ${PS[$i]} --lr $LR --seed $sd \
+      ft B_s${sd}_P$((i + 1)) $RUN --sel $SEL --arm $ARM --mode taught --photo ${PS[$i]} --lr $LR --seed $sd \
         --out $R/B/s$sd/P$((i + 1))
     done
     for c in $([ $sd = 0 ] && echo noise0 noise1 shufP1 shufP2 || echo noise0 shufP1); do
-      job F_s${sd}_$c $RUN --sel $SEL --arm $ARM --mode taught --photo ${CTRL[$c]} --lr $LR --seed $sd --out $R/F/s$sd/$c
+      ft F_s${sd}_$c $RUN --sel $SEL --arm $ARM --mode taught --photo ${CTRL[$c]} --lr $LR --seed $sd --out $R/F/s$sd/$c
     done
   done
   mapfile -t PS < <($ARMS photos --verified $U/photos_${ARM}_s0.json)
   for ((i = 0; i < ${#PS[@]}; i++)); do
-    job Bp_P$((i + 1)) $RUN --sel $SEL --arm $ARM --opt standard --mode taught --photo ${PS[$i]} --lr $LR --seed 0 \
+    ft Bp_P$((i + 1)) $RUN --sel $SEL --arm $ARM --opt standard --mode taught --photo ${PS[$i]} --lr $LR --seed 0 \
       --out $R/Bp/P$((i + 1))
     for o in frozen_v standard; do
-      job C_${o}_P$((i + 1)) $RUN --sel $SEL --arm $ARM --opt $o --mode solo --photo ${PS[$i]} --lr $LR --seed 0 \
+      ft C_${o}_P$((i + 1)) $RUN --sel $SEL --arm $ARM --opt $o --mode solo --photo ${PS[$i]} --lr $LR --seed 0 \
         --out $R/C/${o}_P$((i + 1))
     done
   done
   for c in noise0 noise1 shufP1 shufP2; do
-    job Fsolo_$c $RUN --sel $SEL --arm $ARM --mode solo --photo ${CTRL[$c]} --lr $LR --seed 0 --out $R/F/solo/$c
+    ft Fsolo_$c $RUN --sel $SEL --arm $ARM --mode solo --photo ${CTRL[$c]} --lr $LR --seed 0 --out $R/F/solo/$c
   done
   for i in 0 1 2 3 4 5; do
     EP=$($ARMS photos --verified $U/photos_E$i.json --n 1)
-    [ -n "$EP" ] && job E${i}_taught $RUN --sel $SELE --arm E$i --mode taught --photo $EP --lr $LR --seed 0 \
+    [ -n "$EP" ] && ft E${i}_taught $RUN --sel $SELE --arm E$i --mode taught --photo $EP --lr $LR --seed 0 \
       --out $R/E/E$i/taught
   done
   if [ ${#P2[@]} -gt 0 ]; then
     mapfile -t PS < <($ARMS photos --verified $U/photos_${ARM2}_s0.json)
     for ((i = 0; i < ${#PS[@]}; i++)); do
-      job S2_P$((i + 1)) $RUN --sel $SEL --arm $ARM2 --mode taught --photo ${PS[$i]} --lr $LR --seed 0 \
+      ft S2_P$((i + 1)) $RUN --sel $SEL --arm $ARM2 --mode taught --photo ${PS[$i]} --lr $LR --seed 0 \
         --out $R/S2/P$((i + 1))
     done
     declare -A CTRL2=([noise0]=noise:0 [noise1]=noise:1 [shufP1]=$(shuf_of ${P2[0]}) [shufP2]=$(shuf_of ${P2[1]}))
     for c in noise0 noise1 shufP1 shufP2; do
-      job S2F_$c $RUN --sel $SEL --arm $ARM2 --mode taught --photo ${CTRL2[$c]} --lr $LR --seed 0 --out $R/S2/F/$c
+      ft S2F_$c $RUN --sel $SEL --arm $ARM2 --mode taught --photo ${CTRL2[$c]} --lr $LR --seed 0 --out $R/S2/F/$c
     done
   fi
   barrier
@@ -200,24 +210,24 @@ if has 2; then
   for sd in $SEEDS; do
     FS=$($ARMS full_saves $R/B/s$sd/P* $R/F/s$sd/*)
     stale_untaught B_s${sd}_untaught $R/B/s$sd/untaught "$FS"
-    job B_s${sd}_untaught $RUN --sel $SEL --arm $ARM --mode untaught --lr $LR --seed $sd --full_saves "$FS" \
+    ft B_s${sd}_untaught $RUN --sel $SEL --arm $ARM --mode untaught --lr $LR --seed $sd --full_saves "$FS" \
       --out $R/B/s$sd/untaught
   done
   FS=$($ARMS full_saves $R/Bp/P*)
   stale_untaught Bp_untaught $R/Bp/untaught "$FS"
-  job Bp_untaught $RUN --sel $SEL --arm $ARM --opt standard --mode untaught --lr $LR --seed 0 --full_saves "$FS" \
+  ft Bp_untaught $RUN --sel $SEL --arm $ARM --opt standard --mode untaught --lr $LR --seed 0 --full_saves "$FS" \
     --out $R/Bp/untaught
   for i in 0 1 2 3 4 5; do
     [ -d $R/E/E$i/taught ] || continue
     FS=$($ARMS full_saves $R/E/E$i/taught)
     stale_untaught E${i}_untaught $R/E/E$i/untaught "$FS"
-    job E${i}_untaught $RUN --sel $SELE --arm E$i --mode untaught --lr $LR --seed 0 --full_saves "$FS" \
+    ft E${i}_untaught $RUN --sel $SELE --arm E$i --mode untaught --lr $LR --seed 0 --full_saves "$FS" \
       --out $R/E/E$i/untaught
   done
   if [ ${#P2[@]} -gt 0 ]; then
     FS=$($ARMS full_saves $R/S2/P* $R/S2/F/*)
     stale_untaught S2_untaught $R/S2/untaught "$FS"
-    job S2_untaught $RUN --sel $SEL --arm $ARM2 --mode untaught --lr $LR --seed 0 --full_saves "$FS" --out $R/S2/untaught
+    ft S2_untaught $RUN --sel $SEL --arm $ARM2 --mode untaught --lr $LR --seed 0 --full_saves "$FS" --out $R/S2/untaught
   fi
   barrier
 fi
@@ -285,13 +295,13 @@ if has 4; then
     barrier
     mapfile -t PJ < <($ARMS photos --verified $U/photos_J_s0.json)
     for ((i = 0; i < ${#PJ[@]}; i++)); do
-      job J_P$((i + 1)) $RUNJ --sel $SELJ --arm $JARM --mode taught --photo ${PJ[$i]} --lr $LR --seed 0 \
+      ft J_P$((i + 1)) $RUNJ --sel $SELJ --arm $JARM --mode taught --photo ${PJ[$i]} --lr $LR --seed 0 \
         --out $R/J/P$((i + 1))
     done
     barrier
     FS=$($ARMS full_saves $R/J/P*)
     stale_untaught J_untaught $R/J/untaught "$FS"
-    job J_untaught $RUNJ --sel $SELJ --arm $JARM --mode untaught --lr $LR --seed 0 --full_saves "$FS" --out $R/J/untaught
+    ft J_untaught $RUNJ --sel $SELJ --arm $JARM --mode untaught --lr $LR --seed 0 --full_saves "$FS" --out $R/J/untaught
     barrier
     for d in $(runs "$R/J/P*/"); do
       job an_J_$(basename $d) $ANA run --val $VAL --train $TRAIN --e1 $E1R --run $d --untaught $R/J/untaught --tag J \

@@ -117,8 +117,10 @@ def warmup(state, steps=3, lr=5e-3):
                      for p in m.parameters()}}
 
 
-def finetune(out, br, mode, opt_kind='frozen_v', seed=0, full_saves=(), sel_path='', untaught_steps=TAU + PH2):
-  """The loop and saves of experiments/convnext_umbrella.py cmd_run, on the toy."""
+def finetune(out, br, mode, opt_kind='frozen_v', seed=0, full_saves=(), sel_path='', untaught_steps=TAU + PH2,
+             shadow_sums=False):
+  """The loop and saves of experiments/convnext_umbrella.py cmd_run, on the toy. shadow_sums: also save each shadow's
+  fp32 group sums (shadowsums_{s}.pt, the suggested patch to the fine-tuning script)."""
   os.makedirs(out, exist_ok=True)
   m = toy_model()
   m.load_state_dict(br['model'])
@@ -156,6 +158,9 @@ def finetune(out, br, mode, opt_kind='frozen_v', seed=0, full_saves=(), sel_path
     torch.save(attr.group_sums(named), os.path.join(out, f'sums_{s:04d}.pt'))
     if shadow:
       torch.save([sh.compact_state() for sh in shadows], os.path.join(out, f'shadow_{s:04d}.pt'))
+      if shadow_sums:
+        torch.save([sh.group_sums({f'g{g}': [g] for g in range(10)}) for sh in shadows],
+                   os.path.join(out, f'shadowsums_{s:04d}.pt'))
     if full:
       torch.save(attr.compact_state(), os.path.join(out, f'attr_{s:04d}.pt'))
     if tag:
@@ -393,6 +398,7 @@ def test_analysis_end_to_end_on_the_toy(toy_analysis):
   assert ck['own_upstream_resid'] <= 1e-10                             # the own-row / upstream split is exact
   assert ck['two_level_resid'] <= 1e-6                                 # E1's parts + init + R + warm-up = W_w
   assert ck['swap_all_identity'] <= 1e-12
+  assert ck['ok']['all'] and ck['ok']['eps_max'] <= 1e-6 and ck['ok']['bucket_err_max'] <= 1e-6
   M4 = summ['M4']
   assert sum(M4['S'].values()) == pytest.approx(1.0, abs=1e-9)
   assert M4['swaps']['stage3']['tot']['m'] != M4['readout_w']['m']
@@ -465,14 +471,36 @@ def test_provenance_pi():
 
 def test_eval_sets_exclude_candidates():
   labels = np.repeat(np.arange(6), 12)[np.random.default_rng(0).permutation(72)]
+  of = lambda c: [int(i) for i in np.flatnonzero(labels == c)]
   arm = {'target': 1, 'source': 2, 'rel_target': [3], 'rel_source': [], 'excluded_from_eval': [],
-         'photos': [{'photo': f'val:{int(np.flatnonzero(labels == 2)[9])}'}], 'reserve': [{'photo': 'train:5'}]}
-  sel = {'arms': {'x': arm, 'y': {'excluded_from_eval': [int(np.flatnonzero(labels == 0)[1])], 'photos': []}}}
+         'photos': [{'photo': f'val:{of(2)[9]}'}], 'reserve': [{'photo': 'train:5'}]}
+  sel = {'arms': {'x': arm, 'y': {'source': 4, 'target': 1, 'excluded_from_eval': [of(0)[1]], 'photos': [],
+                                  'reserve': [{'photo': f'val:{of(5)[2]}'}]}}}
   ex = UA.candidate_exclusions([sel])
   v = UA.eval_set_indices(labels, arm, ex, first_n=10, n_classes=6)
-  assert set(labels[v['V_ref']]) == {0, 4, 5} and len(v['V_ref']) == 29          # class 0 loses one candidate
-  assert int(np.flatnonzero(labels == 2)[9]) not in v['V_umb'] and len(v['V_umb']) == 12 - 8 - 1
+  assert set(labels[v['V_ref']]) == {0, 4, 5} and len(v['V_ref']) == 29          # another arm's reserve is out
+  assert of(5)[2] not in v['V_ref'] and of(0)[1] in v['V_ref']                    # a passing non-reserve image stays
+  assert of(2)[9] not in v['V_umb'] and len(v['V_umb']) == 12 - 8 - 1
   assert len(v['V_bee']) == 12 - 8 and not set(v['V_ref']) & ex
+  ex_all = UA.candidate_exclusions([sel], all_passing=True)                       # literal reading: class 0 loses one
+  assert len(UA.eval_set_indices(labels, arm, ex_all, first_n=10, n_classes=6)['V_ref']) == 28
+
+
+def test_eval_sets_keep_a_well_recognized_source():
+  """A source recognized at 90% (jack-o'-lantern): almost every non-probe image passes the selection rule and is listed
+  in excluded_from_eval. V_umb keeps all but the 10 photo and reserve images (the literal all_passing reading would
+  leave only the images that failed the rule)."""
+  labels = np.repeat(np.arange(4), 50)
+  src = [int(i) for i in np.flatnonzero(labels == 2)]
+  passing = src[8:46]                                                            # 38 of the 42 non-probe images
+  arm = {'target': 1, 'source': 2, 'rel_target': [], 'rel_source': [],
+         'excluded_from_eval': src[:8] + [int(i) for i in np.flatnonzero(labels == 1)[:8]] + passing,
+         'photos': [{'photo': f'val:{g}'} for g in passing[:5]], 'reserve': [{'photo': f'val:{g}'} for g in passing[5:10]]}
+  sel = {'arms': {'strong_source': arm}}
+  v = UA.eval_set_indices(labels, arm, UA.candidate_exclusions([sel], labels), n_classes=4)
+  assert len(v['V_umb']) == 50 - 8 - 10 and not set(v['V_umb']) & set(passing[:10])
+  lit = UA.eval_set_indices(labels, arm, UA.candidate_exclusions([sel], labels, all_passing=True), n_classes=4)
+  assert lit['V_umb'] == src[46:]
 
 
 # ------------------------------------------------------------------------------------------------ decisions
@@ -690,6 +718,7 @@ def test_vsets_on_a_fake_validation_set(tmp_path):
   assert first(0, 3)[2] not in vs['V_ref']['idx'] and len(vs['V_ref']['idx']) == 29        # the arm-E photo is out
   assert set(first(4, 8) + first(5, 8)) <= set(vs['V_ref']['idx'])                          # other arms' probe_8 stay
   assert len(vs['V_umb']['idx']) == 13 - 9 and len(vs['V_bee']['idx']) == 13 - 8
+  assert not torch.load(str(out), weights_only=False)['all_passing']
   assert torch.equal(vs['V_ref']['x'], val_images(str(tmp_path / 'val'), vs['V_ref']['idx']))
   assert vs['V_umb']['x'].dtype == torch.uint8 and vs['V_umb']['x'].shape[1:] == (3, 224, 224)
   os.remove(f10)
@@ -707,3 +736,182 @@ def test_verify_helpers():
   specs, swaps = UR.replace_photos([ok('a', True), ok('b', False), ok('c', True), ok('d', False)],
                                    [ok('r1', False), ok('r2', True)], 4)
   assert specs == ['a', 'r2', 'c'] and swaps == [('b', 'r2'), ('d', None)]
+
+
+# ------------------------------------------------------------------------------------------- review fixes
+
+def test_matched_noncarriers_exclude_every_carrier():
+  """The fading U_pole comparison passes a subset of C50: no other carrier may be its matched non-carrier."""
+  block_of = np.zeros(8, int)
+  pool = np.ones(8, bool)
+  key = np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+  C = np.array([0, 1, 2])                                                         # C50; unit 0 fades, 1 and 2 do not
+  old = UA.match_noncarriers([0], pool, block_of, key)
+  assert old[0] == [1, 2, 3]                                                      # without all_carriers: carriers leak
+  new = UA.match_noncarriers([0], pool, block_of, key, all_carriers=C)
+  assert new[0] == [3, 4, 5] and not set(new[0]) & set(C.tolist())
+
+
+def test_ig_images_counts_untracked_only_in_total():
+  res = {'ig': {'a': np.array([[1.0, 2.0]]), 'b': np.array([[3.0, 4.0]])}, 'unt': np.array([5.0])}
+  names = ['x', 'y', 'unt']
+  assert UA.ig_images(res, names, 'unt')[0] == 5.0
+  assert UA.ig_images(res, names, 'unt', ['a', 'b'])[0] == 5.0
+  assert UA.ig_images(res, names, 'unt', ['a'])[0] == 0.0                         # as ig_table: unt is in 'total' only
+  assert UA.ig_images(res, names, 'y', ['a'])[0] == 2.0
+
+
+def test_pseudo_storage_noise_formula():
+  """e_r = (sum of shadow r's slot groups) - (sum of the replay classes); per-group sd = sqrt(mean e_r^2 / G)."""
+  groups = {'blocks': None, 'total': None}
+  tb = {'BEE': {'blocks': 1.0, 'total': 2.0}, 'OTH': {'blocks': 3.0, 'total': 4.0}}
+  e = {0: 0.3, 1: -0.4}
+  for r in (0, 1):
+    for g in range(1, 5):
+      tb[f'sh{r}.g{g}'] = {'blocks': 4.0 / 4 + (e[r] if g == 1 else 0.0), 'total': 6.0 / 4}
+  pseudo = [k for k in tb if k.startswith('sh')]
+  out = UA.pseudo_storage_noise(tb, pseudo, ['BEE', 'OTH'], groups)
+  assert out['blocks'] == pytest.approx(np.sqrt((0.3 ** 2 + 0.4 ** 2) / 2 / 4)) and out['total'] == pytest.approx(0.0)
+
+
+def test_pseudo_noise_on_the_toy(toy_analysis):
+  summ, _, _ = toy_analysis
+  pn = summ['M1']['pseudo_noise']
+  for I in ('I1', 'I2'):
+    for who in ('taught', 'untaught'):
+      assert 0 <= pn[I][who]['blocks'] < 1e-3 * max(abs(summ['m_P']['tau'] - summ['m_P']['0']), 1e-9)
+    assert pn[I]['DiD_sd']['blocks'] == pytest.approx(np.hypot(pn[I]['taught']['blocks'], pn[I]['untaught']['blocks']))
+  assert 0 <= summ['checks']['pseudo_noise_ratio_blocks'] < 0.1
+
+
+def test_decision_rules_with_three_photos():
+  """A pre-registered fallback to 3 photos: '4 of 5' becomes '3 of 3', so O stays reachable."""
+  photos = [f'val:{i}' for i in range(3)]
+  B = [_rec(sd, ph, 4.0) for sd in range(3) for ph in photos]
+  F_ = [_rec(sd, c, 0.5, e_oth=0.5, L=0.7, kind='control', tag='F') for sd in range(3) for c in ('noise:0', 'shuffle:1')]
+  F_ += [_rec(0, c, 0.5, e_oth=0.5, L=0.6, kind='control', tag='F') for c in ('noise:1', 'shuffle:2')]
+  Bp = [_rec(0, ph, 3.5, tag='Bp') for ph in photos]
+  out = UA.decide(B + F_ + Bp, [])
+  assert out['P-C1a']['verdict'] == 'O' and out['P-C1b']['verdict'] == 'O' and out['P-C2']['verdict'] == 'O'
+  B[0] = _rec(0, photos[0], 0.5)                                                  # 2 of 3 at seed 0: still O (seeds 1, 2)
+  B[3] = _rec(1, photos[0], 0.5)                                                  # 2 of 3 at seed 1 too: not O
+  assert UA.rule_c1a(B, Bp, {})['verdict'] != 'O'
+  assert UA.photos_per_seed(B) == 3 and UA.photos_per_seed([]) == 5
+  bad = dict(B[1], run='r1', checks={'ok': {'all': False, 'completeness': False}})
+  assert [x['run'] for x in UA.decide([bad] + B[2:], [])['runs_failing_checks']] == ['r1']
+
+
+def test_verify_trains_the_branch_with_gradients(tmp_path, monkeypatch):
+  """cmd_verify calls convnext_umbrella.branch, which runs the warm-up (a backward) when the branch file does not exist
+  yet; it must not run under no_grad. A photo no longer top-1 for the source at theta_w is replaced from the reserve."""
+  import types
+  import experiments.convnext_umbrella as U
+  m = toy_model()
+  st = {k: v.float() for k, v in m.state_dict().items()}
+  calls = []
+
+  def fake_branch(ua, sel, model, loader, dev):
+    w = torch.ones(3, requires_grad=True)
+    (2 * w).sum().backward()                                                     # fails under no_grad
+    calls.append((ua.seed, ua.arm, torch.is_grad_enabled()))
+    return {'model': st, 'key': 'k'}
+  zf = build_convnext('tiny', n_classes=K)
+  zf.load_state_dict(st)
+  xs = {f'val:{i}': torch.randn(1, 3, HW, HW, generator=torch.Generator().manual_seed(i)) for i in range(6)}
+  top = {p: int(zf(x)[0].argmax()) for p, x in xs.items()}
+  src = top['val:0']
+  sel = tmp_path / 'sel.json'
+  json.dump({'arms': {'toy': {'target': (src + 1) % K, 'source': src,
+                              'photos': [{'photo': p} for p in ('val:0', 'val:1', 'val:2')],
+                              'reserve': [{'photo': p} for p in ('val:3', 'val:4', 'val:5')]}}}, open(sel, 'w'))
+  monkeypatch.setattr(U, 'branch', fake_branch)
+  monkeypatch.setattr(U, 'photo_tensor', lambda spec, val, dev, train: xs[spec])
+  monkeypatch.setattr(UR, 'build_convnext', lambda size: build_convnext('tiny', n_classes=K))
+  import rcdl.imagenet
+  monkeypatch.setattr(rcdl.imagenet, 'GPUTrainLoader', lambda *a, **k: None)
+  out = tmp_path / 'photos.json'
+  argv = ['--', '--sel', str(sel), '--arm', 'toy', '--snapshot', 's.pt', '--val', 'v', '--branch_dir', str(tmp_path),
+          '--mode', 'untaught', '--lr', '1e-3', '--seed', '2']
+  UR.cmd_verify(types.SimpleNamespace(out=str(out), n=3, device='cpu', umbrella_args=argv))
+  assert calls == [(2, 'toy', True)]
+  rec = json.load(open(out))
+  spare = iter([p for p in ('val:3', 'val:4', 'val:5') if top[p] == src])
+  want = [p if top[p] == src else next(spare, None) for p in ('val:0', 'val:1', 'val:2')]
+  assert rec['photos'] == [p for p in want if p is not None] and rec['photos'][0] == 'val:0'
+  assert all(len(r['top10_w']) == min(10, K) for r in rec['scores'])
+
+
+def test_untaught_pairing_is_checked(toy, tmp_path):
+  """M1 refuses an untaught run from another branch or with another number of shadows."""
+  import shutil
+  bad = tmp_path / 'untaught_other'
+  shutil.copytree(toy['runs']['untaught'], bad)
+  cfg = json.load(open(bad / 'config.json'))
+  cfg['shadows'] = NSH + 1
+  json.dump(cfg, open(bad / 'config.json', 'w'))
+  ctx = {'make_model': lambda: build_convnext('tiny', n_classes=K), 'device': 'cpu', 'dtype': DT, 'vdtype': DT,
+         'x_P': photo_x(), 'target': T, 'source': S, 'kind': 'photo', 'vsets': None, 'e1': None, 'prov': None,
+         'nodes': 8, 'vnodes': 8, 'step_nodes': 4, 'tol': 1e-6, 'max_nodes': 64, 'batch': 16, 'vbatch': 8,
+         'perm': 100, 'n_near': 5, 'n_mp': 3, 'q_sel': 0.9, 'rows': ('P',)}
+  with pytest.raises(AssertionError, match='shadows'):
+    UA.analyze(toy['runs']['taught'], ctx, str(bad), skip={'M2', 'M3', 'M4'})
+
+
+def test_two_level_split_without_the_atlas(toy):
+  """E1's parts alone give the two-level dual form; the atlas only adds the pole sets."""
+  e1 = {k: toy['e1'][k] for k in ('attr', 'init', 'state')} | {'atlas': None}
+  ctx = {'make_model': lambda: build_convnext('tiny', n_classes=K), 'device': 'cpu', 'dtype': DT, 'vdtype': DT,
+         'x_P': photo_x(), 'target': T, 'source': S, 'kind': 'photo', 'rel_target': RELB, 'vsets': None, 'e1': e1,
+         'prov': None, 'nodes': 8, 'vnodes': 8, 'step_nodes': 4, 'tol': 1e-6, 'max_nodes': 64, 'batch': 16,
+         'vbatch': 8, 'perm': 100, 'n_near': 5, 'n_mp': 3, 'q_sel': 0.9, 'rows': ('P',)}
+  summ, arrays = UA.analyze(toy['runs']['taught'], ctx, None, skip={'M1', 'M2', 'M4'})
+  assert summ['checks']['two_level_resid'] <= 1e-6 and 'poles' not in summ['M3']
+  assert 0 <= summ['M3']['q_C50']['median_q_t'] <= 1
+
+
+def test_queue_clears_only_unfinished_fine_tune_dirs(tmp_path):
+  """molab_umbrella.sh ft: an interrupted run's directory is removed before the job restarts it (its stale files at
+  another tau would become path vertices); a finished run (DONE) or a done job keeps its files."""
+  import re
+  import shutil
+  import subprocess
+  bash = shutil.which('bash')
+  if bash is None:
+    pytest.skip('no bash')
+  src = open(os.path.join(os.path.dirname(__file__), '..', 'experiments', 'molab_umbrella.sh')).read()
+  fn = re.search(r'^ft\(\) \{\n.*?^\}', src, re.S | re.M).group(0)
+  for d, files in (('half', ['sums_0013.pt']), ('done', ['DONE', 'sums_0012.pt']), ('marked', ['sums_0007.pt'])):
+    os.makedirs(tmp_path / d)
+    for f in files:
+      open(tmp_path / d / f, 'w').close()
+  os.makedirs(tmp_path / 'logs')
+  open(tmp_path / 'logs' / 'jm.done', 'w').close()
+  script = f'L={tmp_path}/logs\njob() {{ echo "job $1"; }}\n{fn}\n' + '\n'.join(
+      f'ft j{d[0]} python3 -m x run --lr 1e-3 --out {tmp_path}/{d} --seed 0' for d in ('half', 'done'))
+  script += f'\nft jm python3 -m x run --out {tmp_path}/marked\n'
+  out = subprocess.run([bash, '-c', script], capture_output=True, text=True, check=True).stdout.split('\n')
+  assert out[:3] == ['job jh', 'job jd', 'job jm']
+  assert not os.path.exists(tmp_path / 'half')
+  assert os.path.exists(tmp_path / 'done' / 'sums_0012.pt') and os.path.exists(tmp_path / 'marked' / 'sums_0007.pt')
+
+
+def test_fp32_shadow_sums_are_preferred(toy, tmp_path):
+  """With shadowsums_{s}.pt (fp32 group sums of each shadow) the pseudo-groups lose the fp16 storage error: the slot
+  groups then add up to the replay classes' writes to fp32 rounding; the compact fp16 states give the same groups to
+  fp16 precision."""
+  run = finetune(str(tmp_path / 'taught32'), toy['br'], 'taught', shadow_sums=True)
+  _, maps, keys = keys_of()
+  assert UA.path_vertices(run, 0, TAU + PH2, True) == UA.path_vertices(toy['runs']['taught'], 0, TAU + PH2, True)
+  b32 = UA.load_buckets(run, TAU, TAU + EVERY, keys, shadows=True)
+  for f in os.listdir(run):
+    if f.startswith('shadowsums_'):
+      os.rename(os.path.join(run, f), os.path.join(run, 'x' + f))
+  b16 = UA.load_buckets(run, TAU, TAU + EVERY, keys, shadows=True)
+  assert b32['check']['shadow_fp16'] == 0.0 and b16['check']['shadow_fp16'] == 1.0
+  assert b32['check']['shadow_vs_replay'] < 1e-5 < b16['check']['shadow_vs_replay']
+  assert b32['check']['shadow_sum'] < 1e-6 and b32['extra'] == b16['extra']
+  n = len(b32['names'])
+  for k in maps:
+    sc = b32['W'][k][n:].abs().max()
+    assert torch.allclose(b32['W'][k][n:], b16['W'][k][n:], atol=5e-3 * sc) and sc > 0
+    assert torch.equal(b32['W'][k][:n], b16['W'][k][:n])                       # the partition does not use them

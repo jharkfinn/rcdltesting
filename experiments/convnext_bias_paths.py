@@ -8,19 +8,29 @@ position of every training image. This script recomputes the same signal on the 
 For image i of class k, block b, unit n and position p, with u = SiLU(g) v the SwiGLU product:
   delta[i, p, n] = dL_i / du[i, p, n],   L_i = logsumexp(z_i) - z_i[k]   (cross-entropy)
   B_v[k, n] = mean_i sum_p delta SiLU(g),   B_g[k, n] = mean_i sum_p delta SiLU'(g) v      (bias gradients)
-The bias write of class k is minus a positive multiple of its gradient, so the first-order change of the mean response
-of the unit's top-20 classes P_n (class-mean u, g, v at the strongest position p*, as in convnext_atlas.py) is
+The bias write of class k is minus a positive multiple of its gradient, one multiple per map and unit (Adam's 1 / sqrt(v)
+of that bias; the gate and value biases of a unit get different multiples, so the probe weights the two maps against each
+other differently from the actual writes; each map is therefore also reported alone). The first-order change of the mean
+response of the unit's top-20 classes P_n (class-mean u, g, v at the strongest position p*, as in convnext_atlas.py) is
   pole[k, n] = -(B_v[k, n] mean_{c in P_n} SiLU(Gm[n, c]) + B_g[k, n] mean_{c in P_n} SiLU'(Gm[n, c]) Vm[n, c])
 (convnext_bias_self.py computes the same quantity from the exact training writes). Splits of delta, each summing to the
 whole:
   positions: p* alone; 'on' (u >= 0.5 u* other than p*, u* = max_p u > 0); 'off' (the rest)
-  logit terms: delta = delta_lse - delta_own, from logsumexp(z) and from the true class's logit z[k]
+  logit terms: delta = delta_lse + delta_true, from logsumexp(z) and from the true-class term -z[k] of the loss
   LayerNorm scale: delta_fixed with every LayerNorm's 1 / sigma held fixed (forward values unchanged), and the rest,
     delta - delta_fixed, the path through the normalisers' scale
-Per block and split: the mean of pole over the top-20 classes and over the rest, in units of the mean |pole| of the whole
-signal (so the parts of a split add up to the whole), the share of positive top-20 entries, the active positions
-(u > 0.5 u*) per image, and the Spearman correlation over classes, per unit, between the probe signal and the exact
-training writes of the next checkpoint interval (if --writes is given).
+Per block and split: the mean of pole over the top-20 classes, over the WordNet relatives of the top-20 classes outside
+them (with --wordnet; distance <= 4 as in convnext_bias_self.py) and over the rest (all other classes), in units of the
+mean |pole| of the whole signal over all classes (so the parts of a split add up to the whole), the share of positive
+top-20 entries, the active positions (u > 0.5 u*) per image, and the Spearman correlation over classes, per unit, between
+the probe signal and the exact training writes of the next checkpoint interval (if attr_*.pt files are in the run).
+Also: the whole signal through each map alone (ce_v_top20 + ce_g_top20 = ce top20), and the whole signal on the top-20
+classes of DN units and PP units (typed by their top-20 classes as in convnext_bias_self.py: 'DN' if most have Gm < 0 and
+Vm < 0, 'PP' if most have both positive). Every per-unit mean is over live units only (class-mean u* not constant).
+
+Older output files (before 2026-10-16) differ: the logit split's key is 'own', the gradient of +z[k], so true = -own
+and there ce = lse - own; their 'rest' includes the WordNet relatives; their n_on_*, dn_top20 and S_*_top20 include
+dead units; and the stored u*, g*, v* came from the fixed-sigma pass (forward values equal up to rounding).
 
 Assumptions: clean images without mixup or augmentation stand for the training batches; the derivative at class-mean
 pre-activations stands for the class mean of the derivative; first order.
@@ -31,6 +41,8 @@ pre-activations stands for the class mean of the derivative; first order.
 import argparse
 import json
 import os
+from contextlib import nullcontext
+from unittest import mock
 
 import numpy as np
 import torch
@@ -39,19 +51,17 @@ import torch.nn.functional as F
 from experiments.convnext_atlas import MEAN, STD, probe_set
 from rcdl.convnext import build_convnext
 
-SPLITS = ('ce', 'pstar', 'on', 'off', 'lse', 'own', 'fixed', 'scale')
-_FIX_SIGMA = [False]
-_layer_norm = F.layer_norm
+SPLITS = ('ce', 'pstar', 'on', 'off', 'lse', 'true', 'fixed', 'scale')
 
 
-def _ln(x, shape, weight=None, bias=None, eps=1e-5):
-  """F.layer_norm; with _FIX_SIGMA set, 1 / sigma is detached (same forward value, no gradient through the scale)."""
-  if not _FIX_SIGMA[0]:
-    return _layer_norm(x, shape, weight, bias, eps)
-  dims = tuple(range(-len(shape), 0))
-  mu = x.mean(dims, keepdim=True)
-  var = x.var(dims, unbiased=False, keepdim=True)
-  y = (x - mu) * torch.rsqrt(var + eps).detach()
+def layer_norm_fixed_sigma(input, normalized_shape, weight=None, bias=None, eps=1e-5):
+  """F.layer_norm with 1 / sigma detached: the same forward value, no gradient through the normaliser's scale."""
+  if isinstance(normalized_shape, int):
+    normalized_shape = (normalized_shape,)
+  dims = tuple(range(-len(normalized_shape), 0))
+  mu = input.mean(dims, keepdim=True)
+  var = input.var(dims, unbiased=False, keepdim=True)
+  y = (input - mu) * torch.rsqrt(var + eps).detach()
   if weight is not None:
     y = y * weight
   if bias is not None:
@@ -59,7 +69,10 @@ def _ln(x, shape, weight=None, bias=None, eps=1e-5):
   return y
 
 
-F.layer_norm = _ln          # rcdl.convnext calls F.layer_norm (LayerNorm2d) and nn.LayerNorm (which calls F.layer_norm)
+def fixed_sigma():
+  """Context: every F.layer_norm call (nn.LayerNorm and rcdl.convnext.LayerNorm2d both make one) holds 1 / sigma fixed.
+  Only the forward needs to run inside; the graph it builds keeps the detached scale for the backward."""
+  return mock.patch.object(F, 'layer_norm', layer_norm_fixed_sigma)
 
 
 def unit_hooks(model, store):
@@ -124,16 +137,16 @@ def probe_paths(model, x_u8, y, n_classes=1000, batch=50, device='cuda'):
     xb = ((x_u8[i:i + batch].to(device).float() - mean) / std)
     yb = y[i:i + batch].to(device)
     deltas = {}
-    for key in ('lse', 'own', 'fixed'):
-      _FIX_SIGMA[0] = key == 'fixed'
+    for key in ('fixed', 'lse', 'true'):          # 'fixed' first: the stored u, g, v come from the last (normal) pass
       model.zero_grad(set_to_none=True)
-      z = model(xb).float()
-      own = z.gather(1, yb[:, None])[:, 0]
-      loss = {'lse': torch.logsumexp(z, 1), 'own': own, 'fixed': torch.logsumexp(z, 1) - own}[key].sum()
+      with fixed_sigma() if key == 'fixed' else nullcontext():
+        z = model(xb).float()
+      zt = z.gather(1, yb[:, None])[:, 0]
+      lse = torch.logsumexp(z, 1)
+      loss = {'lse': lse, 'true': -zt, 'fixed': lse - zt}[key].sum()
       loss.backward()
       deltas[key] = {n: s[0].grad.detach().clone() for n, s in store.items()}
-    _FIX_SIGMA[0] = False
-    deltas['ce'] = {n: deltas['lse'][n] - deltas['own'][n] for n in store}
+    deltas['ce'] = {n: deltas['lse'][n] + deltas['true'][n] for n in store}
     deltas['scale'] = {n: deltas['ce'][n] - deltas['fixed'][n] for n in store}
     _accumulate(acc, store, deltas, yb, n_classes)
   cnt = torch.bincount(y.to(device), minlength=n_classes).double()[:, None]
@@ -203,35 +216,65 @@ def dsilu_np(g):
   return s * (1 + g * (1 - s))
 
 
-def summarize(P, writes=None, top_n=20):
-  """P: one block's class means from probe_paths. writes: optional {'gate', 'value'}: (K, U) exact bias writes of the
-  following interval. Returns {split: {top20, rest, pos_top20}, n_on_top20, n_on_rest, rho_writes}."""
-  R, G, V = P['u'].T, P['g'].T, P['v'].T                                            # (U, C)
+def pole_coefs(R, G, V, top_n=20):
+  """R, G, V: (U, C) class means of u* and of g, v at p*. Returns the unit's top classes (U, top_n) by z-scored R (as in
+  convnext_bias_self.py), the pole coefficients pa_v = mean_{c in P_n} SiLU(Gm), pa_g = mean_{c in P_n} SiLU'(Gm) Vm
+  (U,), and the live mask (U,): class-mean u* not constant."""
   z = (R - R.mean(1, keepdims=True)) / (R.std(1, keepdims=True) + 1e-12)
   live = np.ptp(R, 1) > 1e-3 * np.abs(R).max()
   top = np.argsort(-z, 1)[:, :top_n]
   pa_v = np.take_along_axis(silu_np(G), top, 1).mean(1)
   pa_g = np.take_along_axis(dsilu_np(G) * V, top, 1).mean(1)
+  return top, pa_v, pa_g, live
+
+
+def unit_kind(G, V, top):
+  """'DN' / 'PP' / 'mixed' per unit (U,) from its top classes' Gm, Vm (as in convnext_bias_self.py)."""
+  gt, vt = np.take_along_axis(G, top, 1), np.take_along_axis(V, top, 1)
+  dn, pp = ((gt < 0) & (vt < 0)).mean(1), ((gt > 0) & (vt > 0)).mean(1)
+  return np.where(dn > 0.5, 'DN', np.where(pp > 0.5, 'PP', 'mixed')), dn
+
+
+def summarize(P, writes=None, top_n=20, rel=None):
+  """P: one block's class means from probe_paths. writes: optional {'gate', 'value'}: (K, U) exact bias writes of the
+  following interval. rel: optional (C, C) bool WordNet relatives (diagonal False): 'rest' then leaves out the relatives
+  of the unit's top classes, which get their own role. Returns {split: {top20, relatives, rest, pos_top20}, n_on_top20,
+  n_on_rest, dn_top20, ce_{v,g}_{top20,rest}, ce_top20_{DN,PP}, units_{DN,PP}, rho_writes, writes_top20}; all per-unit
+  means over live units."""
+  R, G, V = P['u'].T, P['g'].T, P['v'].T                                            # (U, C)
+  top, pa_v, pa_g, live = pole_coefs(R, G, V, top_n)
   pole = lambda s: -(P[f'Bv_{s}'] * pa_v[None] + P[f'Bg_{s}'] * pa_g[None])          # (C, U)
   whole = pole('ce')
   scale = np.abs(whole).mean(0) + 1e-30
   inT = np.zeros_like(whole, bool)
   np.put_along_axis(inT, top.T, True, 0)
+  relm = (rel[top].any(1).T & ~inT) if rel is not None else np.zeros_like(inT)       # (C, U)
+  restm = ~inT & ~relm
+  role_mean = lambda M, mask: float(np.nanmean(np.nanmean(np.where(mask, M, np.nan), 0)[live]))
   out = {}
   for s in SPLITS:
     ps = pole(s) / scale[None]
-    t = np.where(inT, ps, np.nan)
-    r = np.where(~inT, ps, np.nan)
-    out[s] = {'top20': float(np.nanmean(np.nanmean(t, 0)[live])), 'rest': float(np.nanmean(np.nanmean(r, 0)[live])),
-              'pos_top20': float(np.nanmean(np.nanmean(np.where(inT, ps > 0, np.nan), 0)[live]))}
-  out['n_on_top20'] = float(np.nanmean(np.where(inT, P['n_on'], np.nan)))
-  out['n_on_rest'] = float(np.nanmean(np.where(~inT, P['n_on'], np.nan)))
-  out['dn_top20'] = float(np.mean((np.take_along_axis(G, top, 1) < 0) & (np.take_along_axis(V, top, 1) < 0)))
+    out[s] = {'top20': role_mean(ps, inT), 'rest': role_mean(ps, restm),
+              'pos_top20': role_mean((ps > 0).astype(float), inT)}
+    if rel is not None:
+      out[s]['relatives'] = role_mean(ps, relm)
+  out['rest_excludes_relatives'] = rel is not None
+  out['n_on_top20'] = role_mean(P['n_on'], inT)
+  out['n_on_rest'] = role_mean(P['n_on'], restm)
+  kind, dn = unit_kind(G, V, top)
+  out['dn_top20'] = float(dn[live].mean())
+  for c, pv in (('v', -P['Bv_ce'] * pa_v[None]), ('g', -P['Bg_ce'] * pa_g[None])):   # each map alone, whole's scale
+    out[f'ce_{c}_top20'] = role_mean(pv / scale[None], inT)
+    out[f'ce_{c}_rest'] = role_mean(pv / scale[None], restm)
+  for k in ('DN', 'PP'):
+    sel = live & (kind == k)
+    out[f'units_{k}'] = int(sel.sum())
+    out[f'ce_top20_{k}'] = float(np.nanmean(np.where(inT, whole / scale[None], np.nan)[:, sel], 0).mean()) \
+        if sel.any() else float('nan')
   if writes is not None:
     wpole = writes['value'] * pa_v[None] + writes['gate'] * pa_g[None]                # writes are -lr grad already
     out['rho_writes'] = float(np.nanmedian([spearman(whole[:, n], wpole[:, n]) for n in np.flatnonzero(live)]))
-    wt = np.where(inT, wpole / (np.abs(wpole).mean(0) + 1e-30)[None], np.nan)
-    out['writes_top20'] = float(np.nanmean(np.nanmean(wt, 0)[live]))
+    out['writes_top20'] = role_mean(wpole / (np.abs(wpole).mean(0) + 1e-30)[None], inT)
   return out
 
 

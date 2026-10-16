@@ -25,8 +25,10 @@ Arm I, leave-group-out continuations (lgo): from a primary taught run's state at
   step]) for every variant. Writes lgo_result.json (m_P at tau and at the end) and DONE.
 Photo re-verification at a branch point (verify): the branch state theta_w of (arm, replay spec, seed, lr) is computed
   or loaded with convnext_umbrella.branch (the namespace comes from convnext_umbrella's own run parser, so the branch
-  key and the defaults are the runs'); each photo still top-1 for the source at theta_w keeps its slot, a photo that
-  is not is replaced by the next reserve photo that is; the scores and replacements are recorded.
+  key and the defaults are the runs'; when the branch file does not exist yet, the warm-up is trained here, so verify
+  must not run under no_grad); each photo still top-1 for the source at theta_w keeps its slot, a photo that is not is
+  replaced by the next reserve photo that is; the scores (top-1, top-10, p_source, p_target at theta_w) and
+  replacements are recorded.
 Queue helpers: photos (an arm's photo specs, or a verify file's), full_saves (tau and tau + phase2 of finished taught
   runs), lr_star.
 """
@@ -251,16 +253,18 @@ def replace_photos(photos: list, reserve: list, n: int) -> tuple:
   return out, swaps
 
 
-@torch.no_grad()
 def cmd_verify(a):
+  """Not under no_grad as a whole: convnext_umbrella.branch trains the warm-up when the branch file does not exist yet
+  (seeds 1 and 2, the arm-E and S2 branches), and its backward needs gradients."""
   import experiments.convnext_umbrella as U
   from rcdl.imagenet import GPUTrainLoader
   if os.path.exists(a.out):
     print('\n'.join(json.load(open(a.out))['photos']), flush=True)
     return
   ua = umbrella_args(a.umbrella_args)
-  dev = torch.device('cuda')
+  dev = torch.device(getattr(a, 'device', None) or 'cuda')
   torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = False
+  torch.manual_seed(0)                                   # as convnext_umbrella cmd_run before its branch call
   sel = json.load(open(ua.sel))['arms'][ua.arm]
   model = build_convnext('tiny').to(dev)
   br = U.branch(ua, sel, model, GPUTrainLoader(ua.train, 256, dev, seed=0), dev)
@@ -268,10 +272,11 @@ def cmd_verify(a):
   model.eval()
   t, s = sel['target'], sel['source']
 
+  @torch.no_grad()
   def score(r):
     p = F.softmax(model(U.photo_tensor(r['photo'], ua.val, dev, ua.train))[0].double(), -1)
-    return {'photo': r['photo'], 'top1_w': int(p.argmax()), 'p_source_w': float(p[s]), 'p_target_w': float(p[t]),
-            'ok': int(p.argmax()) == s}
+    return {'photo': r['photo'], 'top1_w': int(p.argmax()), 'top10_w': [int(c) for c in torch.argsort(-p)[:10]],
+            'p_source_w': float(p[s]), 'p_target_w': float(p[t]), 'ok': int(p.argmax()) == s}
   rows = [score(r) for r in sel['photos'][:a.n]]
   res_rows = [score(r) for r in sel.get('reserve', [])]
   photos, swaps = replace_photos(rows, res_rows, a.n)
@@ -420,6 +425,7 @@ def main():
   q.add_argument('--out', required=True)
   q = sub.add_parser('verify', help='re-verify the photos at their branch point (prints the photo specs)')
   q.add_argument('--n', type=int, default=5)
+  q.add_argument('--device', default=dev)
   q.add_argument('--out', required=True)
   q.add_argument('umbrella_args', nargs=argparse.REMAINDER, help="-- <convnext_umbrella run arguments>")
   q = sub.add_parser('photos', help='print the photo specs of an arm (or of a verify file), one per line')

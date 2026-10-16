@@ -29,8 +29,8 @@ unit; j* = du/dtheta at p*; G = sum_p du(p)/dtheta; Ebar = the per-image gradien
 respect to theta; D = the AdamW preconditioner 1 / (sqrt(v / (1 - 0.999^t)) + 1e-8) of the nearest usable snapshot
 within 1,500 steps (approximate; 1 before step 1,000 or without a snapshot; Muon weights 1). kappa = <mean_c j*, D
 mean_c G> / sd_n (gating); beta = -<mean_c j*, D mean_c Ebar> / sd_n (first-order allocation with error and readers); at
-snapshot steps mu = -(lr_t / (1 - 0.9^t)) <mean_c j*, D_t m_t^(c)> / sd_n (the exact instantaneous AdamW write, pooled
-only).
+snapshot steps mu = -(lr_t / (1 - 0.9^t)) <mean_c j*, D_t m_t^(c)> / sd_n with lr_t the learning rate of update t
+(the exact AdamW write of that update, to first order in u; pooled only).
 
 Events (events.json, frozen with the code hash before any decomposition; G16 and the selection half; P = 20):
   exit of c from unit n: c in Top_n at >= 2 checkpoints with step >= 1,000, best rank <= 10 there, rank at the last
@@ -61,8 +61,9 @@ Standardization: each write category's margin term against 1,000 random sets of 
 (c, P, Ent excluded) with total training count within 5% (z, mid-rank percentile); with a random split, the own term
 against the random groups' terms scaled by n_c / n_r (own band, own_pct_R) and the sets against random-group sets
 matched on count. Classification per event (first match, on excess shares, when sum_X Delta_X < 0): withdrawn (own share
-<= 0.15, own term inside the band [random 5-95%; without a random split the C1 own terms' 25-75%], F_own +
-P-self-raise shares >= 0.5); active own suppression (own share >= 0.4, own term below the band's 5th percentile);
+<= 0.15, own term inside the band [random 5-95%; without a random split the C1 own terms' 25-75%, which needs
+band_min = 3 C1 members, else 'few_controls'], F_own + P-self-raise shares >= 0.5); active own suppression (own
+share >= 0.4, own term below the band's 5th percentile);
 peak-company interference (share of P_c >= 0.4 and P_c below the 5th percentile of its size-matched sets on c);
 drift-carried (Phi share >= 0.5); else unclassified. Flips are counted under the fp16 interval (four corners of the
 bounds), the path order (cross term wholly to the weights or the input), the position reference p*_t2, the half swap
@@ -78,8 +79,8 @@ exits): withdrawn (inside the random band 5-95%, pushes of random groups scaled 
 C1 pushes' 25-75%), reversed (below), maintained (above); against the same for C1 (difference of the withdrawn
 proportions). S2: n's share of c's own-write capture in its stage; timing of its halving after t_pk (before / same
 interval / after t_out) against a within-unit permutation of t_out and against C1 classes. S3 (windows with >= 2
-snapshots): log change of c's write rate in n split into the second moment (crowding) and c's momentum (bias exact;
-weights with the median D and the projection on Hs).
+snapshots): log change of c's write rate in n split into the learning rate, the second moment (crowding), c's momentum
+and the bias correction (bias exact; weights with the median D and the projection on Hs).
 X4 (first in line, per G16 interval and stage). Leader L_k = argmax_n z_n,k(t1) (selection half); capture O_n,k =
 T_k(k) / sd_n(t1) (measurement half). F1: percentile of O_L among the stage's units (F1_bias: with the probe-free
 capture, the oriented normalized bias push of X3). F2 (primary): within (k, interval), rank regression across the
@@ -135,7 +136,9 @@ WRITE = ('own', 'P', 'Ent', 'rel', 'oth')
 XCAT = WRITE + ('Fown', 'Frest', 'Phi', 'Pi', 'E')
 COMP = [f'{x}_{s}' for x in XCAT for s in ('c', 'P')]
 NWRITE = 2 * len(WRITE)                          # the write components come first in COMP
-LABELS = ('withdrawn', 'active', 'interference', 'drift', 'unclassified', 'no_excess_fall', 'no_control')
+LABELS = ('withdrawn', 'active', 'interference', 'drift', 'unclassified', 'no_excess_fall', 'no_control',
+          'few_controls')
+UNLABELLED = ('no_control', 'no_excess_fall', 'few_controls')     # left out of the label proportions
 DIRS = {'s0m1': (0, 1), 's1m0': (1, 0)}
 
 
@@ -143,7 +146,7 @@ def defaults():
   return dict(P=20, est_step=1000, best=10, gone=40, anchor_k=5, anchor_min=2, match=3, nodes=32, sd_floor=1e-3,
               n_rand=1000, n_boot=2000, n_perm=1000, count_tol=0.05, visual_near=10, wordnet_near=4, unrel_wn=10,
               unrel_vis=100, d_window=1500, d_min_step=1000, x5_min_len=1000, log_offset=1e-4, carriers=3, seed=0,
-              rep_best=15, rep_gone=30, relatives='visual')
+              rep_best=15, rep_gone=30, relatives='visual', band_min=3)
 
 
 # --------------------------------------------------------------------------------------------- small statistics
@@ -722,6 +725,26 @@ def cmd_events(a, run: Run):
 
 # ------------------------------------------------------------------------------------------------------ intervals
 
+def remainder_checks(parts: list) -> dict:
+  """I3 at the grid points of an interval, for the dicts {map: Parts} in `parts`: R_rel = max |R| / max |W| (R = W -
+  a W0 - sum_k C_k in fp64; nonzero from the fp16 storage of the parts and the fp32 sums of snapshot parts) and
+  R_stored_rel = max |R - stored fp32 R| / max |W| (compact files only). The latter is about 1e-7 when a checkpoint's
+  model file and attribution file hold the same weights; files from different trajectories would otherwise be absorbed
+  silently by R, and so by E."""
+  out = {'R_rel': 0.0, 'R_stored_rel': 0.0}
+  for P in parts:
+    for p in P.values():
+      scale = max(float(p.W.abs().max()), 1e-300)
+      out['R_rel'] = max(out['R_rel'], float(p.R.abs().max()) / scale)
+      if p.r_stored is not None:
+        out['R_stored_rel'] = max(out['R_stored_rel'], p.r_stored / scale)
+  return out
+
+
+def file_sha(path: str) -> str:
+  return hashlib.sha256(open(path, 'rb').read()).hexdigest() if os.path.exists(path) else ''
+
+
 def interval_plan(run: Run, family: str):
   """[(t1, t2, role, j)]: 'g16' intervals (j = index of t2 in G16), 'sub' intervals of G+ inside a G16 interval
   (j = its parent), 'snap' intervals between consecutive usable snapshots (j = -1)."""
@@ -782,8 +805,10 @@ def interval_file(run: Run, s1: int, s2: int, probe: Probe, pairs: dict, batch: 
   for b in run.blocks:
     c1 = {k: (to_half_major(v, C) if torch.is_tensor(v) and v.dim() >= 2 else v) for k, v in acc1[b].means().items()}
     c2 = {k: (to_half_major(v, C) if torch.is_tensor(v) and v.dim() >= 2 else v) for k, v in acc2[b].means().items()}
-    inc = run.inc(s1, s2, b, 'class', bounds=False)
+    P1, P2 = run.parts(s1, b, 'class', bounds=False), run.parts(s2, b, 'class', bounds=False)
+    inc = {M: increments(P1[M], P2[M]) for M in MAPS}
     chk = {'image_resid': max(c1['resid'], c2['resid']), 'zcheck': zc[b], 'inc_resid': max(inc[M].resid for M in MAPS)}
+    chk |= remainder_checks([P1, P2])
     store = {}
     for k in ('Hbar_gate', 'Hbar_value'):
       store[k] = c1[k].float().cpu()
@@ -801,7 +826,9 @@ def interval_file(run: Run, s1: int, s2: int, probe: Probe, pairs: dict, batch: 
       comp2 = max(comp2, split_completeness(inc, cm2)['rel'])
     chk |= {'complete_rel': comp, 'complete_rel_stored': comp_st, 'complete_rel_p2': comp2}
     if run.has_random and run.is_ckpt(s1) and run.is_ckpt(s2):
-      incr = run.inc(s1, s2, b, 'random', bounds=False)
+      PR1, PR2 = run.parts(s1, b, 'random', bounds=False), run.parts(s2, b, 'random', bounds=False)
+      incr = {M: increments(PR1[M], PR2[M]) for M in MAPS}
+      chk |= {f'{k}_random': v for k, v in remainder_checks([PR1, PR2]).items()}
       diff = 0.0
       for h in (0, 1):
         cmh = {k: v[h] for k, v in c1.items() if torch.is_tensor(v) and v.dim() >= 3}
@@ -841,12 +868,17 @@ def cmd_intervals(a, run: Run, probe: Probe):
     t0 = time.time()
     rec = interval_file(run, s1, s2, probe, pairs, a.batch, a.prm['nodes'])
     rec['role'], rec['parent'] = role, j
+    rec['events_sha'] = file_sha(ev)                            # the event pairs these per-pair means were made for
     torch.save(rec, path + '.tmp')
     os.replace(path + '.tmp', path)
     worst = {k: max(r['checks'].get(k, 0.0) for r in rec['blocks'].values())
              for k in ('complete_rel', 'complete_rel_stored', 'complete_rel_p2', 'image_resid', 'zcheck',
-                       'class_vs_random_total_rel')}
+                       'class_vs_random_total_rel', 'R_rel', 'R_stored_rel')}
     print(json.dumps({'interval': [s1, s2], 'role': role, **worst, 'sec': round(time.time() - t0, 1)}), flush=True)
+    if worst['R_stored_rel'] > 1e-5:
+      print(f'WARNING: interval {s1}-{s2}: a checkpoint\'s stored remainder disagrees with its model file '
+            f'(R_stored_rel {worst["R_stored_rel"]:.1e}): model and attribution files of different trajectories?',
+            flush=True)
 
 
 # ------------------------------------------------------------------------------------------------------ gradstate
@@ -935,7 +967,7 @@ def gradstate_point(run: Run, s: int, probe: Probe, batch: int, prm: dict, stock
       mk = torch.cat(mk, -1).to(run.dev)[:probe.C]                                          # (C, U, 2d + 2)
       Dx = torch.cat(Dx, -1).to(run.dev)
       t = int(A[f'{b}.pw_gate']['t'])
-      lr = lr_schedule(run.cfg)(t)
+      lr = lr_schedule(run.cfg)(t - 1)                    # update t (count t - 1 -> t) used m_t, v_t and this lr
       mu = -(lr / (1 - 0.9 ** t)) * torch.einsum('hnkj,nj,knj->hnk', m['J'], Dx, mk) / sd[..., None]
       rec['mu'] = mu.float().cpu()
     out['blocks'][b] = rec
@@ -977,6 +1009,9 @@ def batch_components(view: dict, xs, Qp, Qm, cat, bounds: bool = False) -> torch
   pos = view['pos']
   Tm, Fm = (view['T_bound'], view['F_bound']) if bounds else (view['T'], view['F'])
   px, pQ = pos[xs], pos[Qp]
+  if not ((px >= 0).all() and (pQ[Qm] >= 0).all()):              # -1 would silently read the last column
+    raise ValueError('batch_components: a target or company class has no column in this view (interval files made '
+                     'for another events.json?)')
   oh = F.one_hot(cat.long(), len(WRITE)).to(Tm.dtype)                    # (N, K, 5)
   m = Qm.to(Tm.dtype)
   cnt = m.sum(1).clamp(min=1)
@@ -1016,8 +1051,10 @@ def xlevel(comp: np.ndarray) -> np.ndarray:
 
 def classify(ex: np.ndarray, ctrl: np.ndarray, thr: dict) -> str:
   """Fixed exploratory classification of one exit (module docstring). ex (20,), ctrl (m, 20) components; thr:
-  rand_band (lo, hi) or None, rand_q05 or None (own term against random groups), P_q05 (P_c against size-matched sets).
-  Without a random band the own band is the C1 own terms' 25-75% (inside) and 5th percentile (below)."""
+  rand_band (lo, hi) or None, rand_q05 or None (own term against random groups), P_q05 (P_c against size-matched sets),
+  band_min (default 3). Without a random band the own band is the C1 own terms' 25-75% (inside) and 5th percentile
+  (below), which needs at least band_min C1 members: with fewer the exit is 'few_controls' (the percentiles of one or
+  two values are not a band; one control would make 'active' a coin flip)."""
   if not len(ctrl):
     return 'no_control'
   delta = ex - ctrl.mean(0)
@@ -1030,6 +1067,8 @@ def classify(ex: np.ndarray, ctrl: np.ndarray, thr: dict) -> str:
   if thr.get('rand_band') is not None:
     lo, hi = thr['rand_band']
     q05 = thr['rand_q05']
+  elif len(ctrl) < thr.get('band_min', 3):
+    return 'few_controls'
   else:
     own_c = ctrl[:, 0] + ctrl[:, 1]
     lo, hi = np.percentile(own_c, [25, 75])
@@ -1150,6 +1189,11 @@ class Ctx:
       s1, s2 = int(os.path.basename(f)[4:9]), int(os.path.basename(f)[10:15])
       files[(s1, s2)] = f
     self.files = files
+    sha = file_sha(os.path.join(a.out, 'events.json'))
+    stale = sorted(k for k, f in files.items()
+                   if torch.load(f, map_location='cpu', weights_only=False, mmap=True).get('events_sha', sha)
+                   not in (sha, ''))                              # '': made without events (no pairs, no variants)
+    assert not stale, f'interval files made for another events.json (delete them and rerun intervals): {stale}'
     plan = interval_plan(run, 'all')
     self.plan = [x for x in plan if (x[0], x[1]) in files]
     missing = [x for x in plan if x[2] == 'g16' and (x[0], x[1]) not in files]
@@ -1253,7 +1297,6 @@ def analyze_block(ctx: Ctx, b: str) -> dict:
   """One block: completeness of every interval, the own / other / plasticity arrays (X4, X5), the X1 and X2 event
   accumulators over their windows (all variants), and the provenance at every G16 start point (X4 F2)."""
   run, dev, C, K = ctx.run, ctx.dev, ctx.C, ctx.K
-  U = run.U[b]
   g = run.g16
   KR = K if run.has_random else 0
   rel_t = torch.from_numpy(ctx.rel).to(dev)
@@ -1428,7 +1471,7 @@ def exit_summary(ctx: Ctx, ac: EventAcc) -> dict:
   r['z'], r['pct'] = z, pct
   if z:
     r['most_negative'] = min(z, key=z.get)
-  thr = {'P_q05': P_q05, 'rand_band': None, 'rand_q05': None}
+  thr = {'P_q05': P_q05, 'rand_band': None, 'rand_q05': None, 'band_min': prm['band_min']}
   if ac.mRc is not None and ctx.n_r is not None:
     mR = (ac.mRc - ac.mRP).cpu().numpy() / sd
     scaled = mR * ctx.n_c[c] / ctx.n_r
@@ -1524,7 +1567,7 @@ def x1_population(ctx: Ctx, recs: list) -> dict:
   out['abs_fall'] = share_table(ok, 'abs_fall', ctx)
   lab = [r['label'] for r in ok]
   out['labels'] = {k: lab.count(k) for k in LABELS}
-  cls = [r for r in ok if r['label'] not in ('no_control', 'no_excess_fall')]
+  cls = [r for r in ok if r['label'] not in UNLABELLED]
   if cls:
     units = np.array([uid(r['b'], r['n']) for r in cls])
     classes = np.array([r['c'] for r in cls])
@@ -1655,22 +1698,33 @@ def x3_block(ctx: Ctx, b: str, bp: dict) -> list:
   return out
 
 
+def bias_rate_parts(r: dict, n: int, xs: list, lr_of, b1: float = 0.9, b2: float = 0.999, eps: float = 1e-8) -> dict:
+  """The factors of the AdamW bias write of the classes xs on unit n in update t, the update that brought the step
+  count to t (r: a full attribution state at t): write = -lr * mb / c1 * Db with lr = lr_of(t - 1), mb = mb_t^(x)[n],
+  c1 = 1 - b1^t and Db = 1 / (sqrt(vb_t[n] / (1 - b2^t)) + eps). Without bias decay this is Cb_t - Cb_(t-1)."""
+  t = int(r['t'])
+  c2 = 1 - b2 ** t
+  return {'lr': lr_of(t - 1), 'mb': r['mb'][xs, n].double().numpy(), 'c1': 1 - b1 ** t,
+          'Db': float(1 / (math.sqrt(float(r['vb'][n]) / c2) + eps))}
+
+
 def crowding(ctx: Ctx, b: str, n: int, xs: list, sa: int, sb: int, h: int) -> dict:
-  """log |write rate| change of each class x in unit n from snapshot sa to sb, split exactly into the second moment
-  (dD), the class's momentum (dm) and the bias correction (dc1); bias (exact scalars) and weights (median D over the
-  unit's weights, momentum projected on Hs(x) of the measurement half)."""
+  """log |write rate| change of each class x in unit n from snapshot sa to sb. The AdamW bias write of update t (the
+  one that brought the step count to t, the state a snapshot at t holds) is lr_of(t - 1) mb_t^(x) / c1_t Db_t, so the
+  change splits exactly into the learning rate (dlr, shared by every class and unit), the second moment (dD, crowding,
+  shared by the unit's classes), the class's momentum (dm) and the bias correction (dc1): total = dlr + dD + dm + dc1.
+  Weights: the same with the median D over the unit's weights and the momentum projected on Hs(x) of the measurement
+  half (approximate)."""
   run = ctx.run
   res = {'sa': sa, 'sb': sb}
   muon = run.cfg.get('opt') == 'muon'
+  lr_of = lr_schedule(run.cfg)                          # Muon: the biases' AdamW lr has the same schedule (ratio)
   for M in MAPS:
     vals = {}
     for s in (sa, sb):
       r = run.full(s)['attr'][f'{b}.pw_{M}']
-      t = int(r['t'])
-      c1, c2 = 1 - 0.9 ** t, 1 - 0.999 ** t
-      Db = float(1 / (math.sqrt(float(r['vb'][n]) / c2) + 1e-8))
-      mb = r['mb'][xs, n].double().numpy()
-      rec = {'Db': Db, 'mb': mb, 'c1': c1}
+      rec = bias_rate_parts(r, n, xs, lr_of)
+      c2 = 1 - 0.999 ** int(r['t'])
       if not muon:
         Dw = 1 / ((r['v'][n].double() / c2).sqrt() + 1e-8)
         hs = ctx.stockh(s)
@@ -1682,12 +1736,13 @@ def crowding(ctx: Ctx, b: str, n: int, xs: list, sa: int, sb: int, h: int) -> di
     with np.errstate(divide='ignore', invalid='ignore'):
       dm = np.log(np.abs(z['mb'])) - np.log(np.abs(a['mb']))
     dD, dc1 = math.log(z['Db'] / a['Db']), math.log(a['c1'] / z['c1'])
-    res[f'bias_{M}'] = {'total': (dD + dm + dc1).tolist(), 'dD': dD, 'dm': dm.tolist(), 'dc1': dc1}
+    dlr = math.log(z['lr'] / a['lr']) if a['lr'] > 0 and z['lr'] > 0 else float('nan')
+    res[f'bias_{M}'] = {'total': (dlr + dD + dm + dc1).tolist(), 'dlr': dlr, 'dD': dD, 'dm': dm.tolist(), 'dc1': dc1}
     if not muon and a.get('proj') is not None and z.get('proj') is not None:
       with np.errstate(divide='ignore', invalid='ignore'):
         dp = np.log(np.abs(z['proj'])) - np.log(np.abs(a['proj']))
       dDw = math.log(z['Dmed'] / a['Dmed'])
-      res[f'weight_{M}'] = {'total': (dDw + dp + dc1).tolist(), 'dD': dDw, 'dm': dp.tolist()}
+      res[f'weight_{M}'] = {'total': (dlr + dDw + dp + dc1).tolist(), 'dlr': dlr, 'dD': dDw, 'dm': dp.tolist()}
   return res
 
 
@@ -1743,8 +1798,8 @@ def x3_s2(ctx: Ctx, own: dict) -> dict:
       tot = {j: O[j].sum(0) for j in O}
       exits = [e for e in ctx.events['directions'][d]['exits'] if e['b'] in blocks]
       by_unit = {}
-      for e in exits:
-        by_unit.setdefault((e['b'], e['n']), []).append(e['out'])
+      for i, e in enumerate(exits):
+        by_unit.setdefault((e['b'], e['n']), []).append((i, e['out']))
       def jx(gi, c, pk):
         if pk < 1 or tot[pk][c] <= 0 or O[pk][gi, c] <= 0:
           return None
@@ -1755,13 +1810,14 @@ def x3_s2(ctx: Ctx, own: dict) -> dict:
         return len(g)
       def when(x, out):
         return 'before' if x < out else ('same' if x == out else 'after')
-      for e in exits:
+      for i, e in enumerate(exits):
         gi = int(off[blocks.index(e['b'])] + e['n'])
         x = jx(gi, e['c'], e['pk'])
         if x is None:
           continue
-        others = [o for o in by_unit[(e['b'], e['n'])] if o != e['out']]
-        perm = [when(x, o) for o in others]
+        # the null reassigns the t_out of the unit's other exits (leave this exit out, by identity: exits that share
+        # its t_out stay in, or the null could never say 'same' where t_outs coincide, as they often do on G16)
+        perm = [when(x, o) for k, o in by_unit[(e['b'], e['n'])] if k != i]
         ctl = [when(xc, e['out']) for xc in (jx(gi, k, e['pk']) for k in e['C1']) if xc is not None]
         carriers = {}
         for name, j in (('pk', e['pk']), ('out', e['out'])):
@@ -2150,6 +2206,9 @@ def cmd_tests(a, run: Run):
             'replication_rate_anchored_relaxed': float(np.mean([r['rep_relaxed'] for r in anch])) if anch else None,
             'noise_dominated': bool(rep_rate is not None and rep_rate < 0.5),
             'anchored_replicated': x1_population(ctx, [r for r in anch if r['rep']]),
+            # sensitivity: 'replicated' selects on the fall of the measurement half, the half every term is measured
+            # on (C1 is not so selected); all anchored exits, selected on the selection half only
+            'anchored_all': x1_population(ctx, anch),
             'turnover_replicated': x1_population(ctx, [r for r in ed if not r['anchored'] and r['rep']]),
             'by_phase': {f'phase{ph}': {
               'anchored': share_table([r for r in anch if r['rep'] and r['phase'] == ph], 'C1', ctx, fine=False),

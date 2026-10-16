@@ -562,3 +562,129 @@ def test_exits_components_equal_brute_force_and_stock(toy_exits):
     for i, (x, Q) in enumerate(zip(ac.xs.tolist(), ac.Qs)):
       dM = (R1[x] - R0[x]) - (np.mean([R1[s] - R0[s] for s in Q]) if Q else 0.0)
       assert abs(got[i].sum() - dM) <= 1e-6 * np.abs(R0).max()
+
+
+# ------------------------------------------------------------------------------------------- review fixes (exits)
+
+def test_classify_needs_a_band_of_at_least_three_controls():
+  """Without a random split the own band is the C1 own terms' 25-75%: one or two controls give no band ('few_controls'
+  instead of an 'active' label decided by a single control); three controls, or a random band, classify."""
+  import numpy as np
+  from experiments import convnext_exits as X
+  ex = np.zeros(len(X.COMP))
+  ex[0] = -1.0                                                     # the excess fall is all the exit's own write
+  thr = {'P_q05': None, 'rand_band': None, 'rand_q05': None, 'band_min': 3}
+  assert X.classify(ex, np.zeros((1, len(X.COMP))), thr) == 'few_controls'
+  assert X.classify(ex, np.zeros((2, len(X.COMP))), thr) == 'few_controls'
+  ctrl3 = np.zeros((3, len(X.COMP)))
+  ctrl3[:, 0] = [-0.1, 0.0, 0.1]
+  assert X.classify(ex, ctrl3, thr) == 'active'
+  assert X.classify(ex, np.zeros((1, len(X.COMP))), dict(thr, rand_band=(-0.2, 0.2), rand_q05=-0.2)) == 'active'
+  assert X.classify(np.zeros(len(X.COMP)), ctrl3, thr) == 'no_excess_fall'
+  assert 'few_controls' in X.UNLABELLED
+
+
+def test_s2_permutation_null_keeps_exits_that_share_t_out():
+  """S2's within-unit null reassigns the t_out of the unit's other exits: an exit with the same t_out must stay in it
+  (the old rule dropped every exit whose t_out equals this one's, so the null could never say 'same')."""
+  from types import SimpleNamespace
+  import numpy as np
+  from experiments import convnext_exits as X
+  b, g = 'stage2.block0', [0, 10, 20, 30, 40]
+  cap = {1: (1.0, 1.0), 2: (1.0, 1.0), 3: (0.1, 1.0), 4: (0.1, 1.0)}   # own capture of classes 0, 1: unit 0, unit 1
+  own = {b: {(g[j - 1], g[j], h): torch.tensor([[cap[j][0]] * 2 + [1.0], [cap[j][1]] * 2 + [1.0]])
+             for j in cap for h in (0, 1)}}
+  ex = [dict(b=b, n=0, c=c, pk=1, out=3, anchored=True, rep=True, C1=[]) for c in (0, 1)]
+  ctx = SimpleNamespace(run=SimpleNamespace(g16=g, blocks=[b], U={b: 2}), sd=lambda s, bb: np.ones((2, 2)),
+                        events={'directions': {d: {'exits': ex} for d in X.DIRS}},
+                        prm=dict(carriers=1, n_boot=20, seed=0))
+  res = X.x3_s2(ctx, own)
+  for d in X.DIRS:                                                 # unit 0's share halves in the t_out interval
+    assert res[d]['n'] == 2 and res[d]['same']['exits'] == 1.0 and res[d]['same']['perm_null'] == 1.0
+
+
+def test_bias_write_rate_parts_give_the_one_step_bias_write():
+  """bias_rate_parts (the S3 crowding split): -lr_of(t - 1) mb_t / c1_t Db_t is the bias write of update t, i.e.
+  Cb_t - Cb_(t-1), under a varying learning rate (the learning-rate factor of the split's dlr term)."""
+  import numpy as np
+  from experiments import convnext_exits as X
+  torch.manual_seed(0)
+  lin = nn.Linear(4, 3).double()
+  sched = lambda s: 1e-2 * (s + 1) / 5 if s < 5 else 1e-2 * 0.5 ** (s - 4)
+  attr = GroupAttribution({'l': lin}, n_groups=3, optimizer='adamw', lr=1e-2, betas=(0.9, 0.999), dtype=DT)
+  g = torch.Generator().manual_seed(1)
+  states = {}
+  for s in range(8):
+    x = torch.randn(8, 4, generator=g, dtype=DT)
+    (lin(x) ** 2).sum().backward()
+    attr.step(torch.randint(0, 3, (8,), generator=g), lr=sched(s))
+    states[s + 1] = copy.deepcopy(attr.full_state()['l'])
+  for t in (3, 7):
+    for n in range(3):
+      p = X.bias_rate_parts(states[t], n, [0, 1, 2], sched)
+      write = -p['lr'] * p['mb'] / p['c1'] * p['Db']
+      actual = (states[t]['Cb'][:, n] - states[t - 1]['Cb'][:, n]).numpy()
+      assert np.abs(write - actual).max() <= 1e-12 * np.abs(actual).max() and np.abs(actual).max() > 0
+
+
+def toy_ctx(root):
+  import argparse
+  from experiments import convnext_exits as X
+  T = str(root)
+  a = argparse.Namespace(out=f'{T}/exits', visual=f'{T}/visual.npz', wordnet=f'{T}/wordnet.npz', class_counts='',
+                         prm=X.defaults() | TOY_PARAMS, skip_integrity=False)
+  run = X.Run(T, f'{T}/history', f'{T}/full', grid=list(TOY_GRID),
+              snaps=X.usable_snaps(a, T, f'{T}/history', f'{T}/full'))
+  return X.Ctx(a, run), run
+
+
+def test_crowding_split_adds_up_to_the_bias_write_rate_change(toy_exits):
+  """S3: dlr + dD + dm + dc1 is the log change of each class's bias write rate between two snapshots (the learning
+  rate term was missing, so the 'exact' split did not add up under the cosine schedule)."""
+  import numpy as np
+  from experiments import convnext_exits as X
+  ctx, run = toy_ctx(toy_exits)
+  b, n, xs, sa, sb = 'stage2.block4', 3, [0, 1, 2, 5], 25, 55
+  res = X.crowding(ctx, b, n, xs, sa, sb, 1)
+  lr_of = lr_schedule(run.cfg)
+  lograte = lambda p: np.log(np.abs(p['lr'] * p['mb'] / p['c1'] * p['Db']))
+  for M in MAPS:
+    pa, pb = (X.bias_rate_parts(run.full(s)['attr'][f'{b}.pw_{M}'], n, xs, lr_of) for s in (sa, sb))
+    want = lograte(pb) - lograte(pa)
+    got = np.array(res[f'bias_{M}']['total'])
+    ok = np.isfinite(want)
+    assert ok.any() and np.abs(got[ok] - want[ok]).max() < 1e-12
+    assert abs(res[f'bias_{M}']['dlr']) > 0.1                       # the schedule moved between the snapshots
+
+
+def test_remainder_checks_flag_a_model_file_from_another_trajectory(toy_exits):
+  """I3 at checkpoints: the stored fp32 remainder agrees with R computed from the model file (about 1e-7 of |W|); a
+  model file from another point of training is flagged instead of being absorbed silently by R and E."""
+  import json
+  from experiments import convnext_exits as X
+  res = json.load(open(toy_exits / 'exits' / 'exits_tests.json'))
+  m = res['interval_checks']['max']
+  assert m['R_stored_rel'] < 1e-6 and m['R_rel'] > 0 and m['R_stored_rel_random'] < 1e-6
+  assert 'anchored_all' in res['pooled']['all']['s0m1']['X1']
+  _, run = toy_ctx(toy_exits)
+  b = 'stage2.block4'
+  assert X.remainder_checks([run.parts(20, b)])['R_stored_rel'] < 1e-6
+  key, other = f'{b}.pw_gate', run.model_sd(30)
+  P = {'gate': load_parts(run.attr(20)[key], run.init[key], W=other[X.sd_key(b, 'gate')],
+                          b=other[X.sd_key(b, 'gate', 'bias')])}
+  assert X.remainder_checks([P])['R_stored_rel'] > 1e-3
+
+
+def test_batch_components_refuses_a_class_without_a_column():
+  """A class missing from a view's columns (interval files made for another events.json) raises instead of reading
+  the last column through index -1."""
+  from experiments import convnext_exits as X
+  z = lambda *s: torch.zeros(*s, dtype=DT)
+  view = X.make_view({'T': z(4, 2), 'F': z(4, 2), 'F0': z(2), 'E': z(2)}, z(2), z(2), z(2), torch.tensor([0, 1]), 4)
+  xs = torch.tensor([0])
+  cat = X.category_index(0, {}, 4)[None]
+  Qp, Qm = X.padded([[1]], xs, 'cpu')
+  assert X.batch_components(view, xs, Qp, Qm, cat).shape == (1, len(X.COMP))
+  Qp, Qm = X.padded([[3]], xs, 'cpu')
+  with pytest.raises(ValueError):
+    X.batch_components(view, xs, Qp, Qm, cat)
