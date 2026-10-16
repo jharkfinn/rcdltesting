@@ -285,6 +285,9 @@ of ours do at the end. Our run is therefore a fair stand-in for the essay's tiny
 - The uniform weight decay of the parts is deferred to one scale s per map (the stored parts are C / s, flushed when
   read or when s < 1e-6), which saves a full pass over C each step (about 6 to 10 minutes per medium run).
 - Open for the medium model: stack the maps of a stage into one state (36 small updates per step become 4).
-- molab: both sandboxes ended with HTTP 410, after about 15 and 45 minutes, the first while writing to local disk
-  and the second just after training had started with 52 GB in /dev/shm. The cause is not known (a memory limit
-  that counts /dev/shm, a lifetime limit, or the end of the browser session are candidates).
+- molab: five sandboxes ended (HTTP 410, or a fresh container behind the same URL) after 15 to 60 minutes, while the
+  one whose notebook stayed open in the user's browser ran for more than 3 hours. The memory limit is 160 GiB (it counts
+  /dev/shm), far above what the runs use. The pattern fits a sandbox that lives only while a browser client holds its
+  notebook session: a sandbox opened by a script that then closed its browser was recycled within about 10 minutes.
+  Sandboxes are now held open by a long-lived cloud browser tab, which also reads the pairing URL and token from inside
+  that tab; runs resume from `resume.pt` on Hugging Face when a sandbox is lost anyway.
