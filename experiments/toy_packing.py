@@ -97,22 +97,44 @@ class World:
 
 
 class Toy(nn.Module):
-  def __init__(self, D, m, H, n, seed=0):
+  """x -> Linear(D, m) -> hidden layer of H neurons -> Linear(H, n) + ReLU. act 'relu': ReLU(W z + b) ('neurons');
+  act 'swiglu': SiLU(W_g z + b_g) * (W_v z + b_v) ('gate', 'value'), the neuron type of the essay's ConvNeXts."""
+
+  def __init__(self, D, m, H, n, seed=0, act='relu'):
     super().__init__()
     torch.manual_seed(seed)
+    self.act = act
     self.down = nn.Linear(D, m, bias=False)
-    self.neurons = nn.Linear(m, H)
+    if act == 'relu':
+      self.neurons = nn.Linear(m, H)
+    elif act == 'swiglu':
+      self.gate, self.value = nn.Linear(m, H), nn.Linear(m, H)
+    else:
+      raise ValueError(act)
     self.out = nn.Linear(H, n)
     with torch.no_grad():                            # with a zero start, about half of the ReLU outputs never turn on
       self.out.bias.fill_(0.1)                       # (14 of 32 dead at m = H = 32); 0.1 leaves none dead
 
+  def hidden(self, z):
+    if self.act == 'relu':
+      return F.relu(self.neurons(z))
+    return F.silu(self.gate(z)) * self.value(z)
+
+  def tracked(self):
+    return {'neurons': self.neurons} if self.act == 'relu' else {'gate': self.gate, 'value': self.value}
+
   def forward(self, x):
-    return F.relu(self.out(F.relu(self.neurons(self.down(x)))))
+    return F.relu(self.out(self.hidden(self.down(x))))
 
 
 def responses(model, world):
+  """(H, n): the neuron's response to a unit input of one feature: the pre-activation for ReLU (its sign gives the
+  poles), the SwiGLU product for SwiGLU (two-signed)."""
   with torch.no_grad():
-    return model.neurons(model.down(world.emb)).T            # (H, n): pre-activation for a unit input of one feature
+    z = model.down(world.emb)
+    if model.act == 'relu':
+      return model.neurons(z).T
+    return (F.silu(model.gate(z)) * model.value(z)).T
 
 
 def pair_stats(R, world, tau=0.3):
@@ -158,22 +180,27 @@ def writer_features(parts_groups, world):
 
 def run(args):
   world = World(args.families, args.members, args.D, args.rho, args.p_two, args.seed)
-  model = Toy(args.D, args.m, args.H, world.n, args.seed)
-  attr = GroupAttribution({'neurons': model.neurons}, n_groups=world.n_groups, optimizer='adamw', lr=args.lr,
-                          betas=(0.9, 0.999), weight_decay=0.0, dtype=torch.float32)
-  opt = torch.optim.AdamW(list(model.down.parameters()) + list(model.out.parameters()), lr=args.lr, weight_decay=0.0)
+  model = Toy(args.D, args.m, args.H, world.n, args.seed, args.act)
+  tracked = model.tracked()
+  attr = GroupAttribution(tracked, n_groups=world.n_groups, optimizer='adamw', lr=args.lr, betas=(0.9, 0.999),
+                          weight_decay=0.0, dtype=torch.float32)
+  rest = [p for n, p in model.named_parameters() if p.requires_grad]
+  opt = torch.optim.AdamW(rest, lr=args.lr, weight_decay=0.0)
   g = torch.Generator().manual_seed(args.seed + 1)
-  growth, log, t0 = [], [], time.time()
+  growth = {'step': [], 'R': []} | {f'W_{k}': [] for k in tracked} | {f'I_{k}': [] for k in tracked}
+  log, t0 = [], time.time()
   for step in range(args.steps + 1):
     if step % args.log_every == 0:
       with torch.no_grad():
         x, v, _ = world.batch(4096, torch.Generator().manual_seed(123))
         loss = F.mse_loss(model(x), v).item()
-        h = model.down(world.emb)                          # unit input of each feature at the neuron layer's input
-        parts = attr.parts('neurons', h)                    # groups: (K, n_features, H)
-        diag = parts['groups'][:, torch.arange(world.n), :]  # (K, n, H): group k's part of neuron response to feature i
-        per_feat = writer_features(diag.sum(1), world)       # (n, H): writes by feature, summed over probe features
-      growth.append({'step': step, 'writes': per_feat.T.tolist()})
+        h = model.down(world.emb)                          # unit input of each feature at the hidden layer's input
+        growth['step'].append(step)
+        growth['R'].append(responses(model, world).numpy())
+        for k in tracked:
+          parts = attr.parts(k, h)                         # groups: (K, n probe features, H); init: (n, H)
+          growth[f'W_{k}'].append(writer_features(parts['groups'], world).numpy())   # (n writers, n probes, H)
+          growth[f'I_{k}'].append(parts['init'].numpy())
       log.append({'step': step, 'loss': loss})
     if step == args.steps:
       break
@@ -187,10 +214,11 @@ def run(args):
     attr.step(groups, lr)
     opt.step()
   R = responses(model, world)
-  return {'args': vars(args), 'log': log, 'final_loss': log[-1]['loss'], 'R': R.tolist(),
-          'pair_stats': pair_stats(R, world), 'growth': growth, 'residual': attr.residual('neurons'),
-          'family': world.family.tolist(), 'exclusive': world.exclusive.tolist(), 'partner': world.partner.tolist(),
-          'sec': time.time() - t0}
+  res = {'args': vars(args), 'log': log, 'final_loss': log[-1]['loss'], 'R': R.tolist(),
+         'pair_stats': pair_stats(R, world), 'residual': {k: attr.residual(k) for k in tracked},
+         'family': world.family.tolist(), 'exclusive': world.exclusive.tolist(), 'partner': world.partner.tolist(),
+         'sec': time.time() - t0}
+  return res, {k: np.stack(v) if k != 'step' else np.array(v) for k, v in growth.items()}
 
 
 def main():
@@ -207,12 +235,15 @@ def main():
   p.add_argument('--steps', type=int, default=6000)
   p.add_argument('--log_every', type=int, default=200)
   p.add_argument('--seed', type=int, default=0)
+  p.add_argument('--act', default='relu', choices=['relu', 'swiglu'])
   p.add_argument('--out', default='results/toy_packing')
   args = p.parse_args()
-  res = run(args)
+  res, growth = run(args)
   os.makedirs(args.out, exist_ok=True)
-  name = f'rho{args.rho}_m{args.m}_H{args.H}_p{args.p_two}_s{args.seed}.json'
-  json.dump(res, open(os.path.join(args.out, name), 'w'))
+  act = '' if args.act == 'relu' else f'_{args.act}'
+  name = f'rho{args.rho}_m{args.m}_H{args.H}_p{args.p_two}{act}_s{args.seed}.json'
+  json.dump(res | {'growth_file': name[:-5] + '_growth.npz'}, open(os.path.join(args.out, name), 'w'))
+  np.savez_compressed(os.path.join(args.out, name[:-5] + '_growth.npz'), **growth)
   print(name, 'loss', round(res['final_loss'], 5), 'residual', res['residual'])
   for t, s in res['pair_stats'].items():
     print(f"  {t:16s} copositive {s['copositive']:.2f} (null {s['null_copositive']:.2f})  antipodal {s['antipodal']:.2f}"
