@@ -30,7 +30,7 @@ parts add up to the real update to fp32 rounding even when the caller enables TF
 
 import contextlib
 import math
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence
 
 import torch
 import torch.nn as nn
@@ -121,6 +121,7 @@ class _Tracked:
     self.v = zeros(*W.shape) if opt == 'adamw' else None
     self.vb = zeros(W.shape[0]) if (self.Cb is not None and opt in ('adamw', 'muon')) else None
     self.h = self.delta = None
+    self.v_frozen_c2 = None                          # set by freeze_second_moment: v and vb stop updating
     lin.weight.requires_grad_(False)                # the weight gradient is formed here from (h, delta)
     if lin.bias is not None:
       lin.bias.requires_grad_(False)
@@ -172,10 +173,14 @@ class _Tracked:
     if self.opt == 'adamw' or (self.opt == 'muon' and Gb is not None):
       b1, b2, eps = hp['betas'][0], hp['betas'][1], hp['eps']
       c1, c2 = 1 - b1 ** self.t, 1 - b2 ** self.t
+      frozen = self.v_frozen_c2 is not None
+      if frozen:                                       # frozen second moment: v and its bias correction stay fixed
+        c2 = self.v_frozen_c2
     if self.opt == 'adamw':
       _scatter(self.m.mul_(b1), groups, weights, G, 1 - b1)
-      g = G.sum(0)
-      self.v.mul_(b2).addcmul_(g, g, value=1 - b2)
+      if not frozen:
+        g = G.sum(0)
+        self.v.mul_(b2).addcmul_(g, g, value=1 - b2)
       D = 1.0 / ((self.v / c2).sqrt_() + eps)
       self.s *= 1 - lr * wd                            # decay of every part, deferred: no pass over C
       self._C.addcmul_(self.m, D, value=-lr / c1 / self.s)
@@ -224,8 +229,9 @@ class _Tracked:
       lr = lr * hp['bias_lr_scale']                    # at the learning rate of the caller's AdamW parameters
     if self.opt in ('adamw', 'muon'):
       _scatter(self.mb.mul_(b1), groups, weights, Gb, 1 - b1)
-      gb = Gb.sum(0)
-      self.vb.mul_(b2).addcmul_(gb, gb, value=1 - b2)
+      if not frozen:
+        gb = Gb.sum(0)
+        self.vb.mul_(b2).addcmul_(gb, gb, value=1 - b2)
       Db = 1.0 / ((self.vb / c2).sqrt_() + eps)
       self.Cb.mul_(1 - lr * wd_b).addcmul_(self.mb, Db, value=-lr / c1)
       updb = self.mb.sum(0).mul_(Db).mul_(-lr / c1)
@@ -316,7 +322,7 @@ class GroupAttribution:
       out[name] = rec
     return out
 
-  _STATE = ('W0', 'b0', 'C', 'Cb', 'm', 'mb', 'v', 'vb', 'a', 'ab', 't')
+  _STATE = ('W0', 'b0', 'C', 'Cb', 'm', 'mb', 'v', 'vb', 'a', 'ab', 't', 'v_frozen_c2')
 
   def full_state(self) -> Dict[str, dict]:
     """Everything needed to resume (parts, per-group optimizer states, decay factors, step count); the tracked
@@ -326,6 +332,8 @@ class GroupAttribution:
   def load_full_state(self, state: Dict[str, dict]):
     for name, tr in self.tracked.items():
       for k in self._STATE:
+        if k not in state[name]:                        # states saved before a key existed (v_frozen_c2: None)
+          continue
         v = state[name][k]
         cur = getattr(tr, k)
         if torch.is_tensor(cur):
@@ -360,7 +368,90 @@ class GroupAttribution:
         tr.vb.copy_(st['vb'])
       tr.t = st['t']
 
+  @torch.no_grad()
+  def freeze_second_moment(self):
+    """Freeze every tracked layer's second moment (v, vb) and its bias correction at their current values: later steps
+    update lr * mhat / (sqrt(v_frozen) + eps). The update is then the same linear map of the per-group momenta in any
+    two runs from this state, so differences between runs are not scaled by a changed denominator. Needs t > 0
+    (a loaded snapshot or earlier steps)."""
+    for tr in self.tracked.values():
+      if tr.opt not in ('adamw', 'muon'):
+        raise ValueError('freeze_second_moment: AdamW (or the AdamW biases of muon) only')
+      if tr.t == 0:
+        raise ValueError('freeze_second_moment: no second moment yet (t = 0)')
+      tr.v_frozen_c2 = 1 - tr.hp['betas'][1] ** tr.t
+
+  @torch.no_grad()
+  def group_sums(self, sets: Dict[str, Sequence[int]]) -> Dict[str, dict]:
+    """Per tracked layer: the fp32 sums of the parts over each named set of groups ({'C', 'Cb'}), with the decay
+    factors a, ab, the step count t, and the remainders R = W - a W_0 - sum_k C_k (Rb for the bias). Small enough to
+    save every step; interval_buckets turns two of them into exact per-set writes."""
+    out = {}
+    for name, tr in self.tracked.items():
+      C = tr.C
+      rec = {'a': tr.a, 'ab': tr.ab, 't': tr.t, 'sets': {}}
+      for sname, ids in sets.items():
+        idx = torch.as_tensor(list(ids), dtype=torch.long, device=C.device)
+        rec['sets'][sname] = {'C': C[idx].sum(0).float(),
+                              'Cb': None if tr.Cb is None else tr.Cb[idx].sum(0).float()}
+      rec['R'] = (tr.lin.weight.detach().to(C.dtype) - tr.a * tr.W0 - C.sum(0)).float()
+      rec['Rb'] = None if tr.Cb is None else (tr.lin.bias.detach().to(C.dtype) - tr.ab * tr.b0 - tr.Cb.sum(0)).float()
+      out[name] = rec
+    return out
+
   def state_dict(self) -> Dict[str, Dict[str, torch.Tensor]]:
     """Contributions and decay factors of every tracked layer (for checkpoints over training)."""
     return {name: {'C': tr.C.clone(), 'Cb': None if tr.Cb is None else tr.Cb.clone(), 'a': tr.a, 'ab': tr.ab,
                    'W0': tr.W0, 'b0': tr.b0, 't': tr.t} for name, tr in self.tracked.items()}
+
+
+@torch.no_grad()
+def interval_buckets(s1: Dict[str, dict], s2: Dict[str, dict], init: Dict[str, dict]) -> Dict[str, dict]:
+  """Exact split of the change of every tracked weight over an interval (t1, t2] from two group_sums outputs whose
+  sets partition all groups. init: {layer: {'W0', 'b0'}}. With rho = a_t2 / a_t1, per layer and set w:
+    write_w = S_t2^w - rho S_t1^w           (the set's new writes inside the interval)
+    dec_w   = (rho - 1) S_t1^w              (decay of the set's earlier writes)
+    dec_0   = (a_t2 - a_t1) W_0             (decay of the initial weights)
+    rem     = R_t2 - R_t1                   (rounding remainder)
+  and the same for the bias. They sum to W_t2 - W_t1 exactly (asserted to fp32 rounding)."""
+  out = {}
+  for name, r1 in s1.items():
+    r2, W0, b0 = s2[name], init[name]['W0'].float(), init[name]['b0']
+    rho, rhob = r2['a'] / r1['a'], r2['ab'] / r1['ab']
+    rec = {'write': {}, 'dec': {}, 'write_b': {}, 'dec_b': {}}
+    for w in r1['sets']:
+      C1, C2 = r1['sets'][w]['C'], r2['sets'][w]['C']
+      rec['write'][w] = C2 - rho * C1
+      rec['dec'][w] = (rho - 1) * C1
+      if r1['sets'][w]['Cb'] is not None:
+        Cb1, Cb2 = r1['sets'][w]['Cb'], r2['sets'][w]['Cb']
+        rec['write_b'][w] = Cb2 - rhob * Cb1
+        rec['dec_b'][w] = (rhob - 1) * Cb1
+    rec['dec_0'] = (r2['a'] - r1['a']) * W0
+    rec['rem'] = r2['R'] - r1['R']
+    total = sum(rec['write'].values()) + sum(rec['dec'].values()) + rec['dec_0'] + rec['rem']
+    W1 = r1['a'] * W0 + sum(x['C'] for x in r1['sets'].values()) + r1['R']
+    W2 = r2['a'] * W0 + sum(x['C'] for x in r2['sets'].values()) + r2['R']
+    assert torch.allclose(total, W2 - W1, rtol=0, atol=1e-5 * max(float(W2.abs().max()), 1e-12)), name
+    if b0 is not None and r1['Rb'] is not None:
+      rec['dec_0b'] = (r2['ab'] - r1['ab']) * b0.float()
+      rec['rem_b'] = r2['Rb'] - r1['Rb']
+    out[name] = rec
+  return out
+
+
+def snapshot_from_torch_adamw(opt: torch.optim.Optimizer, layers: Dict[str, nn.Linear]) -> Dict[str, dict]:
+  """The snapshot form (GroupAttribution.snapshot) of torch AdamW's state for layers that torch trained: m = exp_avg,
+  v = exp_avg_sq, t = step (weight and bias must share the step count). For a replay that starts tracking layers
+  which were not tracked before (load_snapshot then puts m in the history group)."""
+  out = {}
+  for name, lin in layers.items():
+    sw = opt.state[lin.weight]
+    sb = opt.state[lin.bias] if lin.bias is not None else None
+    t = int(sw['step'])
+    if sb is not None:
+      assert int(sb['step']) == t, f'{name}: weight and bias step counts differ'
+    out[name] = {'m': sw['exp_avg'].detach().clone(), 'v': sw['exp_avg_sq'].detach().clone(), 't': t,
+                 'mb': None if sb is None else sb['exp_avg'].detach().clone(),
+                 'vb': None if sb is None else sb['exp_avg_sq'].detach().clone()}
+  return out

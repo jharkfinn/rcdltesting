@@ -405,3 +405,101 @@ def test_fine_group_shadow_folds_to_class_parts(opt):
       folded = torch.zeros_like(getattr(cls.tracked[name], part)).index_add_(0, group_class, Cf)
       assert torch.allclose(folded, getattr(cls.tracked[name], part), atol=1e-12)
     assert cls.residual(name)['weight'] < 1e-12 and fine.residual(name)['weight'] < 1e-12
+
+
+def _manual_adamw(params, grads, state, lr, wd, b1=0.9, b2=0.999, eps=1e-8, frozen=False):
+  """Reference AdamW (decoupled weight decay on 2-D tensors only); frozen: v and its bias correction are kept."""
+  state['t'] += 1
+  t = state['t']
+  for i, (p, g) in enumerate(zip(params, grads)):
+    m, v = state['m'][i], state['v'][i]
+    m.mul_(b1).add_(g, alpha=1 - b1)
+    if not frozen:
+      v.mul_(b2).addcmul_(g, g, value=1 - b2)
+      state['c2'] = 1 - b2 ** t
+    with torch.no_grad():
+      p.mul_(1 - lr * (wd if p.dim() == 2 else 0.0))
+      p.add_(-lr * (m / (1 - b1 ** t)) / ((v / state['c2']).sqrt() + eps))
+
+
+def test_frozen_second_moment_matches_reference_and_adds_up():
+  """After freeze_second_moment, the tracked update is lr * mhat / (sqrt(v_frozen / c2_frozen) + eps): equal to a
+  reference AdamW with the same frozen denominator; the parts still add up."""
+  base = tiny(11)
+  m1, ref = copy.deepcopy(base), copy.deepcopy(base)
+  layers = {'l0': m1[0], 'l2': m1[2]}
+  at = GroupAttribution(layers, n_groups=3, optimizer='adamw', lr=1e-2, weight_decay=0.05, dtype=torch.float64)
+  x, y, groups = data(9, 6, seed=12)
+  groups = groups % 3
+  rp = [ref[0].weight, ref[0].bias, ref[2].weight, ref[2].bias]
+  st = {'t': 0, 'm': [torch.zeros_like(p, dtype=torch.float64) for p in rp],
+        'v': [torch.zeros_like(p, dtype=torch.float64) for p in rp]}
+  for p in rp:
+    p.data = p.data.double()
+  for t in range(9):
+    if t == 4:
+      at.freeze_second_moment()
+    loss_fn(m1(x[t]), y[t]).backward()
+    at.step(groups[t])
+    for p in rp:
+      p.grad = None
+    loss_fn(ref(x[t].double()), y[t].double()).backward()
+    _manual_adamw(rp, [p.grad.double() for p in rp], st, 1e-2, 0.05, frozen=t >= 4)
+  for got, want in ((m1[0].weight, rp[0]), (m1[0].bias, rp[1]), (m1[2].weight, rp[2]), (m1[2].bias, rp[3])):
+    assert torch.allclose(got.double(), want, atol=1e-10)
+  for name in layers:
+    assert at.residual(name)['weight'] < 1e-12
+
+
+def test_interval_buckets_sum_to_the_change():
+  from rcdl.attribution import interval_buckets
+  m = tiny(13)
+  layers = {'l0': m[0], 'l2': m[2]}
+  at = GroupAttribution(layers, n_groups=4, optimizer='adamw', lr=1e-2, weight_decay=0.1, dtype=torch.float64)
+  init = {k: {'W0': tr.W0, 'b0': tr.b0} for k, tr in at.tracked.items()}
+  sets = {'a': [0, 1], 'b': [2], 'c': [3]}
+  x, y, groups = data(10, 6, seed=14)
+  for t in range(10):
+    loss_fn(m(x[t]), y[t]).backward()
+    at.step(groups[t])
+    if t == 2:
+      s1 = at.group_sums(sets)
+      W1 = {k: l.weight.detach().double().clone() for k, l in layers.items()}
+  s2 = at.group_sums(sets)
+  bk = interval_buckets(s1, s2, init)
+  for k, l in layers.items():
+    total = sum(bk[k]['write'].values()) + sum(bk[k]['dec'].values()) + bk[k]['dec_0'] + bk[k]['rem']
+    assert torch.allclose(total.double(), l.weight.detach().double() - W1[k], atol=1e-6)
+    assert not torch.allclose(bk[k]['dec']['a'], torch.zeros_like(bk[k]['dec']['a']))     # weight decay acted
+
+
+def test_snapshot_from_torch_adamw_continues_torch_training():
+  """Layers trained by torch AdamW, then tracked from a snapshot of torch's state: training continues as torch's
+  would, and the parts add up to the change since the snapshot."""
+  from rcdl.attribution import snapshot_from_torch_adamw
+  base = tiny(15)
+  ref = copy.deepcopy(base).double()
+  def groups_of(model):
+    return [{'params': [model[0].weight, model[2].weight], 'weight_decay': 0.05},
+            {'params': [model[0].bias, model[2].bias], 'weight_decay': 0.0}]
+  opt = torch.optim.AdamW(groups_of(ref), lr=1e-2)
+  x, y, groups = data(10, 6, seed=16)
+  for t in range(4):
+    opt.zero_grad()
+    loss_fn(ref(x[t].double()), y[t].double()).backward()
+    opt.step()
+  m2 = copy.deepcopy(ref)
+  snap = snapshot_from_torch_adamw(opt, {'l0': ref[0], 'l2': ref[2]})
+  at = GroupAttribution({'l0': m2[0], 'l2': m2[2]}, n_groups=5, optimizer='adamw', lr=1e-2, weight_decay=0.05,
+                        dtype=torch.float64)
+  at.load_snapshot(snap, history_group=4)
+  for t in range(4, 10):
+    opt.zero_grad()
+    loss_fn(ref(x[t].double()), y[t].double()).backward()
+    opt.step()
+    loss_fn(m2(x[t].double()), y[t].double()).backward()
+    at.step(groups[t] % 4)
+  for a_, b_ in zip(ref.parameters(), m2.parameters()):
+    assert torch.allclose(a_, b_, atol=1e-10)
+  for name in ('l0', 'l2'):
+    assert at.residual(name)['weight'] < 1e-12
