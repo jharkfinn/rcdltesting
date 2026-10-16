@@ -345,3 +345,36 @@ def test_shadow_split_leaves_training_unchanged_and_adds_up(opt):
       assert r['weight'] < 1e-12 and r['bias'] < 1e-12
     assert torch.allclose(a2.tracked[name].C.sum(0), sh.tracked[name].C.sum(0), atol=1e-12)
     assert not torch.allclose(a2.tracked[name].C[:4], sh.tracked[name].C[:4])
+
+
+@pytest.mark.parametrize('opt', ['adamw', 'sgd', 'muon'])
+def test_snapshot_replay_continues_training_and_adds_up(opt):
+  """A new attribution started from a snapshot (old momentum in a 'history' group) continues training as the
+  original run does, and its parts add up to the change since the snapshot."""
+  base = tiny(8)
+  kw = dict(optimizer=opt, lr=1e-2, weight_decay=0.05, dtype=torch.float64)
+  x, y, groups = data(14, 6, seed=5)
+  m1 = copy.deepcopy(base)
+  a1 = GroupAttribution({'l0': m1[0], 'l2': m1[2]}, n_groups=4, **kw)
+  m2 = copy.deepcopy(base)
+  a2 = GroupAttribution({'l0': m2[0], 'l2': m2[2]}, n_groups=4, **kw)
+  for t in range(14):
+    loss_fn(m1(x[t]), y[t]).backward()
+    a1.step(groups[t])
+    if t < 7:
+      loss_fn(m2(x[t]), y[t]).backward()
+      a2.step(groups[t])
+  snap = a2.snapshot()
+  m3 = copy.deepcopy(base)                               # a clean copy: deepcopy(m2) would carry a2's hooks
+  m3.load_state_dict(m2.state_dict())
+  a3 = GroupAttribution({'l0': m3[0], 'l2': m3[2]}, n_groups=5, **kw)
+  a3.load_snapshot(snap, history_group=4)
+  for t in range(7, 14):
+    loss_fn(m3(x[t]), y[t]).backward()
+    a3.step(groups[t])
+  for p1, p3 in zip(m1.parameters(), m3.parameters()):
+    assert torch.allclose(p1, p3, atol=1e-12, rtol=0)
+  for name in ('l0', 'l2'):
+    r = a3.residual(name)
+    assert r['weight'] < 1e-12 and r['bias'] < 1e-12
+    assert a3.tracked[name].C[4].abs().max() > 0          # the history group still writes (momentum, Nesterov)

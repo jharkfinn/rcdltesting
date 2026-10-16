@@ -14,6 +14,15 @@ with the fp32 remainder R so that W = a W_0 + sum_k C_k + R exactly; GroupAttrib
 accuracy. With --rand_groups, the same updates are also split over 1,000 random groups of class size (the training
 labels shuffled across examples, rand_groups.npy; a shadow GroupAttribution, which leaves training unchanged), saved as
 attrR_{step}.pt: a control for how much of a class's part is class structure and how much is SGD noise.
+
+Replays (for causal tests of what the attribution shows): --snapshots saves snap_{step}.pt at every checkpoint (model,
+optimizer states, the tracked layers' summed momentum and second moments, RNG states; about 1 MB for tiny). --init_from
+snap_{step}.pt starts from one with a NEW attribution over 1,001 groups: W_0 = the snapshot weights, group 1000
+('history') carries the old momentum, so every part is a write made after the snapshot. Run a control replay and an
+intervention replay from the same snapshot and compare them (the random crops of the partial epoch differ from the
+original run's, the same in both replays). --zero_loss_classes gives the listed classes' label terms loss weight 0 (an
+intervention: their examples still pass through the model, but teach nothing for those labels). --extra_ckpts adds
+checkpoints (attribution parts and model, no validation pass) for a denser record.
 """
 
 import argparse
@@ -114,23 +123,44 @@ def main():
   p.add_argument('--max_steps', type=int, default=0, help='stop early (benchmarks)')
   p.add_argument('--resume_every', type=int, default=1000, help='steps between resume states (out/resume.pt)')
   p.add_argument('--rand_groups', action='store_true', help='also split the updates over random groups (attrR_*.pt)')
+  p.add_argument('--snapshots', action='store_true', help='save replay snapshots snap_{step}.pt at every checkpoint')
+  p.add_argument('--init_from', default=None, help='replay: start from a snapshot with a new attribution (history group)')
+  p.add_argument('--zero_loss_classes', default='', help='comma-separated classes whose label terms get loss weight 0')
+  p.add_argument('--extra_ckpts', default='', help='comma-separated extra checkpoint steps, or start:stop:every')
   a = p.parse_args()
   dev = torch.device('cuda')
   torch.manual_seed(a.seed)
   torch.backends.cuda.matmul.allow_tf32 = True
   torch.backends.cudnn.allow_tf32 = True
   model = build_convnext(a.size).to(dev)
+  snap = torch.load(a.init_from, map_location=dev, weights_only=False) if a.init_from else None
+  if snap is not None:                          # the new attribution's W_0 must be the snapshot's weights
+    model.load_state_dict(snap['model'])
+  extra = set()
+  for tok in filter(None, a.extra_ckpts.split(',')):
+    if ':' in tok:
+      lo, hi, ev = (int(v) for v in tok.split(':'))
+      extra.update(range(lo, hi + 1, ev))
+    else:
+      extra.add(int(tok))
+  ckpts = set(CKPT_STEPS) | extra
+  zero_cls = torch.tensor([int(c) for c in filter(None, a.zero_loss_classes.split(','))], dtype=torch.long, device=dev)
   blocks = tracked_blocks(model, a.track)
   layers = {f'{n}.{k}': getattr(b, k) for n, b in blocks for k in ('pw_gate', 'pw_value')}
+  n_groups = 1001 if snap is not None else 1000     # replay: group 1000 holds the momentum from before the snapshot
   if a.opt == 'adamw':
-    akw = dict(n_groups=1000, optimizer='adamw', lr=a.lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=a.wd,
+    akw = dict(n_groups=n_groups, optimizer='adamw', lr=a.lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=a.wd,
                bias_weight_decay=0.0)
   else:
-    akw = dict(n_groups=1000, optimizer='muon', lr=a.muon_lr, momentum=0.95, nesterov=True, weight_decay=a.wd,
+    akw = dict(n_groups=n_groups, optimizer='muon', lr=a.muon_lr, momentum=0.95, nesterov=True, weight_decay=a.wd,
                bias_weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8,
                bias_lr_scale=a.lr / a.muon_lr)                # tracked biases: AdamW at a.lr, like the other biases
   attr = GroupAttribution(layers, **akw)
   attr_r = GroupAttribution(layers, shadow=True, **akw) if a.rand_groups else None
+  if snap is not None:
+    attr.load_snapshot(snap['attr'], history_group=1000)
+    if attr_r is not None:
+      attr_r.load_snapshot(snap['attr'], history_group=1000)
   tracked = [t for l in layers.values() for t in (l.weight, l.bias)]
   groups = param_groups(model, tracked, a.wd)
   if a.opt == 'adamw':
@@ -144,7 +174,7 @@ def main():
   sched = lambda s: (s + 1) / a.warmup if s < a.warmup else 0.5 * (1 + math.cos(math.pi * (s - a.warmup) / (a.steps - a.warmup)))
   os.makedirs(a.out, exist_ok=True)
   json.dump(vars(a) | {'tracked': list(layers), 'params': sum(p.numel() for p in model.parameters()),
-                       'ckpt_steps': CKPT_STEPS}, open(os.path.join(a.out, 'config.json'), 'w'), indent=1)
+                       'ckpt_steps': sorted(ckpts)}, open(os.path.join(a.out, 'config.json'), 'w'), indent=1)
   loader = GPUTrainLoader(a.train, a.batch, dev, seed=a.seed)
   if attr_r is not None:                       # random group of example j: the label of example perm[j]
     rand_np = np.random.default_rng([a.seed, 777]).permutation(loader.labels)
@@ -154,13 +184,20 @@ def main():
   log, step, t0 = [], 0, time.time()
 
   def checkpoint(step):
-    acc, n_val = evaluate(model, a.val, dev, None if step == a.steps else a.val_limit)
+    if step in extra and step not in CKPT_STEPS and step != a.steps:
+      acc, n_val = None, 0                       # extra checkpoints: parts and model only
+    else:
+      acc, n_val = evaluate(model, a.val, dev, None if step == a.steps else a.val_limit)
     torch.save(model.state_dict(), os.path.join(a.out, f'model_{step:05d}.pt'))
     torch.save(attr.compact_state(), os.path.join(a.out, f'attr_{step:05d}.pt'))   # scaled fp16 parts + fp32 remainder
     if attr_r is not None:
       torch.save(attr_r.compact_state(), os.path.join(a.out, f'attrR_{step:05d}.pt'))
-    if step == 0:
+    if not os.path.exists(os.path.join(a.out, 'attr_init.pt')):   # step 0, or the first step of a replay
       torch.save({k: {'W0': tr.W0, 'b0': tr.b0} for k, tr in attr.tracked.items()}, os.path.join(a.out, 'attr_init.pt'))
+    if a.snapshots:
+      torch.save({'step': step, 'model': model.state_dict(), 'opts': [o.state_dict() for o in opts],
+                  'attr': attr.snapshot(), 'torch_rng': torch.get_rng_state(), 'cuda_rng': torch.cuda.get_rng_state(),
+                  'log': list(log)}, os.path.join(a.out, f'snap_{step:05d}.pt'))
     rec = {'step': step, 'val_acc': acc, 'n_val': n_val, 'sec': time.time() - t0}
     log.append(rec)
     json.dump(log, open(os.path.join(a.out, 'log.json'), 'w'))
@@ -191,6 +228,16 @@ def main():
     step = st['step']
     t0 -= log[-1]['sec'] if log else 0
     print(f'resumed at step {step}', flush=True)
+  elif snap is not None:
+    for o, os_ in zip(opts, snap['opts']):
+      o.load_state_dict(os_)
+    torch.set_rng_state(snap['torch_rng'].cpu())
+    torch.cuda.set_rng_state(snap['cuda_rng'].cpu())
+    step = snap['step']
+    log[:] = [r for r in snap['log'] if r['step'] < step]
+    t0 -= log[-1]['sec'] if log else 0
+    print(f'replay from snapshot at step {step} ({a.init_from})', flush=True)
+    checkpoint(step)                            # parts zero, attr_init.pt = the snapshot weights
   else:
     checkpoint(0)
   run_loss = []
@@ -206,7 +253,11 @@ def main():
       with torch.autocast('cuda', torch.bfloat16):
         logits = model(x)
       logp = F.log_softmax(logits.float(), -1)
-      loss = -(lam * logp.gather(1, y[:, None]) + (1 - lam) * logp.gather(1, y2[:, None])).mean()
+      if len(zero_cls):                         # intervention: these classes' label terms teach nothing
+        w1, w2 = (~torch.isin(y, zero_cls)).float()[:, None], (~torch.isin(y2, zero_cls)).float()[:, None]
+        loss = -(lam * w1 * logp.gather(1, y[:, None]) + (1 - lam) * w2 * logp.gather(1, y2[:, None])).mean()
+      else:
+        loss = -(lam * logp.gather(1, y[:, None]) + (1 - lam) * logp.gather(1, y2[:, None])).mean()
       for o in opts:
         o.zero_grad(set_to_none=True)
       loss.backward()
@@ -223,7 +274,7 @@ def main():
       if step % 100 == 0:
         print(f'step {step} loss {torch.stack(run_loss).mean().item():.4f} {time.time() - t0:.0f}s', flush=True)
         run_loss.clear()
-      if step in CKPT_STEPS or step == a.steps or (a.max_steps and step == a.max_steps):
+      if step in ckpts or step == a.steps or (a.max_steps and step == a.max_steps):
         checkpoint(step)
       if step % a.resume_every == 0 or step in CKPT_STEPS or step == a.steps:
         save_resume(step)

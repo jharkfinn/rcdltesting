@@ -333,6 +333,33 @@ class GroupAttribution:
         else:
           setattr(tr, k, v)
 
+  @torch.no_grad()
+  def snapshot(self) -> Dict[str, dict]:
+    """The tracked layers' optimizer state summed over groups (momentum), with the shared second moments and the step
+    count: enough to continue training exactly from the current weights with a NEW attribution (load_snapshot), for
+    replays of training from this point. Two tensors per weight; no parts."""
+    return {name: {'m': tr.m.sum(0), 'mb': None if tr.mb is None else tr.mb.sum(0), 'v': tr.v, 'vb': tr.vb, 't': tr.t}
+            for name, tr in self.tracked.items()}
+
+  @torch.no_grad()
+  def load_snapshot(self, snap: Dict[str, dict], history_group: int):
+    """Start this new attribution (built on the snapshot's weights, so W_0 = those weights and every part is zero)
+    from a snapshot: the snapshot's summed momentum goes to `history_group`, so that group's part is exactly the
+    continuing effect of the updates made before the snapshot, and training continues as in the original run (up to
+    the rounding of summing the momentum over a different partition of groups)."""
+    for name, tr in self.tracked.items():
+      st = snap[name]
+      tr.m.zero_()
+      tr.m[history_group].copy_(st['m'])
+      if tr.mb is not None:
+        tr.mb.zero_()
+        tr.mb[history_group].copy_(st['mb'])
+      if tr.v is not None:
+        tr.v.copy_(st['v'])
+      if tr.vb is not None:
+        tr.vb.copy_(st['vb'])
+      tr.t = st['t']
+
   def state_dict(self) -> Dict[str, Dict[str, torch.Tensor]]:
     """Contributions and decay factors of every tracked layer (for checkpoints over training)."""
     return {name: {'C': tr.C.clone(), 'Cb': None if tr.Cb is None else tr.Cb.clone(), 'a': tr.a, 'ab': tr.ab,
