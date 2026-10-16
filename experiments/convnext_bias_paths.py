@@ -69,7 +69,11 @@ def unit_hooks(model, store):
       h = blk.norm(blk.dwconv(x).permute(0, 2, 3, 1))
       g, v = blk.pw_gate(h), blk.pw_value(h)
       u = F.silu(g) * v
-      u.retain_grad()
+      alpha = getattr(blk, '_alpha', None)                  # optional per-unit output scale (ablation)
+      if alpha is not None:
+        u = u * alpha
+      if u.requires_grad:
+        u.retain_grad()
       store[name] = (u, g.detach(), v.detach())
       return u
     blk.units = units
@@ -103,6 +107,7 @@ def _accumulate(acc, store, deltas, y, n_classes):
           add(f'Bg_{mk}', (df * ag * m).sum(1))
       add(f'Bv_{key}', (df * av).sum(1))
       add(f'Bg_{key}', (df * ag).sum(1))
+      add(f'S_{key}', (df * uf).sum(1))                     # dL/dalpha at alpha = 1: scaling the unit's output
     take = lambda t: torch.gather(t, 1, pstar[:, None])[:, 0]
     add('u', ustar)
     add('g', take(gf))
@@ -133,6 +138,55 @@ def probe_paths(model, x_u8, y, n_classes=1000, batch=50, device='cuda'):
     _accumulate(acc, store, deltas, yb, n_classes)
   cnt = torch.bincount(y.to(device), minlength=n_classes).double()[:, None]
   return {b: {k: (t / cnt).float().cpu().numpy() for k, t in a.items()} for b, a in acc.items()}
+
+
+@torch.no_grad()
+def ablate(model, x_u8, y, P, alphas=(0.0, 1.25), n_top=20, n_rest=20, device='cuda', seed=0):
+  """Scale one unit's output by alpha at every position (alpha = 0: ablation) on the images of its top-20 classes (by
+  class-mean u* in P) and of n_rest other classes. Per block: per-unit means over each role of the change in
+  cross-entropy and in the true-class logit against alpha = 1, and of dCE/dalpha at alpha = 1 (from P)."""
+  mean, std = MEAN.to(device)[:, None, None], STD.to(device)[:, None, None]
+  per = int((y == y[0]).sum())
+  rng = np.random.default_rng(seed)
+  named = dict(model.blocks())
+  out = {}
+  for b, Pb in P.items():
+    blk = named[b]
+    R = Pb['u'].T                                                                     # (U, C)
+    U, C = R.shape
+    rows = []
+    for n in range(U):
+      if np.ptp(R[n]) <= 1e-3 * np.abs(R).max():
+        continue
+      top = np.argsort(-R[n])[:n_top]
+      rest = rng.choice(np.setdiff1d(np.arange(C), top), n_rest, replace=False)
+      cls = np.concatenate([top, rest])
+      idx = torch.from_numpy((cls[:, None] * per + np.arange(per)[None]).ravel())
+      xb = (x_u8[idx].to(device).float() - mean) / std
+      yb = y[idx].to(device)
+      res = {}
+      for al in (1.0,) + tuple(alphas):
+        blk._alpha = torch.ones(U, device=device)
+        blk._alpha[n] = al
+        z = model(xb).float()
+        res[al] = (F.cross_entropy(z, yb, reduction='none'), z.gather(1, yb[:, None])[:, 0])
+      blk._alpha = None
+      rec = {}
+      for role, sl in (('top20', slice(0, n_top * per)), ('rest', slice(n_top * per, None))):
+        for al in alphas:
+          rec[f'dce_{al}_{role}'] = float((res[al][0][sl] - res[1.0][0][sl]).mean())
+          rec[f'dz_{al}_{role}'] = float((res[al][1][sl] - res[1.0][1][sl]).mean())
+        rec[f'dce_dalpha_{role}'] = float(Pb['S_ce'][top if role == 'top20' else rest, n].mean())
+      rows.append(rec)
+    keys = rows[0].keys()
+    agg = {k: float(np.mean([r[k] for r in rows])) for k in keys}
+    t = np.array([[r[f'dce_{alphas[0]}_top20'], r['dce_dalpha_top20']] for r in rows])
+    agg['share_helps_top20'] = float(np.mean(t[:, 0] > 0))                            # removing it hurts its pole
+    agg['share_more_hurts_top20'] = float(np.mean(t[:, 1] > 0))                       # more of it hurts its pole
+    agg['share_overshoot_top20'] = float(np.mean((t[:, 0] > 0) & (t[:, 1] > 0)))      # helps, but past its best scale
+    agg['units'] = len(rows)
+    out[b] = agg
+  return out
 
 
 def spearman(a, b):
@@ -188,6 +242,7 @@ def main():
   p.add_argument('--val', default='/marimo/work/data/imagenet/data')
   p.add_argument('--probe_cache', default='/dev/shm/probe_8.pt')
   p.add_argument('--batch', type=int, default=50)
+  p.add_argument('--ablate', action='store_true', help='also scale each unit on its top-20 and 20 other classes')
   p.add_argument('--out', default=None)
   a = p.parse_args()
   from experiments.convnext_bias_signal import load_cb
@@ -195,7 +250,7 @@ def main():
   cfg = json.load(open(os.path.join(a.run, 'config.json')))
   model = build_convnext(cfg['size']).to(dev).eval()
   x, y = probe_set(a.val, 8, a.probe_cache)
-  ckpts = sorted(int(f[6:11]) for f in os.listdir(a.run) if f.startswith('attr_') and f[6:11].isdigit())
+  ckpts = sorted(int(f[5:10]) for f in os.listdir(a.run) if f.startswith('attr_') and f[5:10].isdigit())
   res = {}
   for s in [int(t) for t in a.steps.split(',')]:
     model.load_state_dict(torch.load(os.path.join(a.run, f'model_{s:05d}.pt'), map_location=dev))
@@ -209,8 +264,17 @@ def main():
       w = {m: cb2[f'{b}.pw_{m}'] - cb1[f'{b}.pw_{m}'] for m in ('gate', 'value')} if cb1 else None
       res[s][b] = summarize(P[b], w)
       r = res[s][b]
+      for k in ('ce', 'own', 'lse'):
+        Sk = P[b][f'S_{k}'] / (np.abs(P[b]['S_ce']).mean(0, keepdims=True) + 1e-30)     # per-unit scale
+        top = np.argsort(-P[b]['u'], 0)[:20]
+        r[f'S_{k}_top20'] = float(np.take_along_axis(Sk, top, 0).mean())
       print(s, b, {k: round(r[k]['top20'], 2) for k in SPLITS}, 'rho', round(r.get('rho_writes', np.nan), 2),
             'writes', round(r.get('writes_top20', np.nan), 2), flush=True)
+    if a.ablate:
+      A = ablate(model, x, y, P, device=dev)
+      for b in A:
+        res[s][b]['ablate'] = A[b]
+        print(s, b, 'ablate', {k: round(v, 3) for k, v in A[b].items()}, flush=True)
     torch.save(P, os.path.join(a.run, f'bias_paths_raw_{s:05d}.pt'))
   json.dump(res, open(a.out or os.path.join(a.run, 'bias_paths.json'), 'w'), indent=1)
   print('BIAS_PATHS_DONE', flush=True)

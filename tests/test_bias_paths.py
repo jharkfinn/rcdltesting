@@ -51,3 +51,26 @@ def test_fixed_sigma_same_forward_other_gradient():
   g0, = torch.autograd.grad((y0 ** 3).sum(), x)
   g1, = torch.autograd.grad((y1 ** 3).sum(), x)
   assert (g0 - g1).abs().max() > 1e-3
+
+
+def test_scale_derivative_and_ablation():
+  m = _model()
+  x = torch.randint(0, 256, (6, 3, 64, 64), dtype=torch.uint8)
+  y = torch.tensor([0, 0, 1, 1, 2, 2])
+  P = bp.probe_paths(m, x, y, n_classes=3, batch=6, device='cpu')
+  mean, std = bp.MEAN[:, None, None], bp.STD[:, None, None]
+  xb = (x.float() - mean) / std
+  name, blk = m.blocks()[1]
+  eps = 1e-3
+  with torch.no_grad():
+    for n in (0, 3):
+      ce = []
+      for al in (1 - eps, 1 + eps):
+        blk._alpha = torch.ones(6)
+        blk._alpha[n] = al
+        ce.append(F.cross_entropy(m(xb), y, reduction='none').view(3, 2).mean(1))
+      blk._alpha = None
+      np.testing.assert_allclose(((ce[1] - ce[0]) / (2 * eps)).numpy(), P[name]['S_ce'][:, n], rtol=2e-2, atol=1e-4)
+  A = bp.ablate(m, x, y, P, n_top=1, n_rest=1, device='cpu')
+  assert set(A) == {b for b, _ in m.blocks()}
+  assert all(np.isfinite(v) for a in A.values() for v in a.values())
