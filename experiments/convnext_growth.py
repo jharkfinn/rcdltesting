@@ -119,6 +119,63 @@ def summarize(out):
   return rows
 
 
+def coherence(R, dist, k=10, cut=7.0, rng=None):
+  """Per unit: the share of its k strongest classes (by R) in their largest WordNet cluster (average linkage cut at
+  `cut`, as in experiments/inception_mixed): 1 = all k classes are close relatives. With rng: the same for k random
+  classes per unit (chance level)."""
+  from experiments.inception_mixed import average_linkage
+  out = []
+  for n in range(R.shape[0]):
+    cls = (rng.choice(R.shape[1], k, replace=False) if rng is not None
+           else torch.argsort(R[n], descending=True)[:k].numpy())
+    lab = average_linkage(dist[np.ix_(cls, cls)].astype(float), cut)
+    out.append(np.bincount(lab).max() / k)
+  return np.array(out)
+
+
+def static_shares(rec, dist, tau=0.3, near=4):
+  """One checkpoint's own poles (prelim atlas): median own / relative / other / init shares of the positive pole."""
+  P = rec['poles'].shape[1] // 2
+  R = rec['R']
+  own, rel, oth, ini = [], [], [], []
+  for n in range(R.shape[0]):
+    scale = R[n].abs().max()
+    for j, c in enumerate(rec['poles'][n, :P].tolist()):
+      if scale <= 0 or R[n, c] <= tau * scale:
+        continue
+      W, I = rec['value_writers'][n, j].float(), float(rec['value_init'][n, j])
+      vbar = float(W.sum()) + I
+      if vbar <= 0:
+        continue
+      r = [k for k in np.where(dist[c] <= near)[0] if k != c]
+      own.append(float(W[c]) / vbar)
+      rel.append(float(W[r].sum()) / vbar)
+      ini.append(I / vbar)
+      oth.append(1 - own[-1] - rel[-1] - ini[-1])
+  med = lambda x: float(np.median(x)) if x else float('nan')
+  return {'n': len(own), 'own': med(own), 'relative': med(rel), 'other': med(oth), 'init': med(ini)}
+
+
+def prelim(run, dist, tau, near):
+  """Per preliminary checkpoint (each with its own poles): static shares and WordNet coherence, by stage."""
+  rng = np.random.default_rng(0)
+  rows = []
+  for f in sorted(glob.glob(os.path.join(run, 'atlas_prelim_*.pt'))):
+    step, at = int(f[-8:-3]), torch.load(f)
+    for stage in sorted({b.split('.')[0] for b in at}):
+      blocks = [b for b in at if b.startswith(stage + '.')]
+      sh = [static_shares(at[b], dist, tau, near) for b in blocks]
+      coh = np.concatenate([coherence(at[b]['R'], dist) for b in blocks])
+      chance = np.concatenate([coherence(at[b]['R'], dist, rng=rng) for b in blocks])
+      w = np.array([x['n'] for x in sh], float)
+      avg = lambda k: float(np.nansum([x[k] * x['n'] for x in sh]) / max(w.sum(), 1))
+      rows.append({'step': step, 'stage': stage, 'pole_entries': int(w.sum()), 'own': avg('own'),
+                   'relative': avg('relative'), 'other': avg('other'), 'init': avg('init'),
+                   'coherence_median': float(np.median(coh)), 'coherent_units_(>=0.8)': float((coh >= 0.8).mean()),
+                   'coherent_units_chance': float((chance >= 0.8).mean())})
+  return rows
+
+
 def main():
   p = argparse.ArgumentParser()
   p.add_argument('--run', required=True)
@@ -126,8 +183,18 @@ def main():
   p.add_argument('--tau', type=float, default=0.3)
   p.add_argument('--near', type=int, default=4)
   p.add_argument('--out', default=None)
+  p.add_argument('--prelim', action='store_true', help='per-checkpoint static view of atlas_prelim_*.pt')
   a = p.parse_args()
   dist = np.load(a.wordnet)['dist']
+  if a.prelim:
+    rows = prelim(a.run, dist, a.tau, a.near)
+    print('step stage | pole entries: own / relative / other / init (block medians, weighted) | coherence median,'
+          ' share of units >= 0.8 (chance)')
+    for r in rows:
+      print(f"{r['step']:5d} {r['stage']} | {r['pole_entries']:5d}: {r['own']:.3f} / {r['relative']:.3f} / {r['other']:.3f}"
+            f" / {r['init']:.3f} | {r['coherence_median']:.2f}, {r['coherent_units_(>=0.8)']:.2f} ({r['coherent_units_chance']:.2f})")
+    json.dump(rows, open(a.out or os.path.join(a.run, 'growth_prelim.json'), 'w'), indent=1)
+    return
   steps, atlases = load_run(a.run)
   rows = summarize(analyze(steps, atlases, dist, a.tau, a.near))
   print('block | poles: own / relative / other / init (median shares) | entries: own share at entry, share below 0.5 |'
