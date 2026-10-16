@@ -16,7 +16,8 @@ from `starts` random rotations and from the identity (the neurons). Reported per
              its 4 largest coordinates, for the neuron basis, each found basis, the principal basis (eigenvectors of
              X^T X) and a random basis
   eff_rank   participation ratio (sum lambda)^2 / sum lambda^2 of the eigenvalues lambda of X^T X / N, and the energy
-             share of the top 8 principal directions: when the U units are functions of a narrower input (the tiny
+             share of the top 8 principal directions, also for the centred X (the mean's share of the energy is
+             reported, since a large common mean alone lowers the uncentred ratio): when the U units are functions of a narrower input (the tiny
              model's stream is 8 wide in stages 0 and 1, 24 and 28 later), their activity lies near a low-dimensional set
              and any concentration objective finds that set rather than the units
 Control: the same search on X R0 for a random rotation R0, where the neurons are not special by construction; the
@@ -135,8 +136,13 @@ def analyze(X, starts, g):
   rec['top4'] = {'neurons': top_share(X), 'quartimax': top_share(X @ Q), 'l1': top_share(X @ Ql), 'pca': top_share(X @ V),
                  'random': top_share(X @ Qr)}
   lam = lam.clamp_min(0)
+  Xc = X - X.mean(0)
+  lc = torch.linalg.eigvalsh(Xc.T @ Xc / X.shape[0]).clamp_min(0)
   rec['eff_rank'] = {'participation': float(lam.sum() ** 2 / (lam ** 2).sum()),
-                     'top8_energy': float(lam.flip(0)[:8].sum() / lam.sum()), 'U': U}
+                     'top8_energy': float(lam.flip(0)[:8].sum() / lam.sum()),
+                     'participation_centred': float(lc.sum() ** 2 / (lc ** 2).sum()),
+                     'top8_energy_centred': float(lc.flip(0)[:8].sum() / lc.sum()),
+                     'mean_energy_share': float((X.mean(0) ** 2).sum() / (X ** 2).sum(1).mean()), 'U': U}
   R0 = random_rotation(U, g)                                       # control: neurons not special by construction
   Xr = X @ R0
   Q, J = quartimax(Xr, random_rotation(U, g))
