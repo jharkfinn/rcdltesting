@@ -482,7 +482,8 @@ def lambda3(X: np.ndarray) -> dict:
                    for j in range(m)])
   hp = max(0.0, Xs[ns])
   return {'X_stage': Xs[:ns].tolist(), 'X_head': float(Xs[ns]), 'lambda3': float(pos[-1] / tot) if tot > 0 else None,
-          'sumXpos': float(tot), 'sumXpos_p95': float(np.percentile(null, 95)), 'defined': bool(tot > np.percentile(null, 95)),
+          'sumXpos': float(tot), 'sumXpos_p95': float(np.percentile(null, 95)),
+          'defined': bool(tot > np.percentile(null, 95)),
           'head_share': float(hp / (tot + hp)) if tot + hp > 0 else None, 'X_own_raw': own.tolist()}
 
 
@@ -582,7 +583,8 @@ def builder_matrices(atlas: dict, model) -> List[dict]:
       top = [int(c) for c in rec['poles'][n][:20]]
       sv = torch.sign(rec['Vm'][n, top]).float()[:, None]
       sg = torch.sign(rec['Gm'][n, top]).float()[:, None]
-      M = (sv * rec['value_writers'][n, :20].float()).clamp_min(0) + (sg * rec['gate_writers'][n, :20].float()).clamp_min(0)
+      M = (sv * rec['value_writers'][n, :20].float()).clamp_min(0) \
+        + (sg * rec['gate_writers'][n, :20].float()).clamp_min(0)
       raw = M.double().numpy()
       M[torch.arange(20), torch.as_tensor(top)] = 0
       out.append({'top': top, 'M': M.double().numpy(), 'raw': raw})
@@ -1085,7 +1087,8 @@ def cmd_churn(a):
     p1, p2 = load_parts(os.path.join(a.run, f'{pre}{t1:05d}.pt')), load_parts(os.path.join(a.run, f'{pre}{t2:05d}.pt'))
     f1 = f2 = None
     if spec is not None and a.split == 'attr' and os.path.exists(os.path.join(a.run, f'attrF_{t2:05d}.pt')):
-      f1, f2 = load_parts(os.path.join(a.run, f'attrF_{t1:05d}.pt')), load_parts(os.path.join(a.run, f'attrF_{t2:05d}.pt'))
+      f1 = load_parts(os.path.join(a.run, f'attrF_{t1:05d}.pt'))
+      f2 = load_parts(os.path.join(a.run, f'attrF_{t2:05d}.pt'))
     m1, m2 = model_at(t1), model_at(t2)
     for rec in recs:
       c = rec['cls']
@@ -1148,8 +1151,9 @@ def m4_collapse(model, mods, parts_c, sel: Selection, classes, V, Vpos, Q, Qy, c
       undo = excise(mods, parts_c, S, ukeys)
       try:
         X = base - float(zeta(model(x), c).mean())
-        acc = float((logits_of(model, xQ, device, dtype=dtype).argmax(1) == torch.as_tensor(np.asarray(Qy))).float().mean()) \
-          if name in ('near', 'rand0') else None
+        acc = None
+        if name in ('near', 'rand0'):
+          acc = float((logits_of(model, xQ, device, dtype=dtype).argmax(1) == torch.as_tensor(np.asarray(Qy))).float().mean())
       finally:
         undo()
       res[name] = {'X': X, 'probe_top1': acc}
@@ -1176,7 +1180,8 @@ def s7_consolidation(DeltaQ: torch.Tensor, units, sel: Selection, atlas: Optiona
       tp = np.maximum(t, 0)
       tot = tp.sum()
       r = {'cls': int(c), 'stratum': st, 'cos10': float(cos10[c]), 'nW': int(nW[c]),
-           'C1': float(tp.max() / tot) if tot > 0 else None, 'PR': float(tot ** 2 / (tp ** 2).sum()) if tot > 0 else None}
+           'C1': float(tp.max() / tot) if tot > 0 else None,
+           'PR': float(tot ** 2 / (tp ** 2).sum()) if tot > 0 else None}
       if atlas is not None:
         beta = atlas[late[int(np.argmax(t))]]['raw'].sum(0)
         r['N'] = float(beta[c] / beta.sum()) if beta.sum() > 0 else None
@@ -1311,7 +1316,8 @@ def cmd_compare(a):
         return float(np.linalg.lstsq(A, P[:, 1], rcond=None)[0][0])
       rng = np.random.default_rng(0)
       boot = [icept(pts[rng.integers(len(pts), size=len(pts))]) for _ in range(2000)]
-      res['S1_RBpx_at_RPp_half'] = {'n': len(pts), 'intercept': icept(pts), 'ci95': np.percentile(boot, [2.5, 97.5]).tolist(),
+      res['S1_RBpx_at_RPp_half'] = {'n': len(pts), 'intercept': icept(pts),
+                                    'ci95': np.percentile(boot, [2.5, 97.5]).tolist(),
                                     'median_RBpx': float(np.median(pts[:, 1])), 'median_RPp': float(np.median(pts[:, 0]))}
     # S2: per-image memorization, rare - C0 on the same images, per stage and head
     s2 = {}
