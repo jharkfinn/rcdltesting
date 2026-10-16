@@ -5,6 +5,8 @@ classes and raises that of other classes (late blocks: the reverse). This script
 
 1. Whom does each unit help? For block b and unit n, the unit's output is set to zero at every position (u_n = 0) and the
    cross-entropy change dCE[n, c] (class mean over the probe images of class c) is measured for all 1,000 classes.
+   Cross-fitting: each class's probe images are split in two halves; xfit_* choose the top 20 on one half and read
+   dCE on the other (both ways, averaged), same_* choose and read on the same half (the selection-coupled version).
    Per unit: the Spearman correlation over classes of dCE[n, :] with the unit's response R[n, :] (class mean of
    u* = max_p u, as in convnext_atlas.py; positive: the unit helps the classes that drive it), the mean dCE over its
    top-20 classes and over the rest, and the WordNet / visual relatedness of the 20 classes it helps most
@@ -122,10 +124,17 @@ def unit_roles(model, xs, y, name, rel=None, vis=None, batch=500, device='cuda',
   base = ce_from(model, i, j, X, y, batch)
   cls = lambda t: t.view(C, per).mean(1)
   dce = np.zeros((U, C), np.float32)
+  h = per // 2                                     # split halves of each class's probe images (cross-fitting)
+  dce_h = np.zeros((2, U, C), np.float32)
   for n in range(U):
     sc = torch.ones(U, device=device)
     sc[n] = 0.0
-    dce[n] = cls(ce_from(model, i, j, X, y, batch, unit_scale=sc) - base).cpu().numpy()
+    d = (ce_from(model, i, j, X, y, batch, unit_scale=sc) - base).view(C, per)
+    dce[n] = d.mean(1).cpu().numpy()
+    if h:
+      dce_h[0, n], dce_h[1, n] = d[:, :h].mean(1).cpu().numpy(), d[:, h:2 * h].mean(1).cpu().numpy()
+  us = ustar.view(C, per, U)
+  R_h = np.stack([us[:, :h].mean(1).T.cpu().numpy(), us[:, h:2 * h].mean(1).T.cpu().numpy()]) if h else None
   rng = np.random.default_rng(seed)
   W = torch.stack([write_dir(blk, n) for n in range(U)])                               # (U, d)
   Wn = W / (W.norm(dim=1, keepdim=True) + 1e-30)
@@ -138,6 +147,15 @@ def unit_roles(model, xs, y, name, rel=None, vis=None, batch=500, device='cuda',
     rest = rng.choice(np.setdiff1d(np.arange(C), top), n_top, replace=False)
     rec = {'unit': n, 'rho_R_dce': spearman(R[n], dce[n]), 'dce_top20': float(dce[n, top].mean()),
            'dce_rest': float(np.delete(dce[n], top).mean()), 'max_cos': float(cos[n].max())}
+    if R_h is not None:                             # top 20 chosen on one half of the images, effect read on the other
+      xt, xr, st, sr = [], [], [], []
+      for a, b in ((0, 1), (1, 0)):
+        tp = np.argsort(-R_h[a, n])[:n_top]
+        xt.append(dce_h[b, n, tp].mean()); xr.append(np.delete(dce_h[b, n], tp).mean())
+        st.append(dce_h[a, n, tp].mean()); sr.append(np.delete(dce_h[a, n], tp).mean())
+      rec.update(xfit_dce_top20=float(np.mean(xt)), xfit_dce_rest=float(np.mean(xr)),
+                 same_dce_top20=float(np.mean(st)), same_dce_rest=float(np.mean(sr)),
+                 xfit_rho=float(np.mean([spearman(R_h[0, n], dce_h[1, n]), spearman(R_h[1, n], dce_h[0, n])])))
     helped = np.argsort(-dce[n])[:n_top]
     for tag, D in (('wordnet', rel), ('visual', vis)):
       if D is not None:
@@ -164,6 +182,9 @@ def unit_roles(model, xs, y, name, rel=None, vis=None, batch=500, device='cuda',
   keys = [k for k in units[0] if k != 'unit']
   summary = {k: float(np.nanmean([r[k] for r in units])) for k in keys}
   summary['share_helps_top_more'] = float(np.mean([r['dce_top20'] > r['dce_rest'] for r in units]))
+  if 'xfit_dce_top20' in units[0]:
+    summary['share_helps_top_more_xfit'] = float(np.mean([r['xfit_dce_top20'] > r['xfit_dce_rest'] for r in units]))
+    summary['share_helps_top_more_same'] = float(np.mean([r['same_dce_top20'] > r['same_dce_rest'] for r in units]))
   summary['share_rho_pos'] = float(np.mean([r['rho_R_dce'] > 0 for r in units]))
   summary['share_cos_0.9'] = float(np.mean(cos.max(1) > 0.9))
   summary['units'] = len(units)

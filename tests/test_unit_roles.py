@@ -36,3 +36,6 @@ def test_forward_from_and_ablations():
   s = roles['summary']
   assert all(np.isfinite(v) for v in s.values())
   assert all(-1 <= r['rho_R_dce'] <= 1 for r in roles['units'])
+  for r in roles['units']:                         # 2 images per class: halves of one image each
+    assert np.isfinite(r['xfit_dce_top20']) and np.isfinite(r['same_dce_rest'])
+  assert 0 <= s['share_helps_top_more_xfit'] <= 1
