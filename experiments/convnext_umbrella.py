@@ -91,14 +91,19 @@ def normalize(u8: torch.Tensor, dev) -> torch.Tensor:
   return (u8.to(dev).float() - MEAN.to(dev)[:, None, None]) / STD.to(dev)[:, None, None]
 
 
-def photo_tensor(spec: str, val_dir: str, dev) -> torch.Tensor:
-  """'val:<global index>', 'noise:<seed>' (N(0,1) in normalized space) or 'shuffle:<global index>' (the photo with
-  its pixel positions permuted by a fixed permutation, the same for the three channels). (1, 3, 224, 224)."""
+def photo_tensor(spec: str, val_dir: str, dev, train_root: str = '/dev/shm/imagenet256') -> torch.Tensor:
+  """'val:<global index>', 'train:<global index>' (a packed training image, validation geometry), 'noise:<seed>'
+  (N(0,1) in normalized space) or 'shuffle:<val index>' / 'shuffle_train:<train index>' (the photo with its pixel
+  positions permuted by a fixed permutation, the same for the three channels). (1, 3, 224, 224)."""
   kind, arg = spec.split(':')
   if kind == 'noise':
     g = torch.Generator().manual_seed(int(arg))
     return torch.randn(1, 3, 224, 224, generator=g).to(dev)
-  x = normalize(val_images(val_dir, [int(arg)]), dev)
+  if kind in ('train', 'shuffle_train'):
+    x = train_center(train_root, [int(arg)], dev)
+    kind = 'shuffle' if kind == 'shuffle_train' else 'val'
+  else:
+    x = normalize(val_images(val_dir, [int(arg)]), dev)
   if kind == 'shuffle':
     perm = torch.from_numpy(np.random.default_rng(0).permutation(224 * 224)).to(dev)
     x = x.reshape(1, 3, -1)[:, :, perm].reshape(1, 3, 224, 224)
@@ -111,8 +116,34 @@ def relatives(c: int, wn: np.ndarray, rank: np.ndarray) -> list:
   return [int(k) for k in np.flatnonzero((wn[c] <= 4) | (rank[c] <= 10)) if k != c]
 
 
+def train_center(train_root: str, indices, dev) -> torch.Tensor:
+  """Packed training images (global indices) with the validation geometry: shorter side 256, center crop 224,
+  normalized. (N, 3, 224, 224)."""
+  from torchvision.io import ImageReadMode, decode_jpeg
+  data = np.memmap(os.path.join(train_root, 'data.bin'), dtype=np.uint8, mode='r')
+  off = np.load(os.path.join(train_root, 'offsets.npy'))
+  raw = [torch.from_numpy(np.array(data[off[j]:off[j + 1]])) for j in indices]
+  out = []
+  for im in decode_jpeg(raw, mode=ImageReadMode.RGB, device=dev):
+    h, w = im.shape[-2:]
+    sc = 256 / min(h, w)
+    im = F.interpolate(im[None].float(), size=(max(256, round(h * sc)), max(256, round(w * sc))), mode='bilinear',
+                       antialias=True, align_corners=False)[0]
+    H, W = im.shape[-2:]
+    top, left = (H - 224) // 2, (W - 224) // 2
+    out.append(im[:, top:top + 224, left:left + 224])
+  if torch.device(dev).type == 'cuda':
+    torch.cuda.synchronize(dev)
+  return (torch.stack(out) - MEAN.to(dev)[:, None, None]) / STD.to(dev)[:, None, None]
+
+
 @torch.no_grad()
 def cmd_select(a):
+  """Pre-registered rule. Photos: validation images of the source (not the first 8, the atlas probe) with top-1 =
+  source and p_target <= 0.01, ranked by |p_source - 0.45| (the essay's photo had 44.2%). Fallbacks in order: drop the
+  p_target condition; add training images of the source (flagged: their pretraining writes are in the source's part);
+  if fewer than 3 still, the source becomes the best-recognized class unrelated to the target (WordNet >= 10, visual
+  rank > 100). Every arm whose rule produced at least 3 photos is written, each with its own A, B and relatives."""
   dev = torch.device('cuda')
   torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = False
   model = build_convnext('tiny').to(dev)
@@ -126,33 +157,60 @@ def cmd_select(a):
   acc = correct / np.maximum(count, 1)
   wn = np.load(a.wordnet)['dist']
   rank = np.load(a.visual)['rank_dist']
-  s, t = a.source, a.target
-  rel_t, rel_s = relatives(t, wn, rank), relatives(s, wn, rank)
-  _, labels = val_index(a.val)
-  src = np.flatnonzero(labels == s)
-  cand = src[8:]                                       # the first 8 (parquet order) are the atlas probe images
-  p = F.softmax(model(normalize(val_images(a.val, cand), dev)), -1).cpu().numpy()
-  rows = []
-  for g, pr in zip(cand, p):
-    rows.append({'index': int(g), 'p_source': float(pr[s]), 'p_target': float(pr[t]), 'top1': int(pr.argmax()),
-                 'top10': [int(k) for k in np.argsort(-pr)[:10]]})
-  ok = [r for r in rows if r['top1'] == s and r['p_target'] <= 0.01]
-  rule = 'top1 = source, p_target <= 0.01'
-  if len(ok) < 5:
-    ok, rule = [r for r in rows if r['top1'] == s], 'top1 = source (p_target condition dropped)'
-  ok.sort(key=lambda r: abs(r['p_source'] - 0.45))
-  far = [k for k in range(1000) if min(wn[k, t], wn[k, s]) >= 10 and min(rank[k, t], rank[k, s]) > 100
-         and k not in rel_t + rel_s + [s, t]]
-  A = min(far, key=lambda k: abs(acc[k] - acc[t]))
-  B = min([k for k in far if k != A], key=lambda k: abs(acc[k] - acc[s]))
-  excluded = {int(g) for g in src[:8]} | {int(g) for g in np.flatnonzero(labels == t)[:8]} | {r['index'] for r in ok}
-  sel = {'source': s, 'target': t, 'rule': rule, 'photos': ok[:5], 'reserve': ok[5:10], 'A': int(A), 'B': int(B),
-         'acc': {'source': float(acc[s]), 'target': float(acc[t]), 'A': float(acc[A]), 'B': float(acc[B]),
-                 'mean': float(acc.mean())},
-         'rel_target': rel_t, 'rel_source': rel_s, 'excluded_from_eval': sorted(excluded),
-         'n_candidates': len(rows), 'n_passing': len(ok)}
+  t = a.target
+  rel_t = relatives(t, wn, rank)
+  _, vlabels = val_index(a.val)
+  tlabels = np.load(os.path.join(a.train, 'labels.npy'))
+
+  def score(x, keys):
+    p = torch.cat([F.softmax(model(x[i:i + 256]), -1) for i in range(0, len(x), 256)]).cpu().numpy()
+    return [{'photo': k, 'p_source': None, 'p_target': float(pr[t]), 'top1': int(pr.argmax()),
+             'top10': [int(c) for c in np.argsort(-pr)[:10]], 'probs': pr} for k, pr in zip(keys, p)]
+
+  def arm(s, use_train):
+    vidx = np.flatnonzero(vlabels == s)[8:]               # the first 8 (parquet order) are the atlas probe images
+    rows = score(normalize(val_images(a.val, vidx), dev), [f'val:{int(g)}' for g in vidx])
+    if use_train:
+      tidx = np.flatnonzero(tlabels == s)
+      rows += score(torch.cat([train_center(a.train, tidx[i:i + 256], dev) for i in range(0, len(tidx), 256)]),
+                    [f'train:{int(g)}' for g in tidx])
+    for r in rows:
+      r['p_source'] = float(r.pop('probs')[s])
+    strict = [r for r in rows if r['top1'] == s and r['p_target'] <= 0.01]
+    loose = [r for r in rows if r['top1'] == s]
+    ok, rule = (strict, 'top1 = source, p_target <= 0.01') if len(strict) >= 5 else (loose, 'top1 = source')
+    ok.sort(key=lambda r: (r['photo'].startswith('train'), abs(r['p_source'] - 0.45)))
+    rel_s = relatives(s, wn, rank)
+    far = [k for k in range(1000) if min(wn[k, t], wn[k, s]) >= 10 and min(rank[k, t], rank[k, s]) > 100
+           and k not in rel_t + rel_s + [s, t]]
+    A = min(far, key=lambda k: abs(acc[k] - acc[t]))
+    B = min([k for k in far if k != A], key=lambda k: abs(acc[k] - acc[s]))
+    return {'source': int(s), 'target': t, 'rule': rule + (' (training images added, flagged)' if use_train else ''),
+            'photos': ok[:5], 'reserve': ok[5:10], 'n_val_candidates': int(len(vidx)), 'n_passing': len(ok),
+            'A': int(A), 'B': int(B), 'rel_target': rel_t, 'rel_source': rel_s,
+            'acc': {'source': float(acc[s]), 'target': float(acc[t]), 'A': float(acc[A]), 'B': float(acc[B]),
+                    'mean': float(acc.mean())},
+            'excluded_from_eval': sorted({int(g) for g in np.flatnonzero(vlabels == s)[:8]}
+                                         | {int(g) for g in np.flatnonzero(vlabels == t)[:8]}
+                                         | {int(r['photo'].split(':')[1]) for r in ok if r['photo'].startswith('val')})}
+
+  arms = {}
+  first = arm(a.source, use_train=False)
+  if first['n_passing'] >= 3:
+    arms['source'] = first
+  else:
+    second = arm(a.source, use_train=True)
+    if second['n_passing'] >= 3:
+      arms['source_train_images'] = second
+    unrelated = [k for k in range(1000) if wn[k, t] >= 10 and rank[k, t] > 100 and k not in rel_t + [t]]
+    s3 = max(unrelated, key=lambda k: (acc[k], -k))
+    arms['strong_source'] = arm(s3, use_train=False)
+  sel = {'source_requested': a.source, 'target': t, 'acc_source_requested': float(acc[a.source]),
+         'acc_target': float(acc[t]), 'arms': arms}
   json.dump(sel, open(a.out, 'w'), indent=1)
-  print(json.dumps({k: v for k, v in sel.items() if k not in ('reserve', 'excluded_from_eval')}, indent=1))
+  for k, v in arms.items():
+    print(k, {x: v[x] for x in ('source', 'rule', 'n_passing', 'A', 'B', 'acc')},
+          [(r['photo'], round(r['p_source'], 3), round(r['p_target'], 4)) for r in v['photos']], flush=True)
 
 
 # -------------------------------------------------------------------------------------------- optimizer states
@@ -211,7 +269,8 @@ def replay_spec(a, sel) -> dict:
   spec = {}
   for tok in a.replay.split(','):
     c, n = tok.split(':')
-    spec[int(sel[c]) if c in ('A', 'B') else int(c)] = int(n)
+    names = {'A': sel['A'], 'B': sel['B'], 'T': sel['target'], 'S': sel['source']}
+    spec[int(names[c]) if c in names else int(c)] = int(n)
   return spec
 
 
@@ -228,7 +287,8 @@ def rest_classes(a, sel, spec) -> list:
 def branch(a, sel, model, loader, dev) -> dict:
   """The shared branch state (weights and AdamW state after the replay-only warm-up), computed once per (replay spec,
   replay seed, lr) under a file lock and saved atomically."""
-  key = hashlib.sha1(json.dumps([a.replay, a.rest, a.rest_exclude, a.seed, a.lr, a.warmup, a.snapshot]).encode()).hexdigest()[:12]
+  key = hashlib.sha1(json.dumps([a.arm, a.replay, a.rest, a.rest_exclude, a.seed, a.lr, a.warmup, a.warmup_ramp,
+                                 a.snapshot]).encode()).hexdigest()[:12]
   path = os.path.join(a.branch_dir, f'branch_{key}.pt')
   os.makedirs(a.branch_dir, exist_ok=True)
   with open(path + '.lock', 'w') as lk:
@@ -267,7 +327,7 @@ def cmd_run(a):
   if os.path.exists(os.path.join(a.out, 'DONE')):
     print('already done', flush=True)
     return
-  sel = json.load(open(a.sel))
+  sel = json.load(open(a.sel))['arms'][a.arm]
   model = build_convnext('tiny').to(dev)
   loader = GPUTrainLoader(a.train, 256, dev, seed=0)
   br = branch(a, sel, model, loader, dev)
@@ -299,7 +359,7 @@ def cmd_run(a):
     opt_unt = adamw_from_states(untracked, br['states'], a.lr, a.wd)
   spec = replay_spec(a, sel)
   rep = StratifiedReplay(loader, spec, a.rest, rest_classes(a, sel, spec), seed=a.seed) if a.mode != 'solo' else None
-  photo = photo_tensor(a.photo, a.val, dev) if a.mode != 'untaught' else None
+  photo = photo_tensor(a.photo, a.val, dev, a.train) if a.mode != 'untaught' else None
   target = torch.tensor([a.target if a.target >= 0 else sel['target']], device=dev)
   rel_t = [k for k in sel['rel_target'] if k not in (sel['source'], sel['A'], sel['B'])]
   rel_s = [k for k in sel['rel_source'] if k not in rel_t + [sel['target'], sel['A'], sel['B']]]
@@ -407,9 +467,12 @@ def main():
   q.add_argument('--target', type=int, default=309)
   q.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz')
   q.add_argument('--visual', default='docs/data/imagenet_dinov2_classdist.npz')
+  q.add_argument('--train', default='/dev/shm/imagenet256')
   q.add_argument('--out', required=True)
   r = sub.add_parser('run')
   r.add_argument('--sel', required=True, help='selection.json')
+  r.add_argument('--arm', default='strong_source', help="the selection arm: 'source', 'source_train_images' or "
+                 "'strong_source'")
   r.add_argument('--snapshot', required=True, help="E1's step-25,020 replay snapshot (convnext_snapshots)")
   r.add_argument('--val', required=True)
   r.add_argument('--train', default='/dev/shm/imagenet256')
@@ -419,7 +482,7 @@ def main():
   r.add_argument('--opt', choices=['frozen_v', 'standard'], default='frozen_v')
   r.add_argument('--lr', type=float, required=True)
   r.add_argument('--wd', type=float, default=0.05)
-  r.add_argument('--replay', default='309:32,879:32,A:32,B:32')
+  r.add_argument('--replay', default='T:32,S:32,A:32,B:32', help='T target, S source, A and B the unrelated classes')
   r.add_argument('--rest', type=int, default=127)
   r.add_argument('--rest_exclude', default='', help="extra classes left out of the rest draws; 'rel' = the relatives")
   r.add_argument('--seed', type=int, default=0, help='replay stream seed')
