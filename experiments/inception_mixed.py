@@ -28,8 +28,9 @@ s_c = sum_{y,x} x[c,y,x] dz/dx[c,y,x] and r the bias part. With sA, sB the mean 
                 baseline together); rank = share of baseline readers below the unit
 
 Verdict per unit and measure: 'separate' when the excess interval is below 0 and rank <= 0.05 (the unit reads the two
-groups through more separate inputs than an arbitrary reader would), 'shared' when the interval is above 0 and
-rank >= 0.95, else 'undetermined'. A unit counts as separate or shared only when the cosine and mass verdicts agree.
+groups through more separate inputs than an arbitrary reader would), 'shared' when the interval is above 0, rank >= 0.95
+and index = excess / (within - baseline) >= 0.5 (at least halfway from the baseline to the sampling ceiling), else
+'undetermined'. A unit counts as separate or shared only when the cosine and mass verdicts agree.
 
 Visual axis. WordNet distance is not visual similarity (car wheel and beach wagon are 12 apart). When `--embed`
 is given, every validation crop is embedded with an image model independent of InceptionV1 (DINOv2 ViT-S/14, CLS
@@ -239,12 +240,14 @@ def measure(S, Sv, A, B, cls, rng, n_boot=200):
     rank = float((base < ov).mean())
     within = 0.5 * (half_stat(S[A], stat, rng) + half_stat(S[B], stat, rng))
     class_ref = float(np.nanmean([class_split(S[A], cls[A], stat, rng), class_split(S[B], cls[B], stat, rng)]))
+    b = float(np.median(base))
+    index = (ov - b) / (within - b) if within - b > 1e-6 else float('nan')   # 0 at the baseline, 1 at the ceiling
     rec[name] = {'overlap': ov, 'within': within, 'class_ref': class_ref,
                  'overlap_matched': matched(S[A], S[B], stat, rng),
-                 'baseline': float(np.median(base)), 'baseline_q10_q90': np.percentile(base, [10, 90]).tolist(),
-                 'excess': ov - float(np.median(base)), 'excess_ci': ci.tolist(), 'rank': rank,
-                 'verdict': 'separate' if ci[1] < 0 and rank <= 0.05 else 'shared' if ci[0] > 0 and rank >= 0.95
-                 else 'undetermined'}
+                 'baseline': b, 'baseline_q10_q90': np.percentile(base, [10, 90]).tolist(),
+                 'excess': ov - b, 'excess_ci': ci.tolist(), 'rank': rank, 'index': index,
+                 'verdict': 'separate' if ci[1] < 0 and rank <= 0.05
+                 else 'shared' if ci[0] > 0 and rank >= 0.95 and index >= 0.5 else 'undetermined'}
   rec['verdict'] = rec['cos']['verdict'] if rec['cos']['verdict'] == rec['mass']['verdict'] else 'undetermined'
   pa, pb = pmass(S[A].mean(0)), pmass(S[B].mean(0))
   rec['top1_mass'] = [float(pa.max()), float(pb.max())]
