@@ -136,11 +136,15 @@ def wslope(arr, col):
 
 
 def pole_classes(final, b, n, P, tau, Rfin):
+  """Final positive-pole classes of unit n (slot indices into the stored poles, and classes). Dead units (response
+  nearly the same for every class: spread below 1e-3 of its largest magnitude, where the ranking is decided by ties)
+  have none; classes outside this ranking's top P at the end (ties) are dropped."""
   scale = float(np.abs(Rfin[n]).max())
-  if scale <= 0:
+  if scale <= 0 or float(np.ptp(Rfin[n])) <= 1e-3 * scale:
     return [], np.array([], int)
+  top = set(np.argsort(-Rfin[n])[:P].tolist())
   cand = final[b]['poles'][n, :P].tolist()
-  js = [j for j, c in enumerate(cand) if Rfin[n, c] > tau * scale]
+  js = [j for j, c in enumerate(cand) if Rfin[n, c] > tau * scale and c in top]
   return js, np.array([cand[j] for j in js], int)
 
 
@@ -149,24 +153,26 @@ def class_clock(atlases, tau):
   the sum and count of its entry checkpoints over all units."""
   final = atlases[-1]
   K = final[next(iter(final))]['R'].shape[1]
-  entries, s, cnt = {}, np.zeros(K), np.zeros(K)
+  entries, s, cnt, dead = {}, np.zeros(K), np.zeros(K), []
   for b in final:
     P_b = final[b]['poles'].shape[1] // 2
     Rt = np.stack([at[b]['R'].numpy() for at in atlases])
     for n in range(Rt.shape[1]):
       js, cls = pole_classes(final, b, n, P_b, tau, Rt[-1])
+      if float(np.ptp(Rt[-1, n])) <= 1e-3 * float(np.abs(Rt[-1, n]).max()):
+        dead.append((b, n))
       if len(cls) < 2:
         continue
       t = stable_entry(Rt, n, cls, P_b)
       entries[(b, n)] = (cls, t)
       np.add.at(s, cls, t); np.add.at(cnt, cls, 1)
-  return entries, s, cnt
+  return entries, s, cnt, dead
 
 
 def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
   rng = np.random.default_rng(seed)
   final = atlases[-1]
-  entries, clk_s, clk_n = class_clock(atlases, tau)
+  entries, clk_s, clk_n, dead = class_clock(atlases, tau)
   out = {}
   for b in final:
     P = final[b]['poles'].shape[1] // 2
@@ -327,7 +333,7 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
               new = rc >= float(torch.sort(torch.cat([resp[:c], resp[c + 1:]]), descending=True).values[P - 1])
               r5[f'{s}_fix'] += int(fix); r5[f'{s}_new'] += int(new); r5[f'{s}_new_keep'] += int(new and keep)
     # records
-    rec = {}
+    rec = {'dead_units': sum(1 for d_ in dead if d_[0] == b)}
     if t1['cnt']:
       m, p, pt = t1['cnt'], t1['perm'], t1['perm_terc']
       rec['T1'] = {'entries': m, 'nearest_obs': t1['obs'] / m, 'nearest_perm': float(p.mean() / m),
@@ -408,14 +414,15 @@ def analyze(steps, atlases, dist, tau=0.3, near=4, n_perm=500, seed=0):
         strat[s] = num / den if den else None
       rec['T5']['enter_minus_inc_within_checkpoint'] = strat
     out[b] = rec
-    print(b, json.dumps({k: {kk: (round(vv, 4) if isinstance(vv, float) else vv) for kk, vv in v.items() if kk != '_raw'}
-                         for k, v in rec.items()}, default=str)[:3000], flush=True)
+    print(b, json.dumps({k: ({kk: (round(vv, 4) if isinstance(vv, float) else vv) for kk, vv in v.items() if kk != '_raw'}
+                             if isinstance(v, dict) else v) for k, v in rec.items()}, default=str)[:3000], flush=True)
   return out
 
 
 def pooled(blocks, names):
   """Pooled T1 statistics over a set of blocks (index-aligned sums of the per-block permutation sums)."""
   out = {}
+  out['dead_units'] = sum(blocks[b].get('dead_units', 0) for b in names)
   have = [b for b in names if 'T1' in blocks[b]]
   if have:
     R = [blocks[b]['T1']['_raw'] for b in have]
@@ -448,7 +455,8 @@ def pooled(blocks, names):
       out[f'T2_{mode}'] = {'mean_slope': s.mean(), 'z_fixed': s.sum() / np.sqrt((sd ** 2).sum()),
                            't_over_blocks': s.mean() / (s.std(ddof=1) / np.sqrt(len(s))) if len(s) > 1 else None,
                            'planted_mean': pl.mean(), 'frac_of_planted': s.mean() / pl.mean() if pl.mean() else None}
-  return {k: ({kk: (float(vv) if isinstance(vv, (float, np.floating)) else vv) for kk, vv in v.items()}) for k, v in out.items()}
+  return {k: ({kk: (float(vv) if isinstance(vv, (float, np.floating)) else vv) for kk, vv in v.items()} if isinstance(v, dict) else v)
+          for k, v in out.items()}
 
 
 def main():
