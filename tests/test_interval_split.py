@@ -1,0 +1,385 @@
+"""rcdl.interval_split: the interval split adds up exactly (random fp64 data, and a toy SwiGLU network trained with
+GroupAttribution, where it equals the actual change of every unit's response); the class-mean route equals the
+per-image route; fp16 storage bounds hold; the class split and a shadow split have the same total; remainders of full
+states are computed, not assumed 0; the momentum carry-over estimate is exact when it should be."""
+
+import copy
+
+import pytest
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from rcdl.attribution import GroupAttribution
+from rcdl.interval_split import (MAPS, ClassSums, as_unit_major, class_weighted_inputs, column_terms, dsilu,
+                                 gl_nodes, half_ulp, image_split, increments, load_parts, lr_schedule,
+                                 momentum_carryover, own_terms, path_weights, set_terms, split_completeness)
+
+DT = torch.float64
+
+
+def test_path_weights_integrate_the_response_change():
+  """u(1) - u(0) = l_g Q0_g + 2 q_g Q1_g + l_v Q0_v + 2 q_v Q1_v along quadratic pre-activation paths."""
+  g = torch.Generator().manual_seed(0)
+  g1, gl, gq, v1, vl, vq = (torch.randn(50, generator=g, dtype=DT) * s for s in (2, 3, 1, 1, 2, 1))
+  Q0g, Q1g, Q0v, Q1v = path_weights(g1, gl, gq, v1, vl, vq, nodes=32)
+  u = lambda gg, vv: F.silu(gg) * vv
+  du = u(g1 + gl + gq, v1 + vl + vq) - u(g1, v1)
+  assert (gl * Q0g + 2 * gq * Q1g + vl * Q0v + 2 * vq * Q1v - du).abs().max() < 1e-12
+  x, w = gl_nodes(8)
+  assert abs(float((w * x ** 15).sum()) - 1 / 16) < 1e-15 and abs(float(w.sum()) - 1) < 1e-15
+  t = torch.linspace(-6, 6, 101, dtype=DT, requires_grad=True)
+  (grad,) = torch.autograd.grad(F.silu(t).sum(), t)
+  assert (grad - dsilu(t.detach())).abs().max() < 1e-14
+
+
+@pytest.mark.parametrize('dtype', [torch.float16, torch.bfloat16, torch.float32])
+def test_half_ulp_bounds_round_to_nearest(dtype):
+  g = torch.Generator().manual_seed(1)
+  x = torch.cat([torch.randn(4000, generator=g, dtype=DT) * 10.0 ** torch.randint(-9, 4, (4000,), generator=g),
+                 torch.tensor([0.0, 2.0 ** -14, 2.0 ** -15, 2.0 ** -24, 1.0, 1.0 - 1e-12, 2.0 ** 10], dtype=DT)])
+  if dtype == torch.float16:
+    x = x.clamp(-6e4, 6e4)
+  r = x.to(dtype)
+  hu = half_ulp(r)
+  err = (x - r.double()).abs()
+  assert (err <= hu).all()
+  frac, emin = {torch.float16: (10, -24), torch.bfloat16: (7, -133), torch.float32: (23, -149)}[dtype]
+  assert (hu <= 2.0 ** -(frac + 1) * r.double().abs() + 2.0 ** (emin - 1)).all()    # and the bound is not loose
+
+
+def random_parts(K, U, d, a, ab, scale, seed, remainder=1e-4):
+  g = torch.Generator().manual_seed(seed)
+  r = lambda *s: torch.randn(*s, generator=g, dtype=DT)
+  return dict(a=a, ab=ab, C=r(K, U, d) * scale, Cb=r(K, U) * scale, R=r(U, d) * remainder, Rb=r(U) * remainder)
+
+
+def make_parts(rec, W0, b0):
+  from rcdl.interval_split import Parts
+  return Parts(a=rec['a'], ab=rec['ab'], W0=W0, b0=b0, C=rec['C'], Cb=rec['Cb'], R=rec['R'], Rb=rec['Rb'])
+
+
+def per_image_group_terms(inc, h1, h2, rec):
+  """T_k(x) and F_k(x) for every group, image and unit (K, N, U), straight from the definitions."""
+  Dh = h2 - h1
+  T = F_ = 0
+  for M in MAPS:
+    I = inc[M]
+    Q0, Q1 = rec[f'Q0_{M}'], rec[f'Q1_{M}']
+    T = T + (torch.einsum('kud,nud->knu', I.nu, h1) + I.nub[:, None]) * Q0 + torch.einsum('kud,nud->knu', I.nu, Dh) * Q1
+    F_ = F_ + (I.rho - 1) * (torch.einsum('kud,nud->knu', I.C1, h1) * Q0 + torch.einsum('kud,nud->knu', I.C1, Dh) * Q1) \
+         + (I.rhob - 1) * I.Cb1[:, None] * Q0
+  return T, F_
+
+
+def test_completeness_on_random_fp64_data():
+  """Random parts at two grid points (weight and bias decay, remainders), inputs at the reference and at other
+  'strongest' positions: per image and per class, sum_k T_k + sum_k F_k + F_0 + E + Phi + Pi = dR, and the class-mean
+  route (Hbar, qbar) gives the class means of the per-image terms."""
+  K, U, d, N, C = 12, 5, 7, 60, 6
+  g = torch.Generator().manual_seed(2)
+  inc = {}
+  for i, M in enumerate(MAPS):
+    W0, b0 = torch.randn(U, d, generator=g, dtype=DT) * 0.3, torch.randn(U, generator=g, dtype=DT) * 0.1
+    p1 = make_parts(random_parts(K, U, d, 0.9, 0.97, 0.05, 10 + i), W0, b0)
+    p2r = random_parts(K, U, d, 0.8, 0.95, 0.02, 20 + i)
+    p2r['C'] = (0.8 / 0.9) * p1.C + p2r['C']
+    p2r['Cb'] = (0.95 / 0.97) * p1.Cb + p2r['Cb']
+    inc[M] = increments(p1, make_parts(p2r, W0, b0))
+    assert inc[M].resid < 1e-14
+  h1 = torch.randn(N, U, d, generator=g, dtype=DT)
+  h2 = h1 + 0.5 * torch.randn(N, U, d, generator=g, dtype=DT)
+  y = torch.arange(N) % C
+  # the 'strongest' responses come from other positions: Pi carries the switch
+  hb1, hb2 = torch.randn(N, U, d, generator=g, dtype=DT), torch.randn(N, U, d, generator=g, dtype=DT)
+  resp = lambda h, W, b: (F.silu((h * W['gate']).sum(-1) + b['gate']) * ((h * W['value']).sum(-1) + b['value']))
+  u1b = resp(hb1, {M: inc[M].W1 for M in MAPS}, {M: inc[M].b1 for M in MAPS})
+  u2b = resp(hb2, {M: inc[M].W2 for M in MAPS}, {M: inc[M].b2 for M in MAPS})
+  rec = image_split(h1, h2, inc, u1b, u2b, nodes=32)
+  T, Fk = per_image_group_terms(inc, h1, h2, rec)
+  Dh = h2 - h1
+  F0 = E = 0
+  for M in MAPS:
+    I, Q0, Q1 = inc[M], rec[f'Q0_{M}'], rec[f'Q1_{M}']
+    F0 = F0 + ((h1 * I.F0w).sum(-1) + I.F0b) * Q0 + (Dh * I.F0w).sum(-1) * Q1
+    E = E + ((h1 * I.eps).sum(-1) + I.epsb) * Q0 + (Dh * I.eps).sum(-1) * Q1
+  total = T.sum(0) + Fk.sum(0) + F0 + E + rec['Phi'] + rec['Pi']
+  assert (total - (u2b - u1b)).abs().max() < 1e-12
+  assert rec['resid'].abs().max() < 1e-12
+  cm = as_unit_major(class_weighted_inputs(h1, h2, inc, y, C, u1b, u2b))
+  sc = split_completeness(inc, cm)
+  assert sc['max_abs'] < 1e-12 and sc['weights_identity'] < 1e-12
+  for n in range(U):
+    ct = column_terms(inc, {M: cm[f'Hbar_{M}'][n] for M in MAPS}, {M: cm[f'qbar_{M}'][n] for M in MAPS}, n)
+    Tc = torch.stack([T[:, y == c, n].mean(1) for c in range(C)], 1)
+    Fc = torch.stack([Fk[:, y == c, n].mean(1) for c in range(C)], 1)
+    assert (ct['T'] - Tc).abs().max() < 1e-13 and (ct['F'] - Fc).abs().max() < 1e-13
+    tot = ct['T'].sum(0) + ct['F'].sum(0) + ct['F0'] + ct['E'] + cm['Phi'][n] + cm['Pi'][n]
+    assert (tot - cm['dR'][n]).abs().max() < 1e-12
+    assert (ct['W'] - (ct['T'].sum(0) + ct['F'].sum(0) + ct['F0'] + ct['E'])).abs().max() < 1e-12
+    # the cross term moves wholly to the weights or the input: still exact
+    cx = column_terms(inc, {M: cm[f'Hcross_{M}'][n] for M in MAPS}, {}, n)
+    for s in (1, -1):
+      tot_s = (ct['W'] + s * cx['W']) + (cm['Phi'][n] - s * cm['cross'][n]) + cm['Pi'][n]
+      assert (tot_s - cm['dR'][n]).abs().max() < 1e-12
+  assert (cx['W'] - cm['cross'][n]).abs().max() < 1e-13
+  # own and set terms (K = C groups for this check)
+  inc_c = {M: copy.copy(inc[M]) for M in MAPS}
+  for M in MAPS:
+    inc_c[M].nu, inc_c[M].nub = inc[M].nu[:C], inc[M].nub[:C]
+    inc_c[M].C1, inc_c[M].Cb1 = inc[M].C1[:C], inc[M].Cb1[:C]
+  own = own_terms(inc_c, cm)
+  mem = (torch.rand(C, C, generator=g) < 0.4).to(DT)
+  st, sf = set_terms(inc_c, cm, mem, 'T'), set_terms(inc_c, cm, mem, 'F')
+  for n in range(U):
+    ct = column_terms(inc_c, {M: cm[f'Hbar_{M}'][n] for M in MAPS}, {M: cm[f'qbar_{M}'][n] for M in MAPS}, n)
+    assert (own[n] - ct['T'].diagonal()).abs().max() < 1e-13
+    assert (st[n] - (mem * ct['T'].T).sum(1)).abs().max() < 1e-13
+    assert (sf[n] - (mem * ct['F'].T).sum(1)).abs().max() < 1e-13
+
+
+# ---------------------------------------------------------------------------------- toy SwiGLU trained with RCDL
+
+class ToyBlock(nn.Module):
+  def __init__(self, d, U):
+    super().__init__()
+    self.norm = nn.LayerNorm(d)
+    self.pw_gate, self.pw_value, self.pw_down = nn.Linear(d, U), nn.Linear(d, U), nn.Linear(U, d)
+
+  def forward(self, x):
+    h = self.norm(x)
+    return x + self.pw_down(F.silu(self.pw_gate(h)) * self.pw_value(h))
+
+
+class Toy(nn.Module):
+  """Two SwiGLU blocks on sequences (B, P, d_in): positions play the role of a ConvNeXt unit's spatial positions."""
+
+  def __init__(self, d_in=6, d=5, U=4, K=5):
+    super().__init__()
+    self.emb = nn.Linear(d_in, d)
+    self.blocks = nn.ModuleList([ToyBlock(d, U), ToyBlock(d, U)])
+    self.head = nn.Linear(d, K)
+
+  def forward(self, x, keep=None):
+    x = self.emb(x)
+    for i, b in enumerate(self.blocks):
+      if keep is not None:
+        keep[i] = b.norm(x)
+      x = b(x)
+    return self.head(x.mean(1))
+
+
+def train_toy(steps=(3, 7, 10), K=5, Kr=4, wd=0.1, bias_wd=0.05, seed=0):
+  """Trains the toy for max(steps) AdamW steps with the class split and a random shadow split; at each saved step
+  returns the model weights, both splits' full states (fp64) and the class split's compact (fp16) state."""
+  torch.manual_seed(seed)
+  model = Toy(K=K).double()
+  layers = {f'b{i}.{m}': getattr(b, f'pw_{m}') for i, b in enumerate(model.blocks) for m in MAPS}
+  kw = dict(optimizer='adamw', lr=3e-2, betas=(0.9, 0.99), weight_decay=wd, bias_weight_decay=bias_wd, dtype=DT)
+  attr = GroupAttribution(layers, n_groups=K, **kw)
+  shadow = GroupAttribution(layers, n_groups=Kr, shadow=True, **kw)
+  init = {k: {'W0': tr.W0.clone(), 'b0': tr.b0.clone()} for k, tr in attr.tracked.items()}
+  rest = [p for p in model.parameters() if p.requires_grad]
+  opt = torch.optim.AdamW(rest, lr=3e-2, weight_decay=wd)
+  g = torch.Generator().manual_seed(seed + 1)
+  saved = {}
+  for t in range(1, max(steps) + 1):
+    x = torch.randn(16, 6, 6, generator=g, dtype=DT)
+    y = torch.randint(0, K, (16,), generator=g)
+    r = torch.randint(0, Kr, (16,), generator=g)
+    opt.zero_grad()
+    F.cross_entropy(model(x), y).backward()
+    attr.step(y)
+    shadow.step(r)
+    opt.step()
+    if t in steps:
+      saved[t] = {'model': copy.deepcopy(model.state_dict()), 'full': copy.deepcopy(attr.full_state()),
+                  'shadow': copy.deepcopy(shadow.full_state()), 'compact': copy.deepcopy(attr.compact_state())}
+  return model, init, saved
+
+
+@torch.no_grad()
+def probe_inputs(model, sd, x, b):
+  """Block b's input h (N, P, d) and responses u (N, P, U) under the weights sd."""
+  m = copy.deepcopy(model)
+  m.load_state_dict(sd)
+  keep = {}
+  m(x, keep)
+  blk = m.blocks[b]
+  h = keep[b]
+  return h, F.silu(blk.pw_gate(h)) * blk.pw_value(h)
+
+
+def toy_interval(model, init, saved, t1, t2, b=1, which='full', N=30, C=5, seed=3):
+  g = torch.Generator().manual_seed(seed)
+  x = torch.randn(N, 6, 6, generator=g, dtype=DT)
+  y = torch.arange(N) % C
+  h1a, u1a = probe_inputs(model, saved[t1]['model'], x, b)
+  h2a, u2a = probe_inputs(model, saved[t2]['model'], x, b)
+  p1, p2 = u1a.argmax(1), u2a.argmax(1)                         # (N, U) strongest positions
+  take = lambda h, p: torch.gather(h, 1, p[:, :, None].expand(-1, -1, h.shape[-1]))
+  u1best, u2best = torch.gather(u1a, 1, p1[:, None])[:, 0], torch.gather(u2a, 1, p2[:, None])[:, 0]
+  inc = {}
+  for M in MAPS:
+    key = f'b{b}.{M}'
+    parts = []
+    for t in (t1, t2):
+      sd = saved[t]['model']
+      W, bb = sd[f'blocks.{b}.pw_{M}.weight'], sd[f'blocks.{b}.pw_{M}.bias']
+      rec = saved[t][which][key]
+      parts.append(load_parts(rec, init[key], W=W, b=bb))
+    inc[M] = increments(*parts)
+  return dict(x=x, y=y, h1=take(h1a, p1), h2=take(h2a, p1), u1best=u1best, u2best=u2best, inc=inc,
+              actual=u2best - u1best)
+
+
+@pytest.mark.parametrize('which', ['full', 'compact'])
+def test_toy_split_equals_actual_change_of_every_unit(which):
+  """The interval split of a GroupAttribution-trained toy (AdamW with weight and bias decay) equals the actual change
+  of each unit's response at its strongest position, per image and per class, from fp64 parts and from fp16 storage
+  (whose rounding the fp64 remainder absorbs)."""
+  model, init, saved = train_toy()
+  d = toy_interval(model, init, saved, 3, 10, which=which)
+  rec = image_split(d['h1'], d['h2'], d['inc'], d['u1best'], d['u2best'])
+  T, Fk = per_image_group_terms(d['inc'], d['h1'], d['h2'], rec)
+  Dh = d['h2'] - d['h1']
+  rest = 0
+  for M in MAPS:
+    I, Q0, Q1 = d['inc'][M], rec[f'Q0_{M}'], rec[f'Q1_{M}']
+    rest = rest + ((d['h1'] * (I.F0w + I.eps)).sum(-1) + I.F0b + I.epsb) * Q0 + (Dh * (I.F0w + I.eps)).sum(-1) * Q1
+  total = T.sum(0) + Fk.sum(0) + rest + rec['Phi'] + rec['Pi']
+  assert (total - d['actual']).abs().max() < 1e-12 * max(1.0, float(d['actual'].abs().max()))
+  assert (rec['Pi'] >= -1e-14).all()                             # reference p*_t1: the switch only adds
+  assert float(rec['Pi'].max()) > 1e-3 and float(rec['Phi'].abs().max()) > 1e-3    # both are exercised
+  assert (rec['u1'] - d['u1best']).abs().max() < 1e-13           # the reference response at t1 is the strongest one
+  cm = as_unit_major(class_weighted_inputs(d['h1'], d['h2'], d['inc'], d['y'], 5, d['u1best'], d['u2best']))
+  sc = split_completeness(d['inc'], cm)
+  assert sc['max_abs'] < 1e-12
+  dR = torch.stack([d['actual'][d['y'] == c].mean(0) for c in range(5)], 1)    # (U, C)
+  assert (cm['dR'] - dR).abs().max() < 1e-14
+  for M in MAPS:
+    I = d['inc'][M]
+    assert I.rho < 1 and I.rhob < 1                              # weight and bias decay both exercised
+    if which == 'compact':
+      assert float(I.eps.abs().max()) > 0                        # fp16 rounding sits in the remainder
+
+
+def test_fp16_bounds_hold_and_shadow_total_equals_class_total():
+  """Group terms from the fp16 (compact) parts are within the propagated half-ulp bounds of the fp64 parts' terms; the
+  random shadow split adds up to the same total as the class split, per class and unit."""
+  model, init, saved = train_toy()
+  dfull = toy_interval(model, init, saved, 3, 10, which='full')
+  dcomp = toy_interval(model, init, saved, 3, 10, which='compact')
+  cm = as_unit_major(class_weighted_inputs(dfull['h1'], dfull['h2'], dfull['inc'], dfull['y'], 5, dfull['u1best'],
+                                           dfull['u2best']))
+  # the shadow split of the same interval
+  inc_r = {}
+  for M in MAPS:
+    key = f'b1.{M}'
+    parts = [load_parts(saved[t]['shadow'][key], W=saved[t]['model'][f'blocks.1.pw_{M}.weight'],
+                        b=saved[t]['model'][f'blocks.1.pw_{M}.bias']) for t in (3, 10)]
+    inc_r[M] = increments(*parts)
+  for n in range(cm['dR'].shape[0]):
+    H = {M: cm[f'Hbar_{M}'][n] for M in MAPS}
+    q = {M: cm[f'qbar_{M}'][n] for M in MAPS}
+    a = column_terms(dfull['inc'], H, q, n)
+    b = column_terms(dcomp['inc'], H, q, n, bounds=True)
+    r = column_terms(inc_r, H, q, n)
+    assert ((b['T'] - a['T']).abs() <= b['T_bound'] + 1e-15).all()
+    assert ((b['F'] - a['F']).abs() <= b['F_bound'] + 1e-15).all()
+    assert float(b['T_bound'].max()) > 0
+    tot = lambda s: s['T'].sum(0) + s['F'].sum(0) + s['F0'] + s['E']
+    assert (tot(a) - tot(r)).abs().max() < 1e-12
+    assert (tot(a) - tot(b)).abs().max() < 1e-12
+    assert (a['T'].sum(0) - r['T'].sum(0)).abs().max() > 0       # the splits differ, only their totals agree
+
+
+def test_sub_intervals_telescope_and_path_dependence_is_reported():
+  """Splitting (t1, t2] at an inner grid point gives the same total change (dR telescopes, every split is complete);
+  the per-group allocations may differ (path dependence), which is what the pipeline's G+ check reports."""
+  model, init, saved = train_toy()
+  direct = toy_interval(model, init, saved, 3, 10)
+  first, second = toy_interval(model, init, saved, 3, 7), toy_interval(model, init, saved, 7, 10)
+  totals = []
+  for d in (direct, first, second):
+    cm = as_unit_major(class_weighted_inputs(d['h1'], d['h2'], d['inc'], d['y'], 5, d['u1best'], d['u2best']))
+    assert split_completeness(d['inc'], cm)['max_abs'] < 1e-12
+    totals.append(cm['dR'])
+  assert (totals[1] + totals[2] - totals[0]).abs().max() < 1e-13
+
+
+def test_full_state_remainder_is_computed_not_assumed():
+  """A full fp32-style state whose parts do not add up to the weights (as E1's snapshots, up to 8e-5): R is computed
+  from W in fp64 and the split stays exact; without W there is no remainder to use."""
+  model, init, saved = train_toy()
+  st = copy.deepcopy(saved)
+  for t in (3, 10):
+    for M in MAPS:
+      rec = st[t]['full'][f'b1.{M}']
+      rec['C'] = rec['C'] + 1e-5 * torch.randn_like(rec['C'])      # parts off by rounding-sized amounts
+  d = toy_interval(model, init, st, 3, 10, which='full')
+  for M in MAPS:
+    assert float(d['inc'][M].eps.abs().max()) > 1e-6
+  rec = image_split(d['h1'], d['h2'], d['inc'], d['u1best'], d['u2best'])
+  cm = as_unit_major(class_weighted_inputs(d['h1'], d['h2'], d['inc'], d['y'], 5, d['u1best'], d['u2best']))
+  assert split_completeness(d['inc'], cm)['max_abs'] < 1e-12
+  assert (rec['resid']).abs().max() < 1e-12
+  with pytest.raises(ValueError):
+    load_parts(st[3]['full']['b1.gate'])
+
+
+def test_momentum_carryover_is_the_whole_write_of_a_silent_group():
+  """With the second moment frozen, no decay and a constant learning rate, a group that gets no examples after t1
+  writes exactly what its momentum at t1 carries: nu_k = momentum_carryover(m_t1^(k), ...)."""
+  torch.manual_seed(0)
+  lin = nn.Linear(4, 3).double()
+  attr = GroupAttribution({'l': lin}, n_groups=3, optimizer='adamw', lr=1e-2, betas=(0.9, 0.999), dtype=DT)
+  g = torch.Generator().manual_seed(1)
+  for t in range(6):
+    x = torch.randn(8, 4, generator=g, dtype=DT)
+    (lin(x) ** 2).sum().backward()
+    attr.step(torch.randint(0, 3, (8,), generator=g))
+  s1 = copy.deepcopy(attr.full_state()['l'])
+  attr.freeze_second_moment()
+  for t in range(20):
+    x = torch.randn(8, 4, generator=g, dtype=DT)
+    (lin(x) ** 2).sum().backward()
+    attr.step(torch.randint(1, 3, (8,), generator=g))              # group 0 is silent after t1
+  s2 = attr.full_state()['l']
+  p1, p2 = load_parts(s1, W=s1['C'].sum(0) + s1['W0'], b=s1['Cb'].sum(0) + s1['b0']), \
+           load_parts(s2, W=s2['C'].sum(0) + s2['W0'], b=s2['Cb'].sum(0) + s2['b0'])
+  nu = increments(p1, p2).nu[0]
+  est = momentum_carryover(s1['m'][0], s1['v'], s1['t'], s1['t'] + 20, lambda s: 1e-2, horizon=1000)
+  assert (nu - est).abs().max() < 1e-14 * max(1.0, float(nu.abs().max())) + 1e-16
+  assert float(nu.abs().max()) > 0
+
+
+def test_lr_schedule_is_the_trainers():
+  import math
+  cfg = {'lr': 2e-3, 'warmup': 1250, 'steps': 25020, 'opt': 'adamw'}
+  f = lr_schedule(cfg)
+  assert f(0) == 2e-3 / 1250 and abs(f(1250) - 2e-3) < 1e-15
+  assert abs(f(13135) - 2e-3 * 0.5 * (1 + math.cos(math.pi * 11885 / 23770))) < 1e-15
+
+
+def test_class_sums_accumulate_like_one_batch():
+  K, U, d, N, C = 6, 3, 4, 40, 5
+  g = torch.Generator().manual_seed(4)
+  inc = {}
+  for i, M in enumerate(MAPS):
+    W0, b0 = torch.randn(U, d, generator=g, dtype=DT), torch.randn(U, generator=g, dtype=DT)
+    p1 = make_parts(random_parts(K, U, d, 0.9, 1.0, 0.05, 30 + i), W0, b0)
+    p2 = make_parts(random_parts(K, U, d, 0.85, 1.0, 0.05, 40 + i), W0, b0)
+    inc[M] = increments(p1, p2)
+  h1 = torch.randn(N, U, d, generator=g, dtype=DT)
+  h2 = h1 + torch.randn(N, U, d, generator=g, dtype=DT)
+  y = torch.randint(0, C, (N,), generator=g)
+  one = class_weighted_inputs(h1, h2, inc, y, C)
+  acc = ClassSums(C, U, d)
+  for i in range(0, N, 7):
+    rec = image_split(h1[i:i + 7], h2[i:i + 7], inc)
+    acc.add(y[i:i + 7], rec, rec['u1'], rec['u2'])
+  two = acc.means()
+  for k in ('Hbar_gate', 'Hcross_value', 'qbar_value', 'Phi', 'dR', 'R1'):
+    assert (one[k] - two[k]).abs().max() < 1e-13
+  assert float(one['Pi'].abs().max()) == 0.0
