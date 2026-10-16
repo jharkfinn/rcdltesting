@@ -682,15 +682,56 @@ Splits at step 20,000, stage-1 mean (E1 / E1r / E4):
   channels. Removing the whole stream component along a stage-1 unit's write direction costs every class 0.5 to 1.6
   nats: the direction is essential, and the unit is a small part of it.
 
+**4. Mechanism tests** (`experiments/convnext_stage1_mech.py`; E1 and E1r at steps 1,000, 2,000 and 12,500, E4 at
+1,000, 2,000 and 20,000; probe set as in part 2). The review ranked four candidate mechanisms: M1, the unit and its
+same-direction partners in the collapsed write space together write too much along that direction on the pole
+classes (the reversal tracks how much same-direction partners also respond on the unit's pole: Spearman -0.65 in E1,
+by tercile +0.11, -0.61, -1.56); M4, the unit's write cancels a useful incoming stream component; M5, the rest of the
+network reads the unit's direction against its top classes whatever the stream state; M3, the curvature of the SwiGLU
+product. Notation: e = w_n / |w_n| is the unit's write direction; at a position, s_in is the block's input along e,
+s_part the other units' writes along e, s_own = u_n |w_n| the unit's own write, s_out the block's output along e;
+kappa = SiLU(g) pa_v + SiLU'(g) v pa_g is the unit's local derivative toward its pole (pa_v, pa_g as in part 2), and
+delta = dL/du_n the teaching signal, so the push on the pole is -kappa delta, summed over positions.
+
+- M3 is excluded. Splitting the push by the signs of kappa and delta, the reversal comes from positions with
+  kappa > 0 (raising the unit raises its pole response) where the loss wants less (E1 at step 12,500: -0.50, -0.44,
+  -0.35 for blocks 0 to 2); positions with kappa < 0 add -0.03 to +0.03 in every run and block.
+- Stream state where the unit is active on its top classes (u >= 0.5 u*; E1 and E1r at 12,500, E4 at 20,000): the
+  incoming component along e is negative at 67 to 83% of the positions (|kappa|-weighted; mean s_in -0.26 to -0.51),
+  the block's other units write the other way (s_part +0.10 to +0.31), the unit's own write is small (s_own +0.01 to
+  +0.04), and the output stays negative (s_out -0.02 to -0.26). The unit's write reduces the magnitude of the stream
+  along e at 56 to 75% of these positions. This is the geometry of M4.
+- Scaling the whole stream along e (beta; delta rescaled accordingly): beta = 0.8 deepens the reversal and beta = 1.1
+  relieves it in every block of the three runs (E1 at 12,500: -0.54 / -0.37 / -0.31 for beta 0.8 / 1 / 1.1 in block
+  0; E1r -0.39 / -0.27 / -0.22; E4 at 20,000 -1.03 / -0.77 / -0.68). At these positions the downstream network wants
+  more of the (negative) component along e than the stage leaves.
+- Partners (X2): setting to zero the units of the same block whose write direction has cos > 0.9 with w_n and whose
+  write at the unit's active positions has the unit's sign, and comparing with a size-matched random set of units with
+  |cos| < 0.5: removing the partners relieves the reversal in all 27 block-steps (by +0.00 to +0.58; the share of
+  units relieved more than by the control is 0.57 to 0.92). Removing only the partners' writes along e has the same
+  effect; removing only their writes orthogonal to e does nothing. The effect is large only where the write space is
+  most collapsed: E1 at step 2,000 (block 1 from -0.17 to +0.40, effective rank 1.9, partner sets of 23 units) and E1
+  at 12,500 (+0.21 to +0.23 in blocks 0 and 1). In E1r and E4 it is +0.00 to +0.15, with partner sets of 2 to 12
+  units at the late step.
+- Class specificity (M5): comparing the unit's top-20 classes with the other classes at the same stream state along e
+  (shared quantile bins of s_out), the top classes still get a negative push (E1 at 12,500: -0.37 to -0.47; E1r -0.28
+  to -0.41; E4 at 20,000 block 0 -1.02, block 2 -0.22), while the other classes get about 0 in the same bins. So most
+  of the late reversal is not explained by where the stream is along e; on the top classes' images the rest of the
+  network reads the unit's direction against them.
+- E4 stage 1 block 1 at step 20,000 is an exception: its writes are near zero (s_part, s_own about 0) and it shows no
+  reversal (+0.03).
+
 **Reading.** In this model, from about step 1,000 on, a stage-1 unit's strongest classes teach it down and are hurt by
 its output, in three runs with two optimizers. Its top-activating classes describe what it responds to, not whom it
 serves. The effect is not an artefact of orientation, the negative SiLU lobe, selection, mixup, the read-out position,
-the normalisers' scale, the competing classes, or the optimizer. Leading mechanisms (review ranking): M1 overshoot from
-same-direction partners in a collapsed write space (the reversal tracks how much same-direction partners also respond
-on the unit's pole: Spearman -0.65 in E1, by tercile +0.11, -0.61, -1.56); M4 the unit's write cancels a useful
-incoming stream component; M5 a class-specific negative readout. Tests that decide between them (the stream state at
-the unit's active positions, zeroing a unit's same-direction partners, and a replay from step 1,000 with the stage-1
-layer scale frozen) are in progress.
+the normalisers' scale, the competing classes, the SwiGLU curvature, or the optimizer. Two parts were found. (i) A
+part that depends on the shared write direction: the stage's units write along a direction whose incoming content the
+rest of the network wants kept, and same-direction partners add to the effect; it is causal (partner removal along e,
+not orthogonal to it, relieves it) and large only where the write space is most collapsed. (ii) A larger,
+class-specific part: at the same stream state along e, the rest of the network reads the unit's direction against the
+unit's own top classes. Part (ii) is a statement about the downstream readout, not yet an explanation of it; a replay
+from step 1,000 with the stage-1 layer scale frozen (`--freeze_gamma 1`) is running to test whether the collapse of
+the write space is needed for the flip.
 
 Caveat on scope: the residual width 8 in stages 0 and 1 is this repository's choice for the tiny size (Sec. 2: the
 essay does not publish widths). Whether the same happens at the essay's medium size (widths 48 / 96 / 192 / 384) is
