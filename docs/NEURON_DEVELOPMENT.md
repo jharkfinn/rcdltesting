@@ -70,7 +70,7 @@ bit-identical.
 | E4 | Muon against AdamW against SGD | optimizer as an intervention on circuit racing | Muon done (Sec. 7, E4); SGD not run |
 | E5 | RCDL head (growing table) as a memory store | do offshoots come from captured residual error? | |
 | E6 | Umbrella = bee with exact attribution, parametric against RCDL head | off-ramp claim | |
-| E7 | Crush where packing is predicted (long-tail classes, 13-unit last layer) | rare facts ride related circuits | |
+| E7 | Crush where packing is predicted (long-tail classes, 13-unit last layer) | rare facts ride related circuits | 13-unit crush done (Sec. 7, E7); long-tail classes as the rare-class experiment (`EXACT_HISTORY.md` 4.3), running |
 | E8 | Toy: relatedness against anticorrelation as the cause of shared neurons | gap 2 above | done, 160 runs (Sec. 6) |
 
 ## 5. E0 results: the canonical InceptionV1 neurons on all 50,000 validation images
@@ -544,6 +544,36 @@ takes 0.8 to 1.9 times a uniform share of that class's pushes over the block's 6
 at a balance of strong, class-specific opposing pushes, upward from its pole and the pole's relatives and downward from
 the rest; a tug of war that continues through training. These are descriptive; the interval-split tests in
 `docs/EXACT_HISTORY.md` ask what the pushes do to individual classes.
+
+### E7: the last layer crushed to 13 units
+
+Run `e7_tiny_crush13`: the E1 recipe and seed with the last block's SwiGLU narrowed to 13 units and its skip connection
+removed (`--size tiny_crush13`), so that everything the head reads passes through 13 units: 1,000 classes on 13 units,
+where packing is forced. Top-1 accuracy 12.47% (E1: 18.52%).
+
+Mixed units (the E0d rule: the top-100 validation images of a direction form two WordNet clusters at cut 7 with at
+least 15 images each; Sec. 5), share of mixed directions in the last three blocks:
+
+| block | E1 units / random dense / random pairs | E7 units / random dense / random pairs |
+|---|---|---|
+| stage 3 block 0 (64 units) | 0.41 / 0.38 / 0.45 | 0.48 / 0.45 / 0.42 |
+| stage 3 block 1 (64 units) | 0.42 / 0.44 / 0.61 | 0.44 / 0.48 / 0.50 |
+| stage 3 block 2 (E1 64, E7 13 units) | 0.36 / 0.50 / 0.36 | 0.62 (8 of 13) / 0.55 / 0.61 |
+
+In the crushed block, units, random dense directions and random pairs of units are mixed about equally often (55 to
+62%); the units are not a privileged basis there, as in E1's late blocks. (13 units give a share with a wide interval.)
+
+Growth tests v4 on E7, late blocks: co-timing r = 0.027 (5% of planted, z = 5.2), surviving the network clock (z = 4.9)
+and the stage clock (z = 5.3); visual co-timing 0.021 (7%, z = 5.1); visual nearest-earlier 14% of planted (z = -1.9);
+no outward direction (T2 1.5%, interval -5% to +6%); head start (T5) as in E1 and E1r: survival without own writes 0.35
+against 0.49 for one random class (11 of 12 blocks), entering minus incumbents +0.088 (t = 6.0). Early blocks: WordNet
+T2 is 11% of a planted outward order (t = 2.9, interval 4% to 16%), the only outward-order signal in any run so far
+(visual 1%, not significant); it is one seed and one test among many.
+
+Reading: crushing the last layer lowers accuracy by 6 points and makes its few units as mixed as random directions,
+without changing the growth statistics of the other blocks. Whether the crushed units mix related classes (packing by
+relatedness, which the essay expects) or unrelated ones is the question of the rare-class experiment
+(`docs/EXACT_HISTORY.md` Sec. 4.3).
 
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
