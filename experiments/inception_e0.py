@@ -112,15 +112,90 @@ def collect(val_dir: str, weights: str, out: str, batch: int = 250):
   print('saved', out, len(labels), 'images', f'{time.time() - t0:.0f}s')
 
 
+def class_names(imagenet_dir: str):
+  """Label index -> name, in the dataset's own order (classes.py of ILSVRC/imagenet-1k)."""
+  ns = {}
+  exec(open(os.path.join(imagenet_dir, 'classes.py')).read(), ns)
+  return [v.split(',')[0] for v in ns['IMAGENET2012_CLASSES'].values()]
+
+
+def expanded_inputs(sd, layer: str, prev_channel: int):
+  """Linearized weight from one channel of the previous mixed layer into every channel of `layer` (Lucid order),
+  through the 1x1 bottlenecks of the 3x3 and 5x5 branches (their ReLU ignored) and the pool branch's 1x1 (its max-pool
+  ignored), summed over the kernel: the 'expanded weights' of the Circuits work. Returns a (channels,) tensor."""
+  w = lambda n: sd[f'{layer}_{n}_pre_relu_conv.weight'].float()
+  c = prev_channel
+  e1 = w('1x1')[:, c, 0, 0]
+  e3 = torch.einsum('obhw,b->o', w('3x3'), w('3x3_bottleneck')[:, c, 0, 0])
+  e5 = torch.einsum('obhw,b->o', w('5x5'), w('5x5_bottleneck')[:, c, 0, 0])
+  ep = w('pool_reduce')[:, c, 0, 0]
+  return torch.cat([e1, e3, e5, ep])
+
+
+def concat_stats(stats, layer: str, kind: str):
+  """(images, channels) spatial max or min of the pre-ReLU response, in Lucid's concatenated channel order."""
+  return np.concatenate([stats[f'{kind}__{layer}_{b}_pre_relu_conv'].astype('f4') for b in BRANCHES], 1)
+
+
+def analyze(stats_path: str, imagenet_dir: str, weights: str, out: str, k: int = 50):
+  import json
+  st = np.load(stats_path)
+  names = class_names(imagenet_dir)
+  labels = st['labels']
+  sd = torch.load(weights, map_location='cpu', weights_only=True)
+  dogs = set(range(151, 269))
+  car_names = ['ambulance', 'beach wagon', 'cab', 'convertible', 'jeep', 'limousine', 'minivan', 'Model T', 'racer',
+               'sports car']
+  cars = {i for i, n in enumerate(names) if n in car_names}
+  def pole(layer, ch, kind):
+    a = concat_stats(st, layer, kind)[:, ch]
+    idx = np.argsort(-a if kind == 'max' else a)[:k]
+    lab = labels[idx]
+    counts = {}
+    for l in lab:
+      counts[names[l]] = counts.get(names[l], 0) + 1
+    top = sorted(counts.items(), key=lambda t: -t[1])[:12]
+    return {'top_classes': top, 'dogs': int(sum(l in dogs for l in lab)), 'cars': int(sum(l in cars for l in lab)),
+            'values': [float(a[idx[0]]), float(a[idx[-1]])]}
+  res = {'n_images': int(len(labels)), 'top1_acc_note': 'inception5h has 1,008 outputs in its own order; not scored',
+         'car_classes': sorted(names[i] for i in cars)}
+  res['mixed4e:55'] = {'positive': pole('mixed4e', 55, 'max'), 'negative': pole('mixed4e', 55, 'min')}
+  inputs = torch.stack([expanded_inputs(sd, 'mixed4e', c)[55] for c in range(528)])   # 4d channel -> 4e:55
+  res['mixed4e:55']['strongest_inputs_4d'] = [
+    {'channel': int(c), 'weight': float(inputs[c]), 'positive': pole('mixed4d', int(c), 'max')['top_classes'][:6]}
+    for c in torch.argsort(-inputs)[:6]]
+  res['mixed4e:55']['most_negative_inputs_4d'] = [
+    {'channel': int(c), 'weight': float(inputs[c]), 'positive': pole('mixed4d', int(c), 'max')['top_classes'][:6]}
+    for c in torch.argsort(inputs)[:4]]
+  res['mixed4c:447'] = {'positive': pole('mixed4c', 447, 'max'), 'negative': pole('mixed4c', 447, 'min')}
+  readers = expanded_inputs(sd, 'mixed4d', 447)
+  a447 = concat_stats(st, 'mixed4c', 'max')[:, 447]
+  m4d = concat_stats(st, 'mixed4d', 'max')
+  res['mixed4c:447']['readers_4d'] = []
+  for c in torch.argsort(-readers)[:8].tolist():
+    r = pole('mixed4d', c, 'max')
+    res['mixed4c:447']['readers_4d'].append({'channel': c, 'weight': float(readers[c]),
+                                             'corr_with_447': float(np.corrcoef(a447, m4d[:, c])[0, 1]),
+                                             'dogs_in_top50': r['dogs'], 'cars_in_top50': r['cars'],
+                                             'top_classes': r['top_classes'][:8]})
+  os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
+  json.dump(res, open(out, 'w'), indent=1)
+  print(json.dumps(res, indent=1)[:6000])
+
+
 def main():
   p = argparse.ArgumentParser()
-  p.add_argument('cmd', choices=['collect'])
-  p.add_argument('--val', required=True)
+  p.add_argument('cmd', choices=['collect', 'analyze'])
+  p.add_argument('--val', required=True, help='collect: dir with validation parquet; analyze: the ImageNet dir with classes.py')
   p.add_argument('--weights', required=True)
+  p.add_argument('--stats', default='results/e0/val_stats.npz')
   p.add_argument('--out', default='results/e0/val_stats.npz')
   p.add_argument('--batch', type=int, default=250)
   a = p.parse_args()
-  collect(a.val, a.weights, a.out, a.batch)
+  if a.cmd == 'collect':
+    collect(a.val, a.weights, a.out, a.batch)
+  else:
+    analyze(a.stats, a.val, a.weights, a.out)
 
 
 if __name__ == '__main__':
