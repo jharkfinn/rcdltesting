@@ -218,3 +218,44 @@ def test_soft_groups_add_up_and_equal_hard_groups_when_one_hot(opt):
             weights=torch.stack([lam, 1 - lam], 1))
   r = a3.residual('l0')
   assert r['weight'] < 1e-12 and r['bias'] < 1e-12
+
+
+@pytest.mark.parametrize('opt', ['adamw', 'muon'])
+def test_scalar_soft_weights_equal_per_row_weights(opt):
+  """weights=(lam, 1 - lam) as floats gives the same parts as the same weights given per row."""
+  outs = []
+  for scalar in (False, True):
+    model = tiny(4)
+    attr = GroupAttribution({'l0': model[0]}, n_groups=4, optimizer=opt, lr=1e-2, weight_decay=0.05,
+                            dtype=torch.float64)
+    x, y, groups = data(10, 6, seed=9)
+    for t in range(10):
+      lam = 0.3 + 0.04 * t
+      loss_fn(model(x[t]), y[t]).backward()
+      model[2].zero_grad()
+      g2 = torch.stack([groups[t], groups[t].flip(0)], 1)
+      w = (lam, 1 - lam) if scalar else torch.tensor([[lam, 1 - lam]]).expand(6, 2)
+      attr.step(g2, weights=w)
+    outs.append(attr.tracked['l0'].C.clone())
+  assert torch.allclose(outs[0], outs[1], atol=1e-14, rtol=0)
+
+
+def test_compact_state_is_exact_with_its_remainder():
+  """Scaled fp16 parts plus the fp32 remainder give back the weights to fp32 rounding, and tiny parts stay nonzero."""
+  model = tiny(5)
+  attr = GroupAttribution({'l0': model[0]}, n_groups=4, optimizer='adamw', lr=1e-6, weight_decay=0.05,
+                          dtype=torch.float32)
+  x, y, groups = data(3, 6, seed=11)
+  for t in range(3):
+    loss_fn(model(x[t]), y[t]).backward()
+    model[2].zero_grad()
+    attr.step(groups[t])
+  st = attr.compact_state()['l0']
+  tr = attr.tracked['l0']
+  C = st['C'].float() / st['C_scale']
+  assert (C != 0).sum() == (tr.C != 0).sum()                      # lr 1e-6: plain fp16 would be subnormal or zero
+  assert torch.allclose(C, tr.C, rtol=1e-3, atol=0)
+  W = st['a'] * tr.W0.float() + C.sum(0) + st['R']
+  assert torch.allclose(W, model[0].weight.float(), atol=1e-7, rtol=0)
+  b = st['ab'] * tr.b0.float() + st['Cb'].float().sum(0) / st['Cb_scale'] + st['Rb']
+  assert torch.allclose(b, model[0].bias.float(), atol=1e-7, rtol=0)

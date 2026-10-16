@@ -9,7 +9,9 @@ the batch paired with its reverse (as in timm), no cutmix, label smoothing, EMA 
 
 Attribution: rcdl.attribution.GroupAttribution tracks pw_gate and pw_value of the chosen blocks with one group per class
 and mixup's two source classes as soft groups (lam, 1 - lam); the tracked maps are updated by it with the same optimizer
-settings, the rest by torch. Saved per checkpoint: the model, the per-class parts C (fp16) and validation accuracy.
+settings, the rest by torch. Saved per checkpoint: the model, the per-class parts C (fp16 times a power-of-two scale,
+with the fp32 remainder R so that W = a W_0 + sum_k C_k + R exactly; GroupAttribution.compact_state) and validation
+accuracy.
 """
 
 import argparse
@@ -144,11 +146,9 @@ def main():
   def checkpoint(step):
     acc, n_val = evaluate(model, a.val, dev, None if step == a.steps else a.val_limit)
     torch.save(model.state_dict(), os.path.join(a.out, f'model_{step:05d}.pt'))
-    st = attr.state_dict()
-    torch.save({k: {'C': v['C'].half(), 'Cb': v['Cb'].half(), 'a': v['a'], 'ab': v['ab'], 't': v['t']} for k, v in st.items()},
-               os.path.join(a.out, f'attr_{step:05d}.pt'))
+    torch.save(attr.compact_state(), os.path.join(a.out, f'attr_{step:05d}.pt'))   # scaled fp16 parts + fp32 remainder
     if step == 0:
-      torch.save({k: {'W0': v['W0'], 'b0': v['b0']} for k, v in st.items()}, os.path.join(a.out, 'attr_init.pt'))
+      torch.save({k: {'W0': tr.W0, 'b0': tr.b0} for k, tr in attr.tracked.items()}, os.path.join(a.out, 'attr_init.pt'))
     rec = {'step': step, 'val_acc': acc, 'n_val': n_val, 'sec': time.time() - t0}
     log.append(rec)
     json.dump(log, open(os.path.join(a.out, 'log.json'), 'w'))
@@ -172,7 +172,7 @@ def main():
         o.zero_grad(set_to_none=True)
       loss.backward()
       attr.step(torch.stack([y, y2], 1), (a.lr if a.opt == 'adamw' else a.muon_lr) * sched(step),
-                weights=torch.tensor([[lam, 1 - lam]], device=dev).expand(len(y), 2))
+                weights=(lam, 1 - lam))                   # Python floats: no host-device sync
       for o in opts:
         o.step()
       step += 1

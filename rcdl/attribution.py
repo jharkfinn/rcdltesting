@@ -75,14 +75,31 @@ def _no_tf32():
     torch.backends.cuda.matmul.allow_tf32 = prev
 
 
-def _scatter(buf: torch.Tensor, groups: torch.Tensor, weights: Optional[torch.Tensor], G: torch.Tensor, alpha: float):
-  """buf[groups[i, r]] += alpha * weights[i, r] * G[i] (hard groups: groups (B,), weights None)."""
+def _scatter(buf: torch.Tensor, groups: torch.Tensor, weights, G: torch.Tensor, alpha: float):
+  """buf[groups[i, r]] += alpha * weights[i, r] * G[i] (hard groups: groups (B,), weights None). weights may also be
+  a sequence of Python floats, one per column r, shared by all rows (mixup's lam, 1 - lam): no weighted copy of G and
+  no host-device synchronization."""
   if groups.dim() == 1:
     buf.index_add_(0, groups, G, alpha=alpha)
+    return
+  if not torch.is_tensor(weights):
+    for r, w in enumerate(weights):
+      buf.index_add_(0, groups[:, r], G, alpha=alpha * float(w))
     return
   shape = (-1,) + (1,) * (G.dim() - 1)
   for r in range(groups.shape[1]):
     buf.index_add_(0, groups[:, r], G * weights[:, r].to(G.dtype).view(shape), alpha=alpha)
+
+
+def to_fp16_scaled(T: torch.Tensor, chunk: int = 64):
+  """(fp16 tensor, scale) with T ~= fp16 / scale; scale = 2^floor(log2(16384 / max |T|)) is exact and keeps every entry
+  within 2^-28 of the maximum out of fp16's subnormal range. Works in chunks along dim 0 (no full fp32 copy)."""
+  mx = float(T.abs().max()) if T.numel() else 0.0
+  scale = 2.0 ** math.floor(math.log2(16384.0 / mx)) if mx > 0 else 1.0
+  out = torch.empty(T.shape, dtype=torch.float16, device=T.device)
+  for i in range(0, T.shape[0], chunk):
+    out[i:i + chunk] = (T[i:i + chunk] * scale).half()
+  return out, scale
 
 
 class _Tracked:
@@ -224,10 +241,10 @@ class GroupAttribution:
     self.lr, self.n_groups = lr, n_groups
     self.tracked = {name: _Tracked(lin, n_groups, optimizer, hp, dtype) for name, lin in layers.items()}
 
-  def step(self, groups: torch.Tensor, lr: Optional[float] = None, weights: Optional[torch.Tensor] = None):
-    """groups (B,) hard, or (B, r) soft with weights (B, r) whose rows sum to 1 (e.g. mixup: the two source classes
-    with lam and 1 - lam): each example's gradient is split across its groups by these weights, so the parts still add
-    up exactly; the split itself is a modelling choice."""
+  def step(self, groups: torch.Tensor, lr: Optional[float] = None, weights=None):
+    """groups (B,) hard, or (B, r) soft with weights (B, r) whose rows sum to 1, or a sequence of r floats shared by
+    every row (e.g. mixup: the two source classes with lam and 1 - lam): each example's gradient is split across its
+    groups by these weights, so the parts still add up exactly; the split itself is a modelling choice."""
     lr = self.lr if lr is None else lr
     for tr in self.tracked.values():
       tr.step(groups, lr, weights)
@@ -256,6 +273,25 @@ class GroupAttribution:
       groups = groups + tr.Cb[:, idx][:, None, :]
       init = init + tr.ab * tr.b0[idx]
     return {'groups': groups, 'init': init}
+
+  @torch.no_grad()
+  def compact_state(self) -> Dict[str, dict]:
+    """Checkpoint form: C and Cb as scaled fp16 (to_fp16_scaled) without an fp32 clone, plus the fp32 remainder
+    R = (W - a W_0) - sum_k C_k (stored) and Rb for the bias, so that W = a W_0 + sum_k C_k + R holds exactly with the
+    stored parts. Load with: C_k = C[k].float() / C_scale."""
+    out = {}
+    for name, tr in self.tracked.items():
+      rec = {'a': tr.a, 'ab': tr.ab, 't': tr.t}
+      rec['C'], rec['C_scale'] = to_fp16_scaled(tr.C)
+      csum = torch.zeros(tr.C.shape[1:], dtype=torch.float32, device=tr.C.device)
+      for i in range(0, rec['C'].shape[0], 64):
+        csum += rec['C'][i:i + 64].float().sum(0)
+      rec['R'] = (tr.lin.weight.detach().float() - tr.a * tr.W0.float()) - csum / rec['C_scale']
+      if tr.Cb is not None:
+        rec['Cb'], rec['Cb_scale'] = to_fp16_scaled(tr.Cb)
+        rec['Rb'] = (tr.lin.bias.detach().float() - tr.ab * tr.b0.float()) - rec['Cb'].float().sum(0) / rec['Cb_scale']
+      out[name] = rec
+    return out
 
   def state_dict(self) -> Dict[str, Dict[str, torch.Tensor]]:
     """Contributions and decay factors of every tracked layer (for checkpoints over training)."""

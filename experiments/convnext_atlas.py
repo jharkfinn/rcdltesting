@@ -20,8 +20,8 @@ the gate).
 Saved per checkpoint (atlas_{step}.pt), per block: R (units, classes) mean u*; Vm, Gm (units, classes) mean v and g at
 p*; and, for each unit's `poles` strongest and `poles` weakest classes at the final checkpoint (the pole classes, fixed
 across checkpoints so that growth can be followed), the full writer vectors V, G (units, 2 * poles, K) and the initial
-parts (units, 2 * poles). `resid` is max |v - (init + sum_k parts)| over the probe set, nonzero only from the fp16
-storage of C. While the run is incomplete, each checkpoint picks its own pole classes and is saved as
+parts (units, 2 * poles). `resid` is max |v - (init + sum_k parts)| over the probe set; the fp16 storage remainder R of
+the trainer's checkpoints is counted in the initial part, so `resid` is at fp32 rounding. While the run is incomplete, each checkpoint picks its own pole classes and is saved as
 atlas_prelim_{step}.pt.
 
 Usage: python3 -m experiments.convnext_atlas --run <run dir> --val <validation parquet dir> [--per_class 8]
@@ -129,9 +129,14 @@ def atlas_step(model, attr, init, x_u8, y, n_classes, poles_idx=None, poles=20, 
       rec = {'R': R.cpu(), 'Vm': Vm.cpu(), 'Gm': Gm.cpu(), 'poles': pidx, 'resid': 0.0}
       for mname, key_star in (('value', 'v'), ('gate', 'g')):
         key = f'{b}.pw_{mname}'
-        C, Cb = attr[key]['C'].to(device).float(), attr[key]['Cb'].to(device).float()   # (K, units, d), (K, units)
-        a, ab = float(attr[key]['a']), float(attr[key]['ab'])
+        ak = attr[key]
+        C = ak['C'].to(device).float() / ak.get('C_scale', 1.0)                       # (K, units, d)
+        Cb = ak['Cb'].to(device).float() / ak.get('Cb_scale', 1.0)                    # (K, units)
+        a, ab = float(ak['a']), float(ak['ab'])
         W0, b0 = init[key]['W0'].to(device).float(), init[key]['b0'].to(device).float()
+        if 'R' in ak:                       # remainder of the fp16 storage: counted with the initial part, so exact
+          W0 = W0 + ak['R'].to(device).float() / a
+          b0 = b0 + ak['Rb'].to(device).float() / ab
         units, K = C.shape[1], C.shape[0]
         out = torch.zeros(units, pidx.shape[1], K, device=device)
         ini = torch.zeros(units, pidx.shape[1], device=device)
