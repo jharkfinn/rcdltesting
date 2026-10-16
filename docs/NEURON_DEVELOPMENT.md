@@ -194,9 +194,9 @@ samples of writer feature w and I the decayed initial weight's part; a pair samp
 A spillover entry is a feature that enters a unit's final pole (first checkpoint above 0.3 of the unit's largest
 response) with more than half of its pre-activation written by members already in the pole.
 - Most features enter a pole by spillover in every cell, so growth by spillover is the normal case in this toy.
-- With related inputs, the earlier member that wrote most of the entry is a relative 1.6 to 2.4 times as often as
+- With related inputs, the earlier member that wrote most of the entry is a relative 1.6 to 2.5 times as often as
   chance. At rho 0 the rate is at chance, which checks the method.
-- Most spillover still comes from unrelated members (75% to 85% at rho 0.6), through the shared m-dimensional
+- Most spillover still comes from unrelated members (75% to 83% at rho 0.6), through the shared m-dimensional
   bottleneck. Relatedness is one driver of growth here, and it is not the main one.
 - In ReLU units a feature's own samples write little of its pole response (median own share -0.18 to 0.29). In SwiGLU
   units they write more (0.12 to 0.54).
