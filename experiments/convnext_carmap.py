@@ -69,18 +69,21 @@ def car_probe(val_dir, cache=None, per_other=4):
 
 @torch.no_grad()
 def pooled_units(model, x_u8, batch=100):
-  """(N, units) spatial mean, max and min of every block's SwiGLU product, blocks in model order."""
+  """(N, units) spatial mean, max and min of every block's SwiGLU product, blocks in model order (on the model's
+  device; returned on the CPU)."""
+  dev = next(model.parameters()).device
+  mean, std = MEAN.to(dev)[:, None, None], STD.to(dev)[:, None, None]
   outs = {'mean': [], 'max': [], 'min': []}
   feats = []
   hooks = [b.norm.register_forward_hook(lambda m, i, o, b=b: feats.append(F.silu(b.pw_gate(o)) * b.pw_value(o)))
            for _, b in model.blocks()]
   for i in range(0, len(x_u8), batch):
     feats.clear()
-    model(((x_u8[i:i + batch].float() - MEAN[:, None, None]) / STD[:, None, None]))
+    model((x_u8[i:i + batch].to(dev).float() - mean) / std)
     u = [f.flatten(1, 2) for f in feats]                      # (B, positions, units) per block
-    outs['mean'].append(torch.cat([t.mean(1) for t in u], 1))
-    outs['max'].append(torch.cat([t.amax(1) for t in u], 1))
-    outs['min'].append(torch.cat([t.amin(1) for t in u], 1))
+    outs['mean'].append(torch.cat([t.mean(1) for t in u], 1).cpu())
+    outs['max'].append(torch.cat([t.amax(1) for t in u], 1).cpu())
+    outs['min'].append(torch.cat([t.amin(1) for t in u], 1).cpu())
   for h in hooks:
     h.remove()
   return {k: torch.cat(v) for k, v in outs.items()}
@@ -96,12 +99,13 @@ def auroc(score, pos):
 
 
 def timeline(run, x, y, size='tiny'):
-  model = build_convnext(size).eval()
+  dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+  model = build_convnext(size).to(dev).eval()
   steps = sorted(int(f[-8:-3]) for f in glob.glob(os.path.join(run, 'model_[0-9]*.pt')))
   is_car = torch.isin(y, torch.tensor(CAR))
   out = np.zeros((len(steps), len(MODES), sum(64 for _ in model.blocks()), len(TARGETS)), np.float32)
   for si, s in enumerate(steps):
-    model.load_state_dict(torch.load(os.path.join(run, f'model_{s:05d}.pt'), map_location='cpu'))
+    model.load_state_dict(torch.load(os.path.join(run, f'model_{s:05d}.pt'), map_location=dev))
     pu = pooled_units(model, x)
     for mi, mode in enumerate(MODES):
       sc = {'mean+': pu['mean'], 'mean-': -pu['mean'], 'max+': pu['max'], 'min-': -pu['min']}[mode].double()
