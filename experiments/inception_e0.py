@@ -183,9 +183,41 @@ def analyze(stats_path: str, imagenet_dir: str, weights: str, out: str, k: int =
   print(json.dumps(res, indent=1)[:6000])
 
 
+def profile(stats_path: str, imagenet_dir: str, layer: str, channel: int, out: str = None, top: int = 25):
+  """Class-level view of one channel: per class, the mean over its 50 validation images of the spatial maximum and
+  minimum; the classes ranked by each; and, for the motor-vehicle classes of experiments/inception_paths, their ranks and
+  the rank of the first vehicle image among all 50,000 sorted by the spatial maximum."""
+  import json
+  from experiments.inception_paths import VEHICLES
+  st = np.load(stats_path)
+  names = class_names(imagenet_dir)
+  labels = st['labels']
+  mx, mn = concat_stats(st, layer, 'max')[:, channel], concat_stats(st, layer, 'min')[:, channel]
+  n_cls = len(names)
+  cm = np.array([mx[labels == c].mean() for c in range(n_cls)])
+  cn = np.array([mn[labels == c].mean() for c in range(n_cls)])
+  by_max, by_min = np.argsort(-cm), np.argsort(cn)
+  rank = {int(c): r for r, c in enumerate(by_max)}
+  veh = [i for i, n in enumerate(names) if n in VEHICLES]
+  order = np.argsort(-mx)
+  first_vehicle_image = int(np.where(np.isin(labels[order], veh))[0][0])
+  res = {'unit': f'{layer}:{channel}',
+         'classes_by_mean_max': [(names[c], round(float(cm[c]), 1)) for c in by_max[:top]],
+         'classes_by_mean_min': [(names[c], round(float(cn[c]), 1)) for c in by_min[:top]],
+         'vehicle_class_ranks_by_mean_max': sorted((rank[c], names[c], round(float(cm[c]), 1)) for c in veh),
+         'first_vehicle_image_rank_by_max': first_vehicle_image,
+         'all_images_max_percentiles': {q: round(float(np.percentile(mx, q)), 1) for q in (50, 90, 99, 99.9)}}
+  if out:
+    os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
+    json.dump(res, open(out, 'w'), indent=1)
+  print(json.dumps(res))
+
+
 def main():
   p = argparse.ArgumentParser()
-  p.add_argument('cmd', choices=['collect', 'analyze'])
+  p.add_argument('cmd', choices=['collect', 'analyze', 'profile'])
+  p.add_argument('--layer', default='mixed4e')
+  p.add_argument('--channel', type=int, default=55)
   p.add_argument('--val', required=True, help='collect: dir with validation parquet; analyze: the ImageNet dir with classes.py')
   p.add_argument('--weights', required=True)
   p.add_argument('--stats', default='results/e0/val_stats.npz')
@@ -194,6 +226,9 @@ def main():
   a = p.parse_args()
   if a.cmd == 'collect':
     collect(a.val, a.weights, a.out, a.batch)
+  elif a.cmd == 'profile':
+    assert a.out.endswith('.json'), 'profile writes JSON; pass --out <file>.json (the default is the statistics file)'
+    profile(a.stats, a.val, a.layer, a.channel, a.out)
   else:
     analyze(a.stats, a.val, a.weights, a.out)
 
