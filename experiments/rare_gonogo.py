@@ -271,7 +271,7 @@ def main():
   p.add_argument('--out', required=True)
   p.add_argument('--set', default=None, choices=['A', 'B', 'C'], help='override the run set (default: spec meta)')
   p.add_argument('--probe_cache', default='/dev/shm/probe_8.pt')
-  p.add_argument('--val_cache', default='/dev/shm/rare_val_v2.pt')
+  p.add_argument('--val_cache', default='/marimo/work/rare_val_v2.pt')
   p.add_argument('--train', default='', help='packed training set (/dev/shm/imagenet256): adds fit_T')
   p.add_argument('--images', default='', help='pre-built images {V, Vlabels, Q, Qy} (tests)')
   p.add_argument('--device', default=None)

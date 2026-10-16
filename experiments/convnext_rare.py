@@ -201,17 +201,20 @@ def probe_stats(model, xQ_u8, yQ, n_classes: int, device, batch: int = 200, dtyp
 @torch.no_grad()
 def unit_ablation(model, x, y, ubar: Dict[str, torch.Tensor], units_per_pass: int = 8, batch: int = 128):
   """Delta (n_units, N): zeta_{y_i}(x_i) - zeta_{y_i}(x_i | u_n := ubar_n), units in unit_list order. Block caching:
-  the prefix up to a block runs once per batch, and units_per_pass units are ablated in one pass of the suffix."""
+  the prefix up to a block runs once per batch, and units_per_pass units are ablated in one pass of the suffix.
+  x: normalized images, or uint8 (normalized per batch on the model's device)."""
+  p0 = next(model.parameters())
   seq = layer_seq(model)
   named = dict(model.blocks())
   offs, o = {}, 0
   for b, blk in model.blocks():
     offs[b] = o
     o += blk.pw_gate.out_features
-  y = torch.as_tensor(y, device=x.device)
+  y = torch.as_tensor(y, device=p0.device)
   D = torch.zeros(o, len(x), dtype=torch.float64)
   for i0 in range(0, len(x), batch):
     xb, yb = x[i0:i0 + batch], y[i0:i0 + batch]
+    xb = normalize(xb, p0.device).to(p0.dtype) if xb.dtype == torch.uint8 else xb.to(p0.device)
     B = len(yb)
     act = xb
     base = None
@@ -350,7 +353,7 @@ def part_norms(parts: Dict[str, dict], keys) -> np.ndarray:
 
 def p1_unit(g, v, s, sig, P_cls, P_own, near, draws, own_set, nown_sets, c, sg, sv):
   """All knockout numbers of one unit. P_cls = (P^g, P^v) (G_cls, N) class parts; P_own = (P^g, P^v) of the own split
-  (fine, or the class split for own = whole class). Returns a dict of arrays (see p1_class)."""
+  (fine, or the class split for own = whole class). Returns a dict of arrays (see summarize_p1)."""
   Pg, Pv = P_cls
   Og, Ov = P_own
   idx = torch.as_tensor(np.concatenate([np.asarray(near)[None], np.asarray(draws)]), device=Pg.device)
@@ -740,12 +743,11 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
   # carriers: mean ablation on Q (every class) and on V_sel (the analysed classes, one pass for all)
   ubar = {b: ps[b]['ubar'].to(device, dtype) for b in blocks}
   Qy_t = torch.as_tensor(np.asarray(Qy))
-  xQ = normalize(Q, device).to(dtype)
-  zQ = logits_of(model, xQ, device, dtype=dtype)
-  DQ = unit_ablation(model, xQ, Qy_t, ubar)
+  zQ = logits_of(model, Q, device, dtype=dtype)
+  DQ = unit_ablation(model, Q, Qy_t, ubar)                     # uint8 images stay on the CPU, normalized per batch
   DeltaQ = torch.zeros(len(units), n_classes, dtype=torch.float64).index_add_(1, Qy_t, DQ)
   DeltaQ /= torch.bincount(Qy_t, minlength=n_classes).clamp_min(1).double()[None]
-  xs = {c: normalize(probes(sel, c, V, Vpos, noise_x), device).to(dtype) for c in classes}
+  xs = {c: probes(sel, c, V, Vpos, noise_x) for c in classes}
   xsel = torch.cat([xs[c][0::2] for c in classes])
   ysel = torch.cat([torch.full((len(xs[c][0::2]),), c) for c in classes])
   DV = unit_ablation(model, xsel, ysel, ubar)
@@ -769,7 +771,7 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
   recs, pos = [], 0
   for ci, c in enumerate(classes):
     row = sel.rows[c]
-    x = xs[c]
+    x = normalize(xs[c], device).to(dtype)
     near, pool = sel.near10(c), sel.pi(c)
     nown = [k for k in sel.n_own(c) if k in set_id]
     draws = matched_draws(near, pool, cdec, ndec, n_draws, np.random.default_rng([seed, c]))
@@ -944,7 +946,7 @@ def cmd_flow(a):
   loader = GPUTrainLoader(a.train, 64, dev, keep=spec['keep'] if spec is not None else None,
                           labels=spec['labels'] if spec is not None else None,
                           noise=spec.get('noise') if spec is not None else None)
-  classes = sorted(sel.rows)
+  classes = [int(c) for c in a.only.split(',')] if a.only else sorted(sel.rows)
   T = {}
   for c in classes:
     if spec is not None:
@@ -1140,7 +1142,7 @@ def m4_collapse(model, mods, parts_c, sel: Selection, classes, V, Vpos, Q, Qy, c
   ukeys = [k for k in parts_c if k != 'head']
   norms = part_norms(parts_c, ukeys)
   cdec, ndec = deciles(counts), deciles(norms)
-  xQ = normalize(Q, device).to(dtype)
+  yQ = torch.as_tensor(np.asarray(Qy))
   out = []
   for c in classes:
     x = normalize(V[Vpos[c]], device).to(dtype)
@@ -1153,13 +1155,13 @@ def m4_collapse(model, mods, parts_c, sel: Selection, classes, V, Vpos, Q, Qy, c
         X = base - float(zeta(model(x), c).mean())
         acc = None
         if name in ('near', 'rand0'):
-          acc = float((logits_of(model, xQ, device, dtype=dtype).argmax(1) == torch.as_tensor(np.asarray(Qy))).float().mean())
+          acc = float((logits_of(model, Q, device, dtype=dtype).argmax(1) == yQ).float().mean())
       finally:
         undo()
       res[name] = {'X': X, 'probe_top1': acc}
     nulls = [res[f'rand{i}']['X'] for i in range(n_null)]
-    res['X_near'], res['X_null_median'], res['X_null_iqr'] = res['near']['X'], float(np.median(nulls)), \
-      float(np.subtract(*np.percentile(nulls, [75, 25])))
+    res['X_near'], res['X_null_median'] = res['near']['X'], float(np.median(nulls))
+    res['X_null_iqr'] = float(np.subtract(*np.percentile(nulls, [75, 25])))
     out.append(res)
   return out
 
@@ -1278,8 +1280,9 @@ def cmd_compare(a):
       if get(rr[c], 'P2.defined') and l3 is not None and ref is not None:
         d2.append(l3 - ref)
     res['P2'] = bootstrap_median(d2)
-    res['P2']['frac_lambda3_gt_half'] = float(np.mean([get(rr[c], 'P2.lambda3') > 0.5 for c in prim
-                                                       if get(rr[c], 'P2.lambda3') is not None])) if prim else None
+    l3r = [get(rr[c], 'P2.lambda3') for c in prim if get(rr[c], 'P2.defined') and get(rr[c], 'P2.lambda3') is not None]
+    res['P2']['median_lambda3_rare'] = float(np.median(l3r)) if l3r else None
+    res['P2']['frac_lambda3_gt_half'] = float(np.mean([v > 0.5 for v in l3r])) if l3r else None
     df = [get(rr[c], 'P3.Delta_flow') for c in prim if get(rr[c], 'P3.defined')]
     res['P3'] = bootstrap_median([v for v in df if v is not None])
     gap = [get(rr[c], 'P3.R_flow') - get(rr[c], 'P3.R_mis') for c in prim
@@ -1318,7 +1321,8 @@ def cmd_compare(a):
       boot = [icept(pts[rng.integers(len(pts), size=len(pts))]) for _ in range(2000)]
       res['S1_RBpx_at_RPp_half'] = {'n': len(pts), 'intercept': icept(pts),
                                     'ci95': np.percentile(boot, [2.5, 97.5]).tolist(),
-                                    'median_RBpx': float(np.median(pts[:, 1])), 'median_RPp': float(np.median(pts[:, 0]))}
+                                    'median_RBpx': float(np.median(pts[:, 1])),
+                                    'median_RPp': float(np.median(pts[:, 0]))}
     # S2: per-image memorization, rare - C0 on the same images, per stage and head
     s2 = {}
     for c in prim:
@@ -1429,11 +1433,13 @@ def cmd_compare(a):
   ok_p3 = s0['P3'].get('n') and d is not None and s0['P3']['ci95'][0] >= -d and \
     s0['P3_own_minus_mis'].get('median', -1) > 0
   if sig('P1') and s0['P1']['median'] > 0 and sig('P2') and s0['P2']['median'] > 0 and \
-     (s0['P2'].get('frac_lambda3_gt_half') or 0) > 0.5 and ok_p3:
+     (s0['P2'].get('median_lambda3_rare') or 0) > 0.5 and ok_p3:
     support.append('all of P1 > 0, P2 > 0 with lambda_3 > 0.5, P3 within -delta with R_own > R_mis')
   controls_ok = s0['noise_control']['passes'] and s0['relabel_control']['passes']
   out['decision'] = {'against_essay': against, 'support_for_essay': support, 'controls_pass': controls_ok,
                      'replicated': {k: replicated(k) for k in ('P1', 'P2', 'P3')} if rep else 'no seed-1 runs',
+                     'rule': 'a count against the essay needs Holm significance, the floors (floor_wilcoxon) and '
+                             'seed-1 replication',
                      'note': None if controls_ok else 'positive controls failed: primaries are unvalidated'}
   json.dump(clean_json(out), open(a.out, 'w'), indent=1)
   print(json.dumps(clean_json(out['decision']), indent=1))
@@ -1570,7 +1576,7 @@ def main():
     q.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz')
     q.add_argument('--visual', default='docs/data/imagenet_dinov2_classdist.npz')
     q.add_argument('--probe_cache', default='/dev/shm/probe_8.pt')
-    q.add_argument('--val_cache', default='/dev/shm/rare_val_v2_src.pt')
+    q.add_argument('--val_cache', default='/marimo/work/rare_val_v2_src.pt')
     q.add_argument('--images', default='', help='pre-built images {V, Vlabels, Q, Qy} (tests)')
     q.add_argument('--train', default='')
     q.add_argument('--labels', default='/dev/shm/imagenet256/labels.npy', help='class counts when there is no spec')
@@ -1587,6 +1593,7 @@ def main():
   m.add_argument('--phase0', action='store_true', help='own = the whole class (class split), adds M4')
   m.add_argument('--m4', type=int, default=20)
   sub.choices['flow'].add_argument('--n_aug', type=int, default=4)
+  sub.choices['flow'].add_argument('--only', default='', help='comma-separated classes (partial runs)')
   c = sub.choices['churn']
   c.add_argument('--measure', required=True)
   c.add_argument('--split', default='attr', choices=['attr', 'attrR'])
