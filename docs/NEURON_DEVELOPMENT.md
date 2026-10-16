@@ -264,7 +264,9 @@ A spillover entry is a feature that enters a unit's final pole (first checkpoint
 response) with more than half of its pre-activation written by members already in the pole.
 - Most features enter a pole by spillover in every cell, so growth by spillover is the normal case in this toy.
 - With related inputs, the earlier member that wrote most of the entry is a relative 1.6 to 2.5 times as often as
-  chance. At rho 0 the rate is at chance, which checks the method.
+  chance. At rho 0 the rate is at chance, which checks the method. This shows that relatives write more onto each
+  other (similar inputs), not that growth depends on order: the null does not control for static similarity (E1
+  review, Sec. 7).
 - Most spillover still comes from unrelated members (75% to 83% at rho 0.6), through the shared m-dimensional
   bottleneck. Relatedness is one driver of growth here, and it is not the main one.
 - In ReLU units a feature's own samples write little of its pole response (median own share -0.18 to 0.29). In SwiGLU
@@ -303,6 +305,46 @@ not follow the Hugging Face or the file-name order, so its exact images could no
 Car selectivity develops on the same schedule and to about the same level in all three runs (ours a little higher for
 car; the essay's optimizer is not published). No unit of the essay's runs reaches car AUROC 0.9 in mean pooling; 0.3%
 of ours do at the end. Our run is therefore a fair stand-in for the essay's tiny models in what follows.
+
+### E2 and E3 on the E1 run: what the writer atlas shows, after review
+
+`experiments/convnext_growth.py`, `docs/data/e1/growth_summary_v2.json`. For each unit of each block and each class in
+its final positive pole (strongest 20 classes, response above 0.3 of the largest), the mean value pre-activation at
+the unit's strongest position splits exactly into a part per training class. 'Relative' = WordNet distance at most 4
+(a class has a median of 10 such relatives). Mixup credits each example's gradient to its two classes by lam and
+1 - lam; a class then keeps about 0.69 of its own label signal and the rest goes to random partner classes, so own and
+relative parts are both about 0.65 of what a label split would give (toy check in the review).
+
+A review (two reviewers, eight findings, all confirmed by a second agent; 2026-10-16) changed the reading:
+- What the atlas shows. In the late blocks (stage 2 from block 1, stage 3), each WordNet relative writes about 20% as
+  much into a pole class's value as the class itself; a non-relative class writes about -0.3% of it; all other
+  classes together write net negative. Units respond to groups of classes with similar inputs. Any account predicts
+  this: class k's AdamW part on probe class c is about the sum over steps of lr_t m_t^(k) D_t h_c, so similar inputs
+  write into each other's responses whatever the order of growth.
+- Signed shares divided by the net value measure cancellation. In the late blocks the net is a small remainder of large
+  opposing writes; shares above 1 (relatives 0.65 to 2.3) and the negative 'other' (down to -2.75) are cancellation, and
+  their rise after about step 7,500 follows the accumulated learning rate while the net stays flat. They are not a
+  measure of how much relatives build the response.
+- Order of growth (E2) is not shown. The nearest earlier pole member of an entering class is at WordNet distance 6
+  against 8 for random classes, but the same gap appears when poles are WordNet-clustered and the entry order is random
+  (simulation in the review); it measures pole coherence. On this run's own trajectories (steps 0 to 17,500), shuffling
+  the entry checkpoints within each pole leaves the nearest-earlier distance unchanged or slightly smaller than
+  observed, and the share of entering classes that already have a relative in the pole (17 to 33%) is at chance. Entry
+  order follows final strength: stronger classes stabilize earlier. Spillover entries led by a relative are 529 of
+  8,719 against 468 expected (1.13 times; 0.88 to 1.61 per block), inside the toy's unrelated range.
+- Head start (E3) is untested: the share of entering classes with own share below 0.5 (51 to 67%) has no baseline, and
+  it follows the block's level of cancellation and the mixup split (about 41 to 58% under a label split).
+- The same caveat applies to E8's "spillover from relatives at 1.6 to 2.5 times chance": it shows that relatives write
+  more, not that growth depends on order.
+
+Tests that would decide E2 and E3, to run on the stored atlas files: entry order against a within-pole permutation
+null (also within final-strength terciles), with a power check on a planted branch order; the lag between a class's
+relative-written and own parts (checkpoints to 25% and 50% of their final values); the half-rise checkpoint of each
+class's response against its distance to the unit's first classes, with final strength as a covariate; positive-mass
+shares and per-interval increments against an accumulation null; and a knockout test with gate and value (would the
+class stay in the top 20 without its own writes, compared with incumbents at the same checkpoint). Until then, the
+result is: late-block units are coherent groups of related classes; this run shows no sign that classes join them in
+branch order.
 
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
