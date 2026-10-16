@@ -114,3 +114,94 @@ Other checks: the replay's W_0 equals the snapshot weights; the replay's parts a
 So a causal contrast must compare two replays from the same snapshot. With `--batch_crops` (added after the smoke test)
 the crops are seeded per batch, so a control replay also repeats the original run up to GPU nondeterminism; the original
 run must use the same setting. A test checks that an epoch begun at any batch repeats the uninterrupted epoch.
+
+## 4. Four experiments that need the exact history
+
+Each was designed by one agent and attacked by a second (designs, critiques and revised protocols are kept with the
+session; the revised protocols are the ones in use). For each: the essay's claim, what only the exact record measures,
+and the main corrections from the critique.
+
+### 4.1 Exits, starvation and first in line (no new training)
+
+Claim: offshoots are "a bit of error picked up by the neuron that was already closest" (More on Circuit Ecology);
+a related input finds the unit "first in line"; established routes "get there first and starve the packed circuit of
+gradient"; "some pressure keeps branches from overgrowing. We don't know what it is" (Recursive Generalization).
+
+What only the record gives: the exact split of every change of a unit's response over an interval into each class's
+new writes, the decay of its earlier writes, input drift and a position switch; the per-class teaching signal (bias
+parts) as a time-integrated starvation record; E1r's random-group split as the noise null.
+
+E1 facts that shaped it: a unit's top-20 classes turn over heavily (75 to 85% after step 5,000); 16,330 established
+permanent drops; 4,603 drops are anchored on a stable core (the essay's "stays on the fields" case).
+
+Corrections from the critique: events and primary splits on the 16 checkpoints only (history snapshots refine timing
+and give the second moments); comparison sets fixed before the window (no selection on the outcome); every null
+matched in size (number of training examples); cross-fitting (select on 25 validation images per class, measure on the
+other 25); no term dropped for fp16 rounding (bounds carried as intervals); the remainder R computed at every grid
+point (it is up to 8e-5 of the weights, not 0); trajectory checks before a snapshot is used (E1's step-25,020 history
+version is bit-identical to its final checkpoint). X1 (why a class leaves) is exploratory: no outcome of it refutes
+the essay, because the essay says the pressure is unknown.
+
+Status: implementation and adversarial review running; runs on E1, E1r and E4 data need no training.
+
+### 4.2 Umbrella = bee (short fine-tunes from E1)
+
+Claim: a nonsense label is learned as "an off-ramp between two routes the network already has", and the existing
+circuits "feed it, and shelter it from unrelated gradients" (Rare Things and Memorization; semantic gravity).
+
+What only the record gives: during fine-tuning with continued ordinary training, every weight change splits exactly
+into the photo's writes, each class's writes and the earlier momentum, so "feed" (the target class's writes raise the
+taught photo's margin more than an untaught photo's) and "shelter" (unrelated classes erode it less than they erode a
+memory with no source route) become measurable.
+
+Design (v2, after the critique): branch every run from E1's own final weights and optimizer state after a 300-step
+replay-only warm-up; AdamW with the second moment frozen at the branch (otherwise the photo inflates the shared
+denominator and fakes "feed"); untracked parameters frozen, so the parts cover the whole change; 8 shadow splits of
+the replay slots give 64 size-matched pseudo-groups per run, the same in taught and untaught runs; feed and shelter are
+the primaries, umbrella coupling is reported two-sided (the essay does not give its sign).
+
+Deviation, decided before any fine-tune: E1 recognizes no umbrellas (0 of 50 validation images, 10 of 1,300 training
+images top-1; its guesses are pinwheel, balloon, maypole). The pre-registered fallbacks apply: the primary arm uses the
+best-recognized class unrelated to bee as the source (jack-o'-lantern, 90% top-1; photos with p_source 0.37 to 0.54,
+close to the essay's 44%); umbrella with its 10 recognized training images is a secondary, weak-route arm.
+
+Status: the fine-tune script passed its GPU smoke test (interval buckets add up to the weight change to 8e-7; the frozen
+parameters do not move; the photo's group is non-zero only in taught runs). Analysis and arm queue being implemented.
+
+### 4.3 Rare classes ride related machinery (four to six training runs)
+
+Claim: "Rare things ... have grown on related circuits in every experiment we've run"; "the neurons ... that carry a
+rare fact should be related to what the fact is about, not unrelated ones chosen because they rarely collide";
+memorization sits close to the output.
+
+What only the record gives: in the units that carry a rare class, the exact parts written by its relatives' examples
+against those written by its own few examples (fine-group shadow split, every own image its own group at level 10);
+where the own writes act, against where gradient flow alone would put them.
+
+Design (v2): 128 classes in two crossover sets (dense and isolated strata; 0, 10 or 100 images); runs A0 and B0 (one
+set rare each) and an all-common run C0 (the critique found that 104 of the 128 classes have a relative in the other
+set, so the crossover's "common" condition was not common); the same images split the same way in every run; noise
+controls (10 smooth-noise images labelled to a dropped class) as a positive control that must show a packing
+signature; size-matched nulls throughout.
+
+Status: A0 and C0 running on one sandbox and B0 on the other since 18:43; go/no-go at step 12,500 (level-100 classes
+must be learnable); seed-1 runs after that.
+
+### 4.4 Where memorization sits (one training run with injected items; planned)
+
+Claim: "memorization tends to want to sit as close to the output as possible ... the late layers did most of the
+work"; noise memorization is "partly semantic". Maini et al. (2023) found the opposite (memorization spread over a few
+neurons in many layers) with approximate gradient accounting. The exact per-item writes decide this in one run: each
+memorized item's own writes, removed exactly, with clean items at the same dose as the control. Critique pending.
+
+## 5. An infrastructure finding
+
+The GPU JPEG decoder writes on its own CUDA stream. Memory it receives from PyTorch's caching allocator can still be
+in use by kernels queued on the default stream, so the decode can overwrite live tensors. This caused about 120 of
+50,000 non-finite validation images earlier (fixed then by synchronizing after the decode) and, in a second form,
+NaN weights after two steps of the umbrella warm-up (found today: the replay's synchronous decode ran while the
+optimizer's kernels were still queued). Fix: the replay decode synchronizes before and after; the training loader's
+decode thread now allocates from its own CUDA stream and marks the images for the consumer's stream; batches are
+bit-identical to before and the speed is unchanged. The earlier training runs (E1, E1r, E4, E7) never produced a
+non-finite value, and their weights satisfy W = a W_0 + sum_k C_k to about 1e-5 at every checkpoint, which a corrupted
+weight would break; corrupted activations or gradients cannot be ruled out by that check.
