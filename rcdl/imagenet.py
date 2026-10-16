@@ -16,7 +16,7 @@ import math
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -169,14 +169,70 @@ class GPUTrainLoader:
         raise item
       i, idx, imgs = item
       rng = np.random.default_rng([self.seed, index, i]) if self.batch_seeded and index is not None else self.rng
-      top, left, ch, cw, flip = crop_params(rng, np.array([im.shape[-2:] for im in imgs]))
-      x = torch.empty(len(imgs), 3, self.size, self.size, device=self.dev)
-      for k, im in enumerate(imgs):
-        c = im[:, top[k]:top[k] + ch[k], left[k]:left[k] + cw[k]][None].float()
-        c = F.interpolate(c, size=(self.size, self.size), mode='bilinear', antialias=True, align_corners=False)[0]
-        x[k] = c.flip(-1) if flip[k] else c
-      x = (x - self.mean) / self.std
+      x = self._crop(imgs, rng)
       yield x, self.labels_gpu[perm_gpu[i * self.batch:(i + 1) * self.batch]], torch.from_numpy(idx)
+
+  def _crop(self, imgs, rng) -> torch.Tensor:
+    """RandomResizedCrop + flip to `size` with draws from rng, then normalization: (B, 3, size, size)."""
+    top, left, ch, cw, flip = crop_params(rng, np.array([im.shape[-2:] for im in imgs]))
+    x = torch.empty(len(imgs), 3, self.size, self.size, device=self.dev)
+    for k, im in enumerate(imgs):
+      c = im[:, top[k]:top[k] + ch[k], left[k]:left[k] + cw[k]][None].float()
+      c = F.interpolate(c, size=(self.size, self.size), mode='bilinear', antialias=True, align_corners=False)[0]
+      x[k] = c.flip(-1) if flip[k] else c
+    return (x - self.mean) / self.std
+
+  def decode_crop(self, idx: np.ndarray, rng) -> torch.Tensor:
+    """The training augmentation of the images with global indices idx, with draws from rng (synchronous)."""
+    from torchvision.io import ImageReadMode, decode_jpeg
+    raw = [torch.from_numpy(np.array(self.data[self.offsets[j]:self.offsets[j + 1]])) for j in idx]
+    imgs = decode_jpeg(raw, mode=ImageReadMode.RGB, device=self.dev)
+    if torch.device(self.dev).type == 'cuda':
+      torch.cuda.synchronize(self.dev)
+    return self._crop(imgs, rng)
+
+
+class StratifiedReplay:
+  """A replay stream for fine-tuning: per step, `spec[c]` images of each oversampled class c plus `rest` images drawn
+  class-first (uniform over rest_classes) then image-uniform, with the training augmentation. Everything is a function
+  of (seed, step), so two runs (taught and untaught) see the same stream, and a resumed run repeats it.
+  Oversampled classes walk a per-class permutation, a new one each cycle (default_rng([seed, c, cycle])); crops come
+  from default_rng([seed, 1_000_000 + step]) and the rest draws from default_rng([seed, 1_000_001, step])."""
+
+  def __init__(self, loader: GPUTrainLoader, spec: Dict[int, int], rest: int, rest_classes, seed: int):
+    self.loader, self.spec, self.rest, self.seed = loader, dict(spec), rest, seed
+    self.rest_classes = np.asarray(rest_classes, np.int64)
+    order = np.argsort(loader.labels, kind='stable')
+    bounds = np.searchsorted(loader.labels[order], np.arange(loader.labels.max() + 2))
+    self.by_class = [order[bounds[c]:bounds[c + 1]] for c in range(len(bounds) - 1)]
+    self.size = sum(self.spec.values()) + rest
+
+  def indices(self, step: int) -> np.ndarray:
+    out = []
+    for c, n in self.spec.items():
+      imgs = self.by_class[c]
+      for p in range(step * n, (step + 1) * n):
+        cycle, pos = divmod(p, len(imgs))
+        out.append(imgs[np.random.default_rng([self.seed, c, cycle]).permutation(len(imgs))[pos]])
+    rng = np.random.default_rng([self.seed, 1_000_001, step])
+    for c in rng.choice(self.rest_classes, self.rest):
+      out.append(self.by_class[c][rng.integers(len(self.by_class[c]))])
+    return np.array(out, np.int64)
+
+  def batch(self, step: int):
+    """(x, y, idx) of step `step`: images (size, 3, 224, 224) normalized, labels on the device, global indices."""
+    idx = self.indices(step)
+    x = self.loader.decode_crop(idx, np.random.default_rng([self.seed, 1_000_000 + step]))
+    return x, self.loader.labels_gpu[torch.from_numpy(idx).to(self.loader.dev)], idx
+
+  def slot_groups(self, step: int, r: int, n_groups: int = 8) -> np.ndarray:
+    """Pseudo-groups for shadow r at this step: the replay slots in a random order (default_rng([seed, 2_000_000 +
+    8 step + r])) dealt into n_groups groups of near-equal size, numbered 1..n_groups. The same in every run with
+    this seed."""
+    perm = np.random.default_rng([self.seed, 2_000_000 + 8 * step + r]).permutation(self.size)
+    g = np.empty(self.size, np.int64)
+    g[perm] = 1 + np.arange(self.size) * n_groups // self.size
+    return g
 
 
 def val_batches(val_dir: str, batch: int, device, size: int = 256, crop: int = 224):

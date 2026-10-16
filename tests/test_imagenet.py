@@ -107,7 +107,7 @@ def _pack_tiny(root, n=12, seed=0):
   offsets, pos = [0], 0
   with open(root / 'data.bin', 'wb') as f:
     for i in range(n):
-      h, w = 40 + 7 * i, 64 - 3 * i
+      h, w = 40 + 7 * (i % 12), 64 - 3 * (i % 12)
       b = encode_jpeg(torch.randint(0, 256, (3, h, w), generator=g, dtype=torch.uint8)).numpy().tobytes()
       f.write(b)
       pos += len(b)
@@ -150,3 +150,27 @@ def test_keep_and_label_table(tmp_path):
   idx = torch.cat([b[2] for b in batches]).numpy()
   assert len(ld) == 4 and sorted(idx) == sorted(keep)
   assert np.array_equal(torch.cat([b[1] for b in batches]).numpy(), labels[idx])
+
+
+def test_stratified_replay_is_deterministic_with_the_requested_composition(tmp_path):
+  import torch
+  from rcdl.imagenet import GPUTrainLoader, StratifiedReplay
+  _pack_tiny(tmp_path, n=40)                          # labels 0..4, 8 images each
+  ld = GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=0)
+  a = StratifiedReplay(ld, {1: 3, 2: 2}, rest=4, rest_classes=[0, 3, 4], seed=7)
+  b = StratifiedReplay(GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=5), {1: 3, 2: 2}, rest=4,
+                       rest_classes=[0, 3, 4], seed=7)
+  for step in (0, 3, 11):
+    ia, ib = a.indices(step), b.indices(step)
+    assert np.array_equal(ia, ib) and len(ia) == a.size == 9
+    lab = ld.labels[ia]
+    assert (lab[:3] == 1).all() and (lab[3:5] == 2).all() and np.isin(lab[5:], [0, 3, 4]).all()
+  seen = np.concatenate([a.indices(s)[:3] for s in range(8)])          # class 1: 24 draws walk 3 permutations of 8
+  for cyc in range(3):
+    assert sorted(seen[8 * cyc:8 * cyc + 8]) == sorted(np.flatnonzero(ld.labels == 1))
+  x1, y1, _ = a.batch(4)
+  x2, y2, _ = b.batch(4)
+  assert x1.shape == (9, 3, 16, 16) and torch.equal(x1, x2) and torch.equal(y1, y2)
+  g = a.slot_groups(4, r=2, n_groups=3)
+  assert np.array_equal(g, b.slot_groups(4, r=2, n_groups=3)) and sorted(np.bincount(g)[1:]) == [3, 3, 3]
+  assert not np.array_equal(g, a.slot_groups(4, r=3, n_groups=3)) or not np.array_equal(g, a.slot_groups(5, r=2, n_groups=3))
