@@ -13,7 +13,12 @@ from `starts` random rotations and from the identity (the neurons). Reported per
   l1         a second objective, sparsity: minimize sum_ij |(X Q)_ij| (Riemannian gradient descent with a polar
              retraction, from a random start); L1_ratio = L1 at the neurons / L1 at the end (> 1: sparser than neurons)
   top4       'a handful of units carry the most activity': the mean over samples of the share of the sample's energy in
-             its 4 largest coordinates, for the neuron basis, each found basis and a random basis
+             its 4 largest coordinates, for the neuron basis, each found basis, the principal basis (eigenvectors of
+             X^T X) and a random basis
+  eff_rank   participation ratio (sum lambda)^2 / sum lambda^2 of the eigenvalues lambda of X^T X / N, and the energy
+             share of the top 8 principal directions: when the U units are functions of a narrower input (the tiny
+             model's stream is 8 wide in stages 0 and 1, 24 and 28 later), their activity lies near a low-dimensional set
+             and any concentration objective finds that set rather than the units
 Control: the same search on X R0 for a random rotation R0, where the neurons are not special by construction; the
 neurons of X are then the columns of R0^T, so the found directions must align with those (align_R0) and not with the unit
 axes (align_units), with J_ratio_vs_R0 measured against Q = R0^T.
@@ -126,7 +131,12 @@ def analyze(X, starts, g):
   Ql, Ll = l1_search(X, random_rotation(U, g))
   Qr = random_rotation(U, g)
   rec['l1'] = {'align': align(Ql), 'L1_ratio': L0 / Ll}
-  rec['top4'] = {'neurons': top_share(X), 'quartimax': top_share(X @ Q), 'l1': top_share(X @ Ql), 'random': top_share(X @ Qr)}
+  lam, V = torch.linalg.eigh(X.T @ X / X.shape[0])
+  rec['top4'] = {'neurons': top_share(X), 'quartimax': top_share(X @ Q), 'l1': top_share(X @ Ql), 'pca': top_share(X @ V),
+                 'random': top_share(X @ Qr)}
+  lam = lam.clamp_min(0)
+  rec['eff_rank'] = {'participation': float(lam.sum() ** 2 / (lam ** 2).sum()),
+                     'top8_energy': float(lam.flip(0)[:8].sum() / lam.sum()), 'U': U}
   R0 = random_rotation(U, g)                                       # control: neurons not special by construction
   Xr = X @ R0
   Q, J = quartimax(Xr, random_rotation(U, g))
@@ -164,7 +174,7 @@ def main():
     print(n, json.dumps({'N': len(X), 'identity_align': r['identity']['align'], 'identity_J': round(r['identity']['J_ratio'], 3),
                          'random_align_mean': round(float(ra.mean()), 3), 'random_J': rj.round(3).tolist(),
                          'control_align_units': r['control']['align_units'], 'control_align_R0': r['control']['align_R0'],
-                         'l1': r['l1'], 'top4': {k: round(v, 3) for k, v in r['top4'].items()}}),
+                         'l1': r['l1'], 'top4': {k: round(v, 3) for k, v in r['top4'].items()}, 'eff_rank': r['eff_rank']}),
           flush=True)
   json.dump(res, open(a.out or os.path.join(a.run, f'basis_rotation_{step:05d}.json'), 'w'), indent=1)
 
