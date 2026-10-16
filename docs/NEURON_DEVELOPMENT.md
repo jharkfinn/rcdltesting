@@ -143,8 +143,22 @@ Limits:
 - A pose unit could, in principle, be built as an OR of class-specific pose detectors. Then its inputs would differ by
   class, but its car and dog images would still share a pose. The montages of 295 show side-on cars and frontal
   terriers, so that variant is not supported either.
-- Open: whether anything downstream (mixed4e) reads the car half of 241 and 295 back out, which Zoom In's account also
-  needs.
+
+E0c (`inception_paths readout`, `docs/data/e0/readout.json`): who in mixed4e reads 241 and 295. Zoom In's account needs
+a later unit that reads the car half back out; the essay says later layers "keep building on" the pose units. For the 8
+strongest mixed4e readers of each (expanded weights), the exact share of the reader's response that 241 or 295 writes:
+- 241's strongest reader, 4e:591, is a vehicle unit (45 vehicles in its top 50: jeep, fire engine, garbage truck); 241
+  writes 8% of its response on its own top vehicle images. The next five readers are dog units (Bedlington, Afghan,
+  Leonberg, Appenzeller); on their top dog images 241 writes 1% to 7%, and on their (weaker) vehicle images 7% to 19%.
+- 295's readers are mostly not vehicle or dog units: 4e:543 (tabby, tiger cat, pickup; 27 vehicles), then units for
+  sports, swimwear, meat loaf, bottles, an Afghan hound unit and an entertainment-center unit. 295 writes at most 14% of
+  the vehicle response of 543.
+- On 241's top dog images the vehicle unit 4e:591 reaches the 92nd percentile of its responses; 241 writes 16% of that
+  and other inputs the rest.
+So the car half of 241 is read back out by one vehicle unit, at a small share, and the car half of 295 hardly at all.
+Both units feed many unrelated mixed4e units at shares of 1% to 30%. Neither "stored, then recovered" nor "a pose
+feature that later layers build on" describes these two readouts well; they look like intermediate features with many
+small readers. Limits: readers are ranked by linearized weights, which ignore the ReLUs; only 8 readers per unit.
 
 ## 6. E8 results: relatedness against anticorrelation in a toy, ReLU and SwiGLU, 10 seeds
 
