@@ -180,12 +180,19 @@ def val_batches(val_dir: str, batch: int, device, size: int = 256, crop: int = 2
     imgs, labels = t.column('image').to_pylist(), t.column('label').to_pylist()
     for i in range(0, len(labels), batch):
       datas = [torch.frombuffer(bytearray(d['bytes']), dtype=torch.uint8) for d in imgs[i:i + batch]]
-      out = []
+      # Decode the whole batch first and keep every decoded image referenced, then synchronize: a GPU decode writes on
+      # its own stream, and freeing its output early let the allocator hand that memory to a resize while the decode
+      # was still writing (about 120 of 50,000 images got non-finite pixels when the GPU was busy).
+      decoded = []
       for d in datas:
         try:
-          im = decode_jpeg(d, mode=ImageReadMode.RGB, device=device)
+          decoded.append(decode_jpeg(d, mode=ImageReadMode.RGB, device=device))
         except RuntimeError:
-          im = decode_image(d, mode=ImageReadMode.RGB).to(device)
+          decoded.append(decode_image(d, mode=ImageReadMode.RGB).to(device))
+      if torch.device(device).type == 'cuda':
+        torch.cuda.synchronize(device)
+      out = []
+      for im in decoded:
         h, w = im.shape[-2:]
         s = size / min(h, w)
         im = F.interpolate(im[None].float(), size=(max(size, round(h * s)), max(size, round(w * s))), mode='bilinear',
