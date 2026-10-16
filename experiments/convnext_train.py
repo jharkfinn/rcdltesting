@@ -110,6 +110,7 @@ def main():
   p.add_argument('--seed', type=int, default=0)
   p.add_argument('--val_limit', type=int, default=10000)
   p.add_argument('--max_steps', type=int, default=0, help='stop early (benchmarks)')
+  p.add_argument('--resume_every', type=int, default=1000, help='steps between resume states (out/resume.pt)')
   a = p.parse_args()
   dev = torch.device('cuda')
   torch.manual_seed(a.seed)
@@ -154,10 +155,34 @@ def main():
     json.dump(log, open(os.path.join(a.out, 'log.json'), 'w'))
     print(json.dumps(rec), flush=True)
 
-  checkpoint(0)
+  def save_resume(step):
+    """Training state for a restart on a new machine (sandboxes can end without notice): written to a temporary file
+    and renamed, so a crash during the write leaves the previous state."""
+    tmp = os.path.join(a.out, 'resume.pt.tmp')
+    torch.save({'step': step, 'model': model.state_dict(), 'opts': [o.state_dict() for o in opts],
+                'attr': attr.full_state(), 'log': log, 'torch_rng': torch.get_rng_state(),
+                'cuda_rng': torch.cuda.get_rng_state()}, tmp)
+    os.replace(tmp, os.path.join(a.out, 'resume.pt'))
+
+  resume = os.path.join(a.out, 'resume.pt')
+  if os.path.exists(resume):
+    st = torch.load(resume, map_location=dev, weights_only=False)
+    model.load_state_dict(st['model'])
+    for o, os_ in zip(opts, st['opts']):
+      o.load_state_dict(os_)
+    attr.load_full_state(st['attr'])
+    log[:] = st['log']
+    torch.set_rng_state(st['torch_rng'].cpu())
+    torch.cuda.set_rng_state(st['cuda_rng'].cpu())
+    step = st['step']
+    t0 -= log[-1]['sec'] if log else 0
+    print(f'resumed at step {step}', flush=True)
+  else:
+    checkpoint(0)
   run_loss = []
   while step < a.steps:
-    for x, y, _ in prefetch(loader.epoch()):
+    epoch, start = divmod(step, len(loader))
+    for x, y, _ in prefetch(loader.epoch(epoch, start)):
       lam = float(beta.sample()) if beta is not None else 1.0
       y2 = y.flip(0)
       x = lam * x + (1 - lam) * x.flip(0)
@@ -182,6 +207,8 @@ def main():
         run_loss.clear()
       if step in CKPT_STEPS or step == a.steps or (a.max_steps and step == a.max_steps):
         checkpoint(step)
+      if step % a.resume_every == 0 or step in CKPT_STEPS or step == a.steps:
+        save_resume(step)
       if step >= a.steps or (a.max_steps and step >= a.max_steps):
         break
     if a.max_steps and step >= a.max_steps:

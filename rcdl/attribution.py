@@ -293,6 +293,23 @@ class GroupAttribution:
       out[name] = rec
     return out
 
+  _STATE = ('W0', 'b0', 'C', 'Cb', 'm', 'mb', 'v', 'vb', 'a', 'ab', 't')
+
+  def full_state(self) -> Dict[str, dict]:
+    """Everything needed to resume (parts, per-group optimizer states, decay factors, step count); the tracked
+    weights themselves are in the model's state_dict."""
+    return {name: {k: getattr(tr, k) for k in self._STATE} for name, tr in self.tracked.items()}
+
+  def load_full_state(self, state: Dict[str, dict]):
+    for name, tr in self.tracked.items():
+      for k in self._STATE:
+        v = state[name][k]
+        cur = getattr(tr, k)
+        if torch.is_tensor(cur):
+          cur.copy_(v)
+        else:
+          setattr(tr, k, v)
+
   def state_dict(self) -> Dict[str, Dict[str, torch.Tensor]]:
     """Contributions and decay factors of every tracked layer (for checkpoints over training)."""
     return {name: {'C': tr.C.clone(), 'Cb': None if tr.Cb is None else tr.Cb.clone(), 'a': tr.a, 'ab': tr.ab,

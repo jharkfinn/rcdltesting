@@ -259,3 +259,30 @@ def test_compact_state_is_exact_with_its_remainder():
   assert torch.allclose(W, model[0].weight.float(), atol=1e-7, rtol=0)
   b = st['ab'] * tr.b0.float() + st['Cb'].float().sum(0) / st['Cb_scale'] + st['Rb']
   assert torch.allclose(b, model[0].bias.float(), atol=1e-7, rtol=0)
+
+
+@pytest.mark.parametrize('opt', ['adamw', 'muon'])
+def test_full_state_resumes_exactly(opt):
+  """Saving full_state (with the model) mid-run and loading it into fresh objects continues bit for bit."""
+  def make():
+    model = tiny(6)
+    attr = GroupAttribution({'l0': model[0]}, n_groups=4, optimizer=opt, lr=1e-2, weight_decay=0.05,
+                            dtype=torch.float64)
+    return model, attr
+  x, y, groups = data(10, 6, seed=13)
+  def run(model, attr, ts):
+    for t in ts:
+      loss_fn(model(x[t]), y[t]).backward()
+      model[2].zero_grad()
+      attr.step(groups[t])
+  model, attr = make()
+  run(model, attr, range(5))
+  saved = copy.deepcopy((model.state_dict(), attr.full_state()))
+  run(model, attr, range(5, 10))
+  model2, attr2 = make()
+  model2.load_state_dict(saved[0])
+  attr2.load_full_state(saved[1])
+  run(model2, attr2, range(5, 10))
+  assert torch.equal(model[0].weight, model2[0].weight)
+  assert torch.equal(attr.tracked['l0'].C, attr2.tracked['l0'].C)
+  assert attr.tracked['l0'].t == attr2.tracked['l0'].t == 10

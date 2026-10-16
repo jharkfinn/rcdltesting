@@ -85,6 +85,7 @@ class GPUTrainLoader:
     self.offsets = np.load(os.path.join(root, 'offsets.npy'))
     self.labels = np.load(os.path.join(root, 'labels.npy'))
     self.n, self.batch, self.dev, self.size = len(self.labels), batch, device, size
+    self.seed = seed
     self.rng = np.random.default_rng(seed)
     self.drop_last = drop_last
     self.mean, self.std = MEAN.to(device)[:, None, None], STD.to(device)[:, None, None]
@@ -109,10 +110,15 @@ class GPUTrainLoader:
     c = F.interpolate(c, size=(self.size, self.size), mode='bilinear', antialias=True, align_corners=False)[0]
     return c.flip(-1) if self.rng.random() < 0.5 else c
 
-  def epoch(self):
+  def epoch(self, index: int = None, start: int = 0):
+    """One epoch of batches. With `index`, the order and the augmentation draws come from a generator seeded by
+    (seed, index), so a resumed run can rebuild epoch `index` and begin at batch `start` (the crops of the resumed
+    batches then differ from those of an uninterrupted run; the order does not)."""
     from torchvision.io import ImageReadMode, decode_jpeg
+    if index is not None:
+      self.rng = np.random.default_rng([self.seed, index])
     perm = self.rng.permutation(self.n)
-    for i in range(len(self)):
+    for i in range(start, len(self)):
       idx = perm[i * self.batch:(i + 1) * self.batch]
       raw = [torch.from_numpy(np.array(self.data[self.offsets[j]:self.offsets[j + 1]])) for j in idx]
       imgs = decode_jpeg(raw, mode=ImageReadMode.RGB, device=self.dev)
