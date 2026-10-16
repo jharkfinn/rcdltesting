@@ -26,7 +26,7 @@ intervention: their examples still pass through the model, but teach nothing for
 checkpoints (attribution parts and model, no validation pass) for a denser record.
 
 Data specs (rare classes, relabelled images): --spec spec.npz trains on the images in `keep` with the full label table
-`labels`; with a per-image `group` table (and `group_class`, one entry per group), the same updates are also split over
+`labels` (and replaces the pixels of the images in `noise`, if present, by fixed smooth noise); with a per-image `group` table (and `group_class`, one entry per group), the same updates are also split over
 those fine groups (own images of a rare class, subsets, decoy sets) by a shadow GroupAttribution, saved as
 attrF_{step}.pt. --track_head adds the classifier to the tracked maps (AdamW only).
 """
@@ -198,7 +198,7 @@ def main():
   if spec is not None:
     np.savez(os.path.join(a.out, 'spec.npz'), **spec)
     loader = GPUTrainLoader(a.train, a.batch, dev, seed=a.seed, batch_seeded=a.batch_crops, keep=spec['keep'],
-                            labels=spec['labels'])
+                            labels=spec['labels'], noise=spec.get('noise'))
     if attr_f is not None:
       assert len(spec['group']) == len(loader.labels), 'spec built for another packed training set'
       assert (spec['group'][spec['keep']] >= 0).all(), 'every kept image needs a fine group'

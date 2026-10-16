@@ -109,15 +109,26 @@ def crop_params(rng, hw: np.ndarray, scale=(0.08, 1.0), ratio=(3 / 4, 4 / 3), at
   return top, left, ch, cw, rng.random(B) < 0.5
 
 
+def smooth_noise(index: int, device='cpu', size: int = 256) -> torch.Tensor:
+  """The fixed noise image of a noise control (rare-class experiment): 16 x 16 Gaussian noise per channel, seeded by
+  the image's global index, bilinearly upsampled to size x size, as uint8 128 + 64 z (clipped). (3, size, size)."""
+  g = torch.Generator().manual_seed(int(index))
+  z = torch.randn(1, 3, 16, 16, generator=g)
+  z = F.interpolate(z, size=(size, size), mode='bilinear', align_corners=False)[0]
+  return (128 + 64 * z).round().clamp(0, 255).to(torch.uint8).to(device)
+
+
 class GPUTrainLoader:
   """Epochs over the packed set: GPU JPEG decode (in its own thread, one batch ahead), RandomResizedCrop + flip to
   `size`, normalization. Labels are indexed on the GPU, so no step waits on a host-to-device copy."""
 
   def __init__(self, root: str, batch: int, device, size: int = 224, seed: int = 0, drop_last: bool = True,
-               batch_seeded: bool = False, keep: Optional[np.ndarray] = None, labels: Optional[np.ndarray] = None):
+               batch_seeded: bool = False, keep: Optional[np.ndarray] = None, labels: Optional[np.ndarray] = None,
+               noise: Optional[np.ndarray] = None):
     """keep: the global indices of the images to train on (None: all). labels: a full-length label table that
     replaces labels.npy (relabelled images). Batches still yield global indices, so per-example tables index them
-    directly. With keep None the epochs are the same as before."""
+    directly. With keep None the epochs are the same as before. noise: global indices whose decoded pixels are replaced
+    by smooth_noise(index) before augmentation (noise controls)."""
     self.data = np.memmap(os.path.join(root, 'data.bin'), dtype=np.uint8, mode='r')
     self.offsets = np.load(os.path.join(root, 'offsets.npy'))
     self.labels = np.load(os.path.join(root, 'labels.npy')) if labels is None else np.asarray(labels, np.int64)
@@ -129,6 +140,7 @@ class GPUTrainLoader:
     self.rng = np.random.default_rng(seed)
     self.drop_last = drop_last
     self.batch_seeded = batch_seeded
+    self.noise = set(int(i) for i in noise) if noise is not None and len(noise) else None
     self.mean, self.std = MEAN.to(device)[:, None, None], STD.to(device)[:, None, None]
 
   def __len__(self):
@@ -184,8 +196,13 @@ class GPUTrainLoader:
         for im in imgs:                                 # read on this stream: the decode pool waits before reusing
           im.record_stream(cur)
       rng = np.random.default_rng([self.seed, index, i]) if self.batch_seeded and index is not None else self.rng
-      x = self._crop(imgs, rng)
+      x = self._crop(self._noise(imgs, idx), rng)
       yield x, self.labels_gpu[perm_gpu[i * self.batch:(i + 1) * self.batch]], torch.from_numpy(idx)
+
+  def _noise(self, imgs, idx):
+    if self.noise is None:
+      return imgs
+    return [smooth_noise(int(j), self.dev) if int(j) in self.noise else im for im, j in zip(imgs, idx)]
 
   def _crop(self, imgs, rng) -> torch.Tensor:
     """RandomResizedCrop + flip to `size` with draws from rng, then normalization: (B, 3, size, size)."""
@@ -207,7 +224,7 @@ class GPUTrainLoader:
     imgs = decode_jpeg(raw, mode=ImageReadMode.RGB, device=self.dev)
     if cuda:      # and the images must be complete before the crops read them
       torch.cuda.synchronize(self.dev)
-    return self._crop(imgs, rng)
+    return self._crop(self._noise(imgs, idx), rng)
 
 
 class StratifiedReplay:

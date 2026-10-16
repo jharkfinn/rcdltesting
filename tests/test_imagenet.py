@@ -174,3 +174,16 @@ def test_stratified_replay_is_deterministic_with_the_requested_composition(tmp_p
   g = a.slot_groups(4, r=2, n_groups=3)
   assert np.array_equal(g, b.slot_groups(4, r=2, n_groups=3)) and sorted(np.bincount(g)[1:]) == [3, 3, 3]
   assert not np.array_equal(g, a.slot_groups(4, r=3, n_groups=3)) or not np.array_equal(g, a.slot_groups(5, r=2, n_groups=3))
+
+
+def test_noise_images_replace_the_listed_images(tmp_path):
+  import torch
+  from rcdl.imagenet import GPUTrainLoader, smooth_noise
+  _pack_tiny(tmp_path)
+  a = GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=3, batch_seeded=True, noise=np.array([4, 7]))
+  b = GPUTrainLoader(str(tmp_path), 2, 'cpu', size=16, seed=3, batch_seeded=True)
+  for (xa, _, ia), (xb, _, ib) in zip(a.epoch(1), b.epoch(1)):
+    for k, j in enumerate(ia.tolist()):
+      assert torch.equal(xa[k], xb[k]) != (j in (4, 7))
+  n1, n2 = smooth_noise(4), smooth_noise(4)
+  assert torch.equal(n1, n2) and n1.shape == (3, 256, 256) and n1.dtype == torch.uint8 and not torch.equal(n1, smooth_noise(7))
