@@ -1,0 +1,232 @@
+"""Exact per-group attribution of the weights of trained linear layers (the dual form of RCDL Sec. 2, extended to
+momentum, AdamW and Muon).
+
+A linear map z = W h + b inside a network is trained by updates built from per-example gradients delta_i h_i^T (delta_i
+= dL/dz for example i, h_i its input; for a 1x1 convolution or a channels-last Linear, summed over positions). SGD with
+momentum, AdamW (given its second moment) and Muon (given its Newton-Schulz polynomial) are linear in these gradients,
+so every update splits exactly into one part per group of training examples. `GroupAttribution` keeps one optimizer
+state per group for selected nn.Linear layers, applies the real update itself, and accumulates
+
+  W_T = a_T W_0 + sum_k C_T^(k),     a_T = prod_{t <= T} (1 - lr_t * weight_decay),
+
+where C_T^(k) is the part of W_T written by the examples of group k (and the same for the bias). The pre-activation of
+neuron n on any input h then splits as z_n(h) = a_T W_0[n] h + sum_k C_T^(k)[n] h + (bias parts): which groups of
+training examples wrote the neuron, and (from checkpoints of C) when. With one group per example and plain SGD this is
+the linear-attention identity of the paper, checked in tests/test_identities.py.
+
+Optimizers (the tracked weights are updated here, not by a torch optimizer):
+  sgd    buf = mu buf + g;  W <- (1 - lr wd) W - lr (g + mu buf if nesterov else buf)        (decoupled decay)
+  adamw  m = b1 m + (1-b1) g;  v = b2 v + (1-b2) g^2;  W <- (1 - lr wd) W - lr m_hat / (sqrt(v_hat) + eps)
+         (torch.optim.AdamW; v uses the total gradient, so every group shares the same denominator)
+  muon   buf = mu buf + (1-mu) g;  U = (1-mu) g + mu buf (nesterov);  O = NS(U);  W <- (1 - lr wd) W - lr_adj O
+         (torch.optim.Muon). NS(U) = P U / ||U|| (or U P^T / ||U|| for tall matrices), with P a polynomial in
+         X X^T built from the total U, so group k's part is P U^(k) / ||U||. The iteration runs in fp32 here (torch:
+         bf16), so the real update differs from torch's by bf16 rounding only.
+Biases use the same rule as the weights for sgd and adamw, and AdamW (betas, eps of the Muon settings) under muon,
+as torch.optim.Muon accepts only matrices.
+"""
+
+import math
+from typing import Dict, Optional
+
+import torch
+import torch.nn as nn
+
+NS_COEFFS = (3.4445, -4.7750, 2.0315)
+
+
+def newton_schulz_factor(U: torch.Tensor, steps: int = 5, eps: float = 1e-7, coeffs=NS_COEFFS):
+  """(O, P, transposed, norm): O = NS(U) as in torch.optim.Muon but in the dtype of U; P with O = P U / norm, or
+  O = U P^T / norm when U is tall (transposed = True)."""
+  a, b, c = coeffs
+  transposed = U.size(0) > U.size(1)
+  X = U.T if transposed else U
+  norm = X.norm().clamp(min=eps)
+  X = X / norm
+  P = torch.eye(X.size(0), dtype=X.dtype, device=X.device)
+  for _ in range(steps):
+    G = X @ X.T
+    M = a * torch.eye(G.size(0), dtype=G.dtype, device=G.device) + b * G + c * (G @ G)
+    X = M @ X
+    P = M @ P
+  O = X.T if transposed else X
+  return O, P, transposed, norm
+
+
+def muon_adjusted_lr(lr: float, shape, adjust_lr_fn: Optional[str] = None) -> float:
+  A, B = shape[:2]
+  if adjust_lr_fn is None or adjust_lr_fn == 'original':
+    return lr * math.sqrt(max(1, A / B))
+  if adjust_lr_fn == 'match_rms_adamw':
+    return lr * 0.2 * math.sqrt(max(A, B))
+  raise ValueError(f'unknown adjust_lr_fn {adjust_lr_fn!r}')
+
+
+class _Tracked:
+  """Per-group optimizer state and contributions for one nn.Linear."""
+
+  def __init__(self, lin: nn.Linear, n_groups: int, opt: str, hp: dict, dtype: torch.dtype):
+    W = lin.weight
+    K, dev = n_groups, W.device
+    self.lin, self.opt, self.hp, self.t = lin, opt, hp, 0
+    self.W0 = W.detach().to(dtype).clone()
+    self.b0 = lin.bias.detach().to(dtype).clone() if lin.bias is not None else None
+    self.C = torch.zeros(K, *W.shape, dtype=dtype, device=dev)
+    self.Cb = torch.zeros(K, W.shape[0], dtype=dtype, device=dev) if lin.bias is not None else None
+    self.a, self.ab = 1.0, 1.0                      # decay factors of the initial weight and bias
+    zeros = lambda *s: torch.zeros(*s, dtype=dtype, device=dev)
+    self.m = zeros(K, *W.shape)                     # per-group first moment (adamw) or momentum buffer (sgd, muon)
+    self.mb = zeros(K, W.shape[0]) if self.Cb is not None else None
+    self.v = zeros(*W.shape) if opt == 'adamw' else None
+    self.vb = zeros(W.shape[0]) if (self.Cb is not None and opt in ('adamw', 'muon')) else None
+    self.h = self.delta = None
+    lin.weight.requires_grad_(False)                # the weight gradient is formed here from (h, delta)
+    if lin.bias is not None:
+      lin.bias.requires_grad_(False)
+    self.handle = lin.register_forward_hook(self._hook)
+
+  def _hook(self, mod, inp, out):
+    if not torch.is_grad_enabled():
+      return None
+    if self.h is not None:
+      raise RuntimeError('tracked layer called twice before step(): one call per training step is supported')
+    if not out.requires_grad:                        # nothing below needs a gradient (e.g. the first layer)
+      out = out.detach().requires_grad_(True)
+    self.h = inp[0].detach()
+    out.register_hook(lambda g: setattr(self, 'delta', g.detach()))
+    return out
+
+  def per_example(self):
+    """Per-example weight and bias gradients (B, d_out, d_in), (B, d_out), summed over positions, in the state dtype."""
+    dt = self.C.dtype
+    B = self.h.shape[0]
+    h = self.h.reshape(B, -1, self.h.shape[-1]).to(dt)
+    d = self.delta.reshape(B, -1, self.delta.shape[-1]).to(dt)
+    G = torch.bmm(d.transpose(1, 2), h)
+    Gb = d.sum(1) if self.Cb is not None else None
+    self.h = self.delta = None
+    return G, Gb
+
+  @torch.no_grad()
+  def step(self, groups: torch.Tensor, lr: float):
+    if self.h is None or self.delta is None:
+      raise RuntimeError('no (input, output gradient) captured: run forward and backward before step()')
+    G, Gb = self.per_example()
+    hp, W = self.hp, self.lin.weight
+    wd, wd_b = hp['weight_decay'], hp['bias_weight_decay']
+    self.t += 1
+    if self.opt == 'adamw' or (self.opt == 'muon' and Gb is not None):
+      b1, b2, eps = hp['betas'][0], hp['betas'][1], hp['eps']
+      c1, c2 = 1 - b1 ** self.t, 1 - b2 ** self.t
+    if self.opt == 'adamw':
+      self.m.mul_(b1).index_add_(0, groups, G, alpha=1 - b1)
+      g = G.sum(0)
+      self.v.mul_(b2).addcmul_(g, g, value=1 - b2)
+      D = 1.0 / ((self.v / c2).sqrt_() + eps)
+      self.C.mul_(1 - lr * wd).addcmul_(self.m, D, value=-lr / c1)
+      self.a *= 1 - lr * wd
+      upd = self.m.sum(0).mul_(D).mul_(-lr / c1)
+    elif self.opt == 'sgd':
+      mu, nest = hp['momentum'], hp['nesterov']
+      self.m.mul_(mu).index_add_(0, groups, G)
+      self.C.mul_(1 - lr * wd).add_(self.m, alpha=-lr * (mu if nest else 1.0))
+      if nest:
+        self.C.index_add_(0, groups, G, alpha=-lr)
+      self.a *= 1 - lr * wd
+      upd = -lr * ((mu if nest else 1.0) * self.m.sum(0) + (G.sum(0) if nest else 0.0))
+    elif self.opt == 'muon':
+      mu, nest = hp['momentum'], hp['nesterov']
+      self.m.mul_(mu).index_add_(0, groups, G, alpha=1 - mu)
+      g = G.sum(0)
+      U = (1 - mu) * g + mu * self.m.sum(0) if nest else self.m.sum(0)
+      O, P, transposed, norm = newton_schulz_factor(U, hp['ns_steps'], hp['ns_eps'])
+      s = muon_adjusted_lr(lr, W.shape, hp['adjust_lr_fn']) / norm
+      self.C.mul_(1 - lr * wd)
+      K = self.C.shape[0]
+      if transposed:                                   # group part: U^(k) P^T
+        Pt = P.T.expand(K, *P.T.shape)
+        self.C.baddbmm_(self.m, Pt, alpha=-s * (mu if nest else 1.0))
+        if nest:
+          self.C.index_add_(0, groups, torch.matmul(G, P.T), alpha=-s * (1 - mu))
+      else:                                            # group part: P U^(k)
+        Pe = P.expand(K, *P.shape)
+        self.C.baddbmm_(Pe, self.m, alpha=-s * (mu if nest else 1.0))
+        if nest:
+          self.C.index_add_(0, groups, torch.matmul(P, G), alpha=-s * (1 - mu))
+      self.a *= 1 - lr * wd
+      upd = O * (-s * norm)
+    else:
+      raise ValueError(f'unknown optimizer {self.opt!r}')
+    W.mul_(1 - lr * wd).add_(upd.to(W.dtype))
+    if Gb is None:
+      return
+    b = self.lin.bias
+    if self.opt in ('adamw', 'muon'):                  # torch.optim.Muon takes matrices only: AdamW for the bias
+      self.mb.mul_(b1).index_add_(0, groups, Gb, alpha=1 - b1)
+      gb = Gb.sum(0)
+      self.vb.mul_(b2).addcmul_(gb, gb, value=1 - b2)
+      Db = 1.0 / ((self.vb / c2).sqrt_() + eps)
+      self.Cb.mul_(1 - lr * wd_b).addcmul_(self.mb, Db, value=-lr / c1)
+      updb = self.mb.sum(0).mul_(Db).mul_(-lr / c1)
+    else:
+      mu, nest = hp['momentum'], hp['nesterov']
+      self.mb.mul_(mu).index_add_(0, groups, Gb)
+      self.Cb.mul_(1 - lr * wd_b).add_(self.mb, alpha=-lr * (mu if nest else 1.0))
+      if nest:
+        self.Cb.index_add_(0, groups, Gb, alpha=-lr)
+      updb = -lr * ((mu if nest else 1.0) * self.mb.sum(0) + (Gb.sum(0) if nest else 0.0))
+    self.ab *= 1 - lr * wd_b
+    b.mul_(1 - lr * wd_b).add_(updb.to(b.dtype))
+
+
+class GroupAttribution:
+  """Tracks selected nn.Linear layers of a model (see the module docstring).
+
+  usage per training step:  loss.backward(); attr.step(groups, lr); other_optimizer.step()
+  (the tracked weights get requires_grad False and must not be in the other optimizer).
+  groups: LongTensor (B,) with values in [0, n_groups), e.g. the class labels, or one id per tracked example.
+  """
+
+  def __init__(self, layers: Dict[str, nn.Linear], n_groups: int, optimizer: str = 'adamw', lr: float = 1e-3,
+               betas=(0.9, 0.999), eps: float = 1e-8, weight_decay: float = 0.0, bias_weight_decay: float = 0.0,
+               momentum: float = 0.95, nesterov: bool = True, ns_steps: int = 5, ns_eps: float = 1e-7,
+               adjust_lr_fn: Optional[str] = None, dtype: torch.dtype = torch.float32):
+    hp = dict(betas=betas, eps=eps, weight_decay=weight_decay, bias_weight_decay=bias_weight_decay, momentum=momentum,
+              nesterov=nesterov, ns_steps=ns_steps, ns_eps=ns_eps, adjust_lr_fn=adjust_lr_fn)
+    self.lr, self.n_groups = lr, n_groups
+    self.tracked = {name: _Tracked(lin, n_groups, optimizer, hp, dtype) for name, lin in layers.items()}
+
+  def step(self, groups: torch.Tensor, lr: Optional[float] = None):
+    lr = self.lr if lr is None else lr
+    for tr in self.tracked.values():
+      tr.step(groups, lr)
+
+  def residual(self, name: str) -> Dict[str, float]:
+    """max |W - (a W_0 + sum_k C^(k))| (and the same for the bias): zero up to rounding."""
+    tr = self.tracked[name]
+    W = tr.lin.weight.detach().to(tr.C.dtype)
+    out = {'weight': (W - tr.a * tr.W0 - tr.C.sum(0)).abs().max().item(), 'weight_scale': W.abs().max().item()}
+    if tr.Cb is not None:
+      b = tr.lin.bias.detach().to(tr.C.dtype)
+      out |= {'bias': (b - tr.ab * tr.b0 - tr.Cb.sum(0)).abs().max().item()}
+    return out
+
+  @torch.no_grad()
+  def parts(self, name: str, h: torch.Tensor, neurons: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+    """Split the pre-activations of `neurons` (all if None) on inputs h (N, d_in):
+    {'groups': (K, N, n) part written by each group (weights and bias), 'init': (N, n) decayed initial weights and
+    bias}. groups.sum(0) + init equals the layer's pre-activation up to rounding."""
+    tr = self.tracked[name]
+    idx = slice(None) if neurons is None else neurons
+    h = h.to(tr.C.dtype)
+    groups = torch.einsum('kni,Ni->kNn', tr.C[:, idx], h)
+    init = h @ (tr.a * tr.W0[idx]).T
+    if tr.Cb is not None:
+      groups = groups + tr.Cb[:, idx][:, None, :]
+      init = init + tr.ab * tr.b0[idx]
+    return {'groups': groups, 'init': init}
+
+  def state_dict(self) -> Dict[str, Dict[str, torch.Tensor]]:
+    """Contributions and decay factors of every tracked layer (for checkpoints over training)."""
+    return {name: {'C': tr.C.clone(), 'Cb': None if tr.Cb is None else tr.Cb.clone(), 'a': tr.a, 'ab': tr.ab,
+                   'W0': tr.W0, 'b0': tr.b0, 't': tr.t} for name, tr in self.tracked.items()}
