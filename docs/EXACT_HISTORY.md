@@ -192,7 +192,17 @@ must be learnable); seed-1 runs after that.
 Claim: "memorization tends to want to sit as close to the output as possible ... the late layers did most of the
 work"; noise memorization is "partly semantic". Maini et al. (2023) found the opposite (memorization spread over a few
 neurons in many layers) with approximate gradient accounting. The exact per-item writes decide this in one run: each
-memorized item's own writes, removed exactly, with clean items at the same dose as the control. Critique pending.
+memorized item's own writes, removed exactly, with clean items at the same dose as the control.
+
+Corrections from the critique: score the item-specific effect (the item's own writes on the item minus the same writes
+on held-out inputs of its type), since its writes to the head bias raise its label on every input; replace knockouts of
+whole class parts (they cancel 300 to 600 times, so removing one breaks the network) with first-order route profiles;
+validate the knockout against replays from step 5,000 (not 20,000, after which only 1.4% of the learning-rate mass
+remains); make the fine-tune arm (teaching a trained model, as the essay did) part of the core; track the final
+LayerNorm and the layer scales so that coverage is complete; set the exposure doses from a pilot at the real rates.
+
+Status: designed; needs the most new code (a per-term split of mixup, convolution and affine tracking, injected
+items). Next after 4.1 and 4.2.
 
 ## 5. An infrastructure finding
 
