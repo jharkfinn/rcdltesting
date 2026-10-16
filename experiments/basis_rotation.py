@@ -120,7 +120,10 @@ def main():
   g = torch.Generator().manual_seed(a.seed)
   res = {'run': a.run, 'step': step, 'images': a.images, 'per_image': a.per_image, 'blocks': {}}
   for n, X in Xs.items():
+    ok = torch.isfinite(X).all(1)                                  # guard (the validation loader once gave NaN pixels)
+    X = X[ok]
     r = analyze(X, a.starts, g)
+    r['dropped_nonfinite_rows'] = int((~ok).sum())
     res['blocks'][n] = r
     ra = np.array([s['align'][0] for s in r['random']]); rj = np.array([s['J_ratio'] for s in r['random']])
     print(n, json.dumps({'N': len(X), 'identity_align': r['identity']['align'], 'identity_J': round(r['identity']['J_ratio'], 3),
