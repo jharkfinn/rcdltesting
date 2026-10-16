@@ -83,13 +83,89 @@ def tracked_blocks(model, which: str):
   return [(n, b) for n, b in blocks if n in names]
 
 
-def param_groups(model, tracked_params, wd):
+def param_groups(model, tracked_params, wd, skip=None):
+  """skip: names of parameters to leave out; None leaves out those with requires_grad False (frozen ones)."""
   decay, no_decay = [], []
   for n, p in model.named_parameters():
-    if not p.requires_grad or any(p is t for t in tracked_params):
+    left_out = (not p.requires_grad) if skip is None else n in skip
+    if left_out or any(p is t for t in tracked_params):
       continue
     (decay if p.dim() >= 2 else no_decay).append(p)
   return [{'params': decay, 'weight_decay': wd}, {'params': no_decay, 'weight_decay': 0.0}]
+
+
+def parse_stages(spec) -> list:
+  return sorted({int(t) for t in str(spec or '').split(',') if t.strip()})
+
+
+def freeze_layer_scales(model, stages) -> list:
+  """X3: requires_grad False on the layer scale (gamma) of every block in the given stages; returns their names. A
+  frozen parameter is left out of the optimizers (param_groups), so it keeps its value (no step, no weight decay)."""
+  names = []
+  for n, p in model.named_parameters():
+    parts = n.split('.')                                 # stages.{i}.{j}.gamma
+    if parts[0] == 'stages' and parts[-1] == 'gamma' and int(parts[1]) in stages:
+      p.requires_grad_(False)
+      names.append(n)
+  return names
+
+
+def frozen_names(model, stages) -> set:
+  """Names of the layer scales freeze_layer_scales(model, stages) freezes, without changing anything."""
+  return {n for n, _ in model.named_parameters()
+          if n.split('.')[0] == 'stages' and n.endswith('.gamma') and int(n.split('.')[1]) in stages}
+
+
+def optimizer_groups(model, tracked, opt, wd, skip=None) -> list:
+  """The parameter groups of each optimizer the trainer builds, in its order: [AdamW groups] for adamw, [Muon groups,
+  AdamW groups] for muon (Muon: 2-D matrices other than the head; AdamW: the rest). skip as in param_groups."""
+  groups = param_groups(model, tracked, wd, skip)
+  if opt == 'adamw':
+    return [groups]
+  mats = [p for p in groups[0]['params'] if p.dim() == 2 and p is not model.head.weight]
+  rest = [p for p in groups[0]['params'] if not any(p is m for m in mats)]
+  return [[{'params': mats}], [{'params': rest, 'weight_decay': wd}, groups[1]]]
+
+
+def build_optimizers(model, tracked, opt, lr, muon_lr, wd, fused=True) -> list:
+  og = optimizer_groups(model, tracked, opt, wd)
+  if opt == 'adamw':
+    return [torch.optim.AdamW(og[0], lr=lr, betas=(0.9, 0.999), eps=1e-8, fused=fused)]
+  return [torch.optim.Muon(og[0][0]['params'], lr=muon_lr, weight_decay=wd, momentum=0.95, nesterov=True),
+          torch.optim.AdamW(og[1], lr=lr, betas=(0.9, 0.999))]
+
+
+def remap_optimizer_state(sd, old_groups, new_groups):
+  """An optimizer state dict saved for parameter groups old_groups, re-indexed for new_groups: the same groups with
+  some parameters left out (now frozen) or added (no state yet: the optimizer starts them fresh). Hyperparameters of
+  each group come from the saved dict."""
+  assert len(sd['param_groups']) == len(old_groups) == len(new_groups), 'group structure differs'
+  old_idx = {id(p): i for g_sd, g in zip(sd['param_groups'], old_groups) for i, p in zip(g_sd['params'], g['params'])}
+  assert all(len(g_sd['params']) == len(g['params']) for g_sd, g in zip(sd['param_groups'], old_groups))
+  state, groups, k = {}, [], 0
+  for g_sd, g in zip(sd['param_groups'], new_groups):
+    ids = []
+    for p in g['params']:
+      i = old_idx.get(id(p))
+      if i is not None and i in sd['state']:
+        state[k] = sd['state'][i]
+      ids.append(k)
+      k += 1
+    groups.append({**g_sd, 'params': ids})
+  return {'state': state, 'param_groups': groups}
+
+
+def load_optimizer_states(opts, saved, model, tracked, opt, wd, saved_stages, stages):
+  """Load saved optimizer states (from a snapshot or resume state written with layer scales of saved_stages frozen)
+  into opts (built with those of stages frozen)."""
+  if parse_stages(saved_stages) == parse_stages(stages):
+    for o, sd in zip(opts, saved):
+      o.load_state_dict(sd)
+    return
+  old = optimizer_groups(model, tracked, opt, wd, skip=frozen_names(model, parse_stages(saved_stages)))
+  new = optimizer_groups(model, tracked, opt, wd, skip=frozen_names(model, parse_stages(stages)))
+  for o, sd, og, ng in zip(opts, saved, old, new):
+    o.load_state_dict(remap_optimizer_state(sd, og, ng))
 
 
 @torch.no_grad()

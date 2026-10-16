@@ -8,9 +8,9 @@ from experiments import convnext_bias_paths as bp
 from rcdl.convnext import ConvNeXt
 
 
-def _model():
+def _model(n_classes=3):
   torch.manual_seed(0)
-  m = ConvNeXt(dims=(8, 8, 8, 8), units=(6, 6, 6, 6), depths=(1, 1, 1, 1), n_classes=3, layer_scale=0.5)
+  m = ConvNeXt(dims=(8, 8, 8, 8), units=(6, 6, 6, 6), depths=(1, 1, 1, 1), n_classes=n_classes, layer_scale=0.5)
   for p in m.parameters():                     # non-trivial weights so that every path carries gradient
     p.data.normal_(0, 0.3)
   return m.eval()
@@ -33,24 +33,56 @@ def test_bias_gradients_and_splits():
   for name, a in P.items():
     for k in ('Bv', 'Bg'):
       np.testing.assert_allclose(a[f'{k}_pstar'] + a[f'{k}_on'] + a[f'{k}_off'], a[f'{k}_ce'], rtol=1e-4, atol=1e-6)
-      np.testing.assert_allclose(a[f'{k}_lse'] - a[f'{k}_own'], a[f'{k}_ce'], rtol=1e-4, atol=1e-6)
+      np.testing.assert_allclose(a[f'{k}_lse'] + a[f'{k}_true'], a[f'{k}_ce'], rtol=1e-4, atol=1e-6)
       np.testing.assert_allclose(a[f'{k}_fixed'] + a[f'{k}_scale'], a[f'{k}_ce'], rtol=1e-4, atol=1e-6)
     assert np.abs(P[name]['Bv_scale']).max() > 1e-6  # the scale path carries gradient
 
 
 def test_fixed_sigma_same_forward_other_gradient():
-  x = torch.randn(4, 5, 8, requires_grad=True)
-  w, b = torch.randn(8), torch.randn(8)
-  y0 = F.layer_norm(x, (8,), w, b, 1e-6)
-  bp._FIX_SIGMA[0] = True
-  try:
-    y1 = F.layer_norm(x, (8,), w, b, 1e-6)
-  finally:
-    bp._FIX_SIGMA[0] = False
-  torch.testing.assert_close(y0, y1, rtol=1e-5, atol=1e-5)
-  g0, = torch.autograd.grad((y0 ** 3).sum(), x)
-  g1, = torch.autograd.grad((y1 ** 3).sum(), x)
-  assert (g0 - g1).abs().max() > 1e-3
+  """Inside fixed_sigma(), nn.LayerNorm and rcdl's LayerNorm2d both run the fixed-sigma form (same values, other
+  gradient); outside, F.layer_norm is torch's again; keyword calls work and a module reload does not recurse."""
+  import importlib
+  from rcdl.convnext import LayerNorm2d
+  orig = F.layer_norm
+  torch.manual_seed(0)
+  for mod, x in ((torch.nn.LayerNorm(8, eps=1e-6), torch.randn(4, 5, 8)), (LayerNorm2d(8, eps=1e-6), torch.randn(2, 8, 3, 4))):
+    with torch.no_grad():
+      mod.weight.normal_()
+      mod.bias.normal_()
+    x.requires_grad_(True)
+    y0 = mod(x)
+    with bp.fixed_sigma():
+      assert F.layer_norm is bp.layer_norm_fixed_sigma
+      y1 = mod(x)
+    assert F.layer_norm is orig
+    torch.testing.assert_close(y0, y1, rtol=1e-5, atol=1e-5)
+    g0, = torch.autograd.grad((y0 ** 3).sum(), x)
+    g1, = torch.autograd.grad((y1 ** 3).sum(), x)    # backward after leaving the context keeps the fixed scale
+    assert (g0 - g1).abs().max() > 1e-3
+  x = torch.randn(3, 8)
+  torch.testing.assert_close(bp.layer_norm_fixed_sigma(input=x, normalized_shape=(8,), eps=1e-6),
+                             F.layer_norm(input=x, normalized_shape=(8,), eps=1e-6), rtol=1e-5, atol=1e-5)
+  importlib.reload(bp)
+  assert F.layer_norm is orig
+  torch.nn.LayerNorm(8)(x)
+
+
+def test_summarize_roles_and_maps():
+  m = _model(6)
+  x = torch.randint(0, 256, (12, 3, 64, 64), dtype=torch.uint8)
+  y = torch.arange(6).repeat_interleave(2)
+  P = bp.probe_paths(m, x, y, n_classes=6, batch=12, device='cpu')
+  rel = np.zeros((6, 6), bool)
+  rel[0, 1] = rel[1, 0] = True
+  for name, a in P.items():
+    s0, s1 = bp.summarize(a, top_n=2), bp.summarize(a, top_n=2, rel=rel)
+    np.testing.assert_allclose(s0['ce_v_top20'] + s0['ce_g_top20'], s0['ce']['top20'], rtol=1e-5, atol=1e-7)
+    np.testing.assert_allclose(s0['ce_v_rest'] + s0['ce_g_rest'], s0['ce']['rest'], rtol=1e-5, atol=1e-7)
+    assert s1['rest_excludes_relatives'] and not s0['rest_excludes_relatives']
+    assert s0['ce']['top20'] == s1['ce']['top20'] and 'relatives' in s1['ce']
+    for k in ('lse', 'true', 'fixed', 'scale', 'pstar', 'on', 'off'):
+      assert np.isfinite(s1[k]['top20'])
+    np.testing.assert_allclose(s0['lse']['top20'] + s0['true']['top20'], s0['ce']['top20'], rtol=1e-4, atol=1e-6)
 
 
 def test_scale_derivative_and_ablation():

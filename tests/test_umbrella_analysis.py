@@ -495,7 +495,8 @@ def test_eval_sets_keep_a_well_recognized_source():
   passing = src[8:46]                                                            # 38 of the 42 non-probe images
   arm = {'target': 1, 'source': 2, 'rel_target': [], 'rel_source': [],
          'excluded_from_eval': src[:8] + [int(i) for i in np.flatnonzero(labels == 1)[:8]] + passing,
-         'photos': [{'photo': f'val:{g}'} for g in passing[:5]], 'reserve': [{'photo': f'val:{g}'} for g in passing[5:10]]}
+         'photos': [{'photo': f'val:{g}'} for g in passing[:5]],
+         'reserve': [{'photo': f'val:{g}'} for g in passing[5:10]]}
   sel = {'arms': {'strong_source': arm}}
   v = UA.eval_set_indices(labels, arm, UA.candidate_exclusions([sel], labels), n_classes=4)
   assert len(v['V_umb']) == 50 - 8 - 10 and not set(v['V_umb']) & set(passing[:10])
@@ -788,13 +789,14 @@ def test_decision_rules_with_three_photos():
   """A pre-registered fallback to 3 photos: '4 of 5' becomes '3 of 3', so O stays reachable."""
   photos = [f'val:{i}' for i in range(3)]
   B = [_rec(sd, ph, 4.0) for sd in range(3) for ph in photos]
-  F_ = [_rec(sd, c, 0.5, e_oth=0.5, L=0.7, kind='control', tag='F') for sd in range(3) for c in ('noise:0', 'shuffle:1')]
+  F_ = [_rec(sd, c, 0.5, e_oth=0.5, L=0.7, kind='control', tag='F')
+        for sd in range(3) for c in ('noise:0', 'shuffle:1')]
   F_ += [_rec(0, c, 0.5, e_oth=0.5, L=0.6, kind='control', tag='F') for c in ('noise:1', 'shuffle:2')]
   Bp = [_rec(0, ph, 3.5, tag='Bp') for ph in photos]
   out = UA.decide(B + F_ + Bp, [])
   assert out['P-C1a']['verdict'] == 'O' and out['P-C1b']['verdict'] == 'O' and out['P-C2']['verdict'] == 'O'
-  B[0] = _rec(0, photos[0], 0.5)                                                  # 2 of 3 at seed 0: still O (seeds 1, 2)
-  B[3] = _rec(1, photos[0], 0.5)                                                  # 2 of 3 at seed 1 too: not O
+  B[0] = _rec(0, photos[0], 0.5)                                          # 2 of 3 at seed 0: still O (seeds 1, 2)
+  B[3] = _rec(1, photos[0], 0.5)                                          # 2 of 3 at seed 1 too: not O
   assert UA.rule_c1a(B, Bp, {})['verdict'] != 'O'
   assert UA.photos_per_seed(B) == 3 and UA.photos_per_seed([]) == 5
   bad = dict(B[1], run='r1', checks={'ok': {'all': False, 'completeness': False}})

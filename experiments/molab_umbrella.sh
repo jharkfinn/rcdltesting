@@ -138,7 +138,8 @@ RUN="$UMB run $UARGS"
 # --------------------------------------------------------------------------------------------- A lr selection
 if has A; then
   for lr in $LRS; do
-    ft A_lr${lr}_taught $RUN --sel $SEL --arm $ARM --mode taught --photo ${P[0]} --lr $lr --seed 0 --out $R/A/lr$lr/taught
+    ft A_lr${lr}_taught $RUN --sel $SEL --arm $ARM --mode taught --photo ${P[0]} --lr $lr --seed 0 \
+      --out $R/A/lr$lr/taught
     ft A_lr${lr}_untaught $RUN --sel $SEL --arm $ARM --mode untaught --lr $lr --seed 0 --out $R/A/lr$lr/untaught
   done
   barrier

@@ -41,6 +41,7 @@ pre-activations stands for the class mean of the derivative; first order.
 import argparse
 import json
 import os
+import warnings
 from contextlib import nullcontext
 from unittest import mock
 
@@ -250,7 +251,10 @@ def summarize(P, writes=None, top_n=20, rel=None):
   np.put_along_axis(inT, top.T, True, 0)
   relm = (rel[top].any(1).T & ~inT) if rel is not None else np.zeros_like(inT)       # (C, U)
   restm = ~inT & ~relm
-  role_mean = lambda M, mask: float(np.nanmean(np.nanmean(np.where(mask, M, np.nan), 0)[live]))
+  def role_mean(M, mask):                       # per unit over the role's classes, then over live units
+    with warnings.catch_warnings():              # a unit can have no relatives: its mean is NaN and is left out
+      warnings.simplefilter('ignore', RuntimeWarning)
+      return float(np.nanmean(np.nanmean(np.where(mask, M, np.nan), 0)[live]))
   out = {}
   for s in SPLITS:
     ps = pole(s) / scale[None]
@@ -286,8 +290,16 @@ def main():
   p.add_argument('--probe_cache', default='/dev/shm/probe_8.pt')
   p.add_argument('--batch', type=int, default=50)
   p.add_argument('--ablate', action='store_true', help='also scale each unit on its top-20 and 20 other classes')
+  p.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz',
+                 help="WordNet distances; relatives (dist <= 4) of the top-20 classes are left out of 'rest'")
   p.add_argument('--out', default=None)
   a = p.parse_args()
+  rel = None
+  if a.wordnet and os.path.exists(a.wordnet):
+    rel = np.load(a.wordnet)['dist'] <= 4
+    np.fill_diagonal(rel, False)
+  else:
+    print(f"no WordNet file at {a.wordnet}: 'rest' includes the relatives", flush=True)
   from experiments.convnext_bias_signal import load_cb
   dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   cfg = json.load(open(os.path.join(a.run, 'config.json')))
@@ -305,12 +317,13 @@ def main():
     res[s] = {}
     for b in P:
       w = {m: cb2[f'{b}.pw_{m}'] - cb1[f'{b}.pw_{m}'] for m in ('gate', 'value')} if cb1 else None
-      res[s][b] = summarize(P[b], w)
+      res[s][b] = summarize(P[b], w, rel=rel)
       r = res[s][b]
-      for k in ('ce', 'own', 'lse'):
+      top = np.argsort(-P[b]['u'], 0)[:20]                                           # (20, U)
+      live = np.ptp(P[b]['u'].T, 1) > 1e-3 * np.abs(P[b]['u']).max()
+      for k in ('ce', 'true', 'lse'):
         Sk = P[b][f'S_{k}'] / (np.abs(P[b]['S_ce']).mean(0, keepdims=True) + 1e-30)     # per-unit scale
-        top = np.argsort(-P[b]['u'], 0)[:20]
-        r[f'S_{k}_top20'] = float(np.take_along_axis(Sk, top, 0).mean())
+        r[f'S_{k}_top20'] = float(np.take_along_axis(Sk, top, 0)[:, live].mean())
       print(s, b, {k: round(r[k]['top20'], 2) for k in SPLITS}, 'rho', round(r.get('rho_writes', np.nan), 2),
             'writes', round(r.get('writes_top20', np.nan), 2), flush=True)
     if a.ablate:

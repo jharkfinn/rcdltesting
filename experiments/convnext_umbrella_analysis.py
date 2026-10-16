@@ -43,8 +43,9 @@ Notation (per run):
 
 M1 feed and shelter (C1), on the common path, F restricted to the block maps unless stated:
   DiD^w(I) = F^w(I; taught) - F^w(I; untaught); the 64 pseudo-groups give DiD^{r,g}; z^w = (DiD^w - mean) / sd over
-  them (sd with ddof 1); pseudo_noise: the part of that sd due to the fp16 storage of the shadow parts (in each shadow
-  the slot groups' IG must sum to the replay classes' IG; pseudo_storage_noise), reported as a ratio to sd_pseudo.
+  them (sd with ddof 1); pseudo_noise: the part of that sd due to the storage of the shadow parts (fp16 unless
+  shadowsums_{s}.pt are saved; in each shadow the slot groups' IG must sum to the replay classes' IG;
+  pseudo_storage_noise), reported as a ratio to sd_pseudo.
   Feed phi_BEE(I) = DiD^BEE(I) / dm_P(I1), dm_P(I1) = m_P(tau) - m_P(0) in the taught run.
   Shelter E_OTH = -F^OTH(I2; taught) / dm_P(I1); E_dec = -F^{dec_P}(I2; taught, all maps) / dm_P(I1). Umbrella
   coupling: DiD^UMB and z over I1 and I2 per map group (blocks, stage0-3, gate+value, down, head, total). Decline
@@ -188,8 +189,8 @@ def shadow_parts(run: str, s: int, keys, cv) -> tuple:
       for k in keys:
         e = st[k]
         order = sorted(e['sets'], key=lambda n: int(n.lstrip('g')))
-        rec[k] = (torch.stack([cv(e['sets'][n]['C']) for n in order]), torch.stack([cv(e['sets'][n]['Cb']) for n in order]),
-                  cv(e['R']), e['a'], e['ab'])
+        rec[k] = (torch.stack([cv(e['sets'][n]['C']) for n in order]),
+                  torch.stack([cv(e['sets'][n]['Cb']) for n in order]), cv(e['R']), e['a'], e['ab'])
       out.append(rec)
     return out, True
   out = []

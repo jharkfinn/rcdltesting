@@ -75,7 +75,8 @@ def block_self(dg, dv, R1, G1, V1, rel, sign_T, top_n=20):
     inT[top[n]] = True
     relm = rel[top[n]].any(0) & ~inT
     rest = ~inT & ~relm
-    rec = {'kind': kind[n], 'dn': dn[n], 'g_below_min': float((gt[n] < G_MIN).mean()), 'flip': float(sign1[n] != sign_T[n])}
+    rec = {'kind': kind[n], 'dn': dn[n], 'g_below_min': float((gt[n] < G_MIN).mean()),
+           'flip': float(sign1[n] * sign_T[n] < 0)}
     for name, mask in (('top20', inT), ('relatives', relm), ('rest', rest)):
       if not mask.any():
         continue
@@ -120,8 +121,12 @@ def main():
   p.add_argument('--rdir', default=None, help='directory of R_{step}.pt (per block R, Vm, Gm) for --npz')
   p.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz')
   p.add_argument('--from_step', type=int, default=0)
-  p.add_argument('--out', default=None)
+  p.add_argument('--out', default=None, help='default: bias_self.json in --run, or next to --npz')
   a = p.parse_args()
+  if not (a.run or a.npz):
+    p.error('give --run, or --npz with --rdir')
+  if a.npz and not a.rdir:
+    p.error('--rdir is required with --npz')
   steps, cb, atl = load_npz(a.npz, a.rdir) if a.npz else load_run(a.run)
   rel = np.load(a.wordnet)['dist'] <= 4
   np.fill_diagonal(rel, False)
