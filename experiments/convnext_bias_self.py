@@ -13,8 +13,9 @@ For block b, interval I = (t1, t2], unit n and classes k, c (class means at the 
       first-order change of class k's own response on unit n from class k's own bias writes
   pole[k, n] = dv[k, n] mean_{c in P_n} a_v[n, c] + dg[k, n] mean_{c in P_n} a_g[n, c]
       first-order change of the mean response of the unit's top-20 classes P_n (by z-score at t1) from class k's writes
-Roles per unit: top20 (P_n), WordNet relatives of P_n outside it, rest. Per role: mean / mean |.| over all classes (the
-units of convnext_bias_signal.py), and the share of positive entries. Units are typed by their top-20 classes at t1:
+Roles per unit: top20 (P_n), WordNet relatives of P_n outside it, rest. Per role: mean / mean |.| over the unit's 1,000
+classes (a per-unit scale; convnext_bias_signal.py divides by the mean over the whole block, so its numbers are on a
+different scale), and the share of positive entries. Units are typed by their top-20 classes at t1:
 'DN' if most have Gm < 0 and Vm < 0 (the negative lobe), 'PP' if most have both positive; each type is also reported
 alone. 'oriented' repeats convnext_bias_signal.py's value-map measure (one sign per unit, from the end) for comparison,
 and 'flip' is the share of units whose value sign on P_n at t1 differs from that end sign.
@@ -64,6 +65,7 @@ def block_self(dg, dv, R1, G1, V1, rel, sign_T, top_n=20):
   pp = ((gt > 0) & (vt > 0)).mean(1)
   kind = np.where(dn > 0.5, 'DN', np.where(pp > 0.5, 'PP', 'mixed'))
   sign1 = np.sign(vt.mean(1))
+  sign1[sign1 == 0] = 1
   oriented = dv * sign_T[None]
   sc = {k: np.abs(m).mean(0) + 1e-30 for k, m in (('self', self_e), ('pole', pole), ('pole_v', pole_v),
                                                   ('pole_g', pole_g), ('oriented', oriented))}
@@ -88,7 +90,7 @@ def block_self(dg, dv, R1, G1, V1, rel, sign_T, top_n=20):
     rows = [r for r in per_unit if grp == 'all' or r['kind'] == grp]
     if not rows:
       continue
-    keys = [k for k in rows[0] if k != 'kind']
+    keys = sorted({k for r in rows for k in r if k != 'kind'})
     out[grp] = {'units': len(rows), **{k: float(np.nanmean([r.get(k, np.nan) for r in rows])) for k in keys}}
   return out
 
@@ -96,7 +98,8 @@ def block_self(dg, dv, R1, G1, V1, rel, sign_T, top_n=20):
 def load_npz(npz, rdir):
   z = np.load(npz)
   steps = [int(s) for s in z['steps']]
-  cb = {s: {k.split('|')[0]: z[k][i] for k in z.files if k.endswith('|Cb')} for i, s in enumerate(steps)}
+  arrays = {k.split('|')[0]: z[k] for k in z.files if k.endswith('|Cb')}       # decompressed once
+  cb = {s: {k: v[i] for k, v in arrays.items()} for i, s in enumerate(steps)}
   atl = {s: torch.load(os.path.join(rdir, f'R_{s:05d}.pt'), map_location='cpu', weights_only=False) for s in steps}
   return steps, cb, atl
 
@@ -140,7 +143,7 @@ def main():
     r = rows[-1]['all']
     print(b, {k: round(r[k], 3) for k in ('dn', 'flip', 'oriented_top20', 'pole_top20', 'self_top20', 'pole_rest')},
           flush=True)
-  out = a.out or os.path.join(a.run, 'bias_self.json')
+  out = a.out or os.path.join(a.run or os.path.dirname(os.path.abspath(a.npz)), 'bias_self.json')
   json.dump(res, open(out, 'w'), indent=1)
   print('BIAS_SELF_DONE', flush=True)
 
