@@ -63,7 +63,7 @@ bit-identical.
 
 | # | Experiment | Claim tested | Status |
 |---|---|---|---|
-| E0 | Static checks on the public InceptionV1 (V neuron 4e:55, the car / dog pose circuit 4c:447, mixed5b) | the essay's re-readings of canonical neurons | done for 4e:55 and the car circuit (Sec. 5); mixed5b open |
+| E0 | Static checks on the public InceptionV1 (V neuron 4e:55, the car / dog pose circuit 4c:447, every mixed unit of mixed4c-5b) | the essay's re-readings of canonical neurons | done (Sec. 5) |
 | E1 | Writer atlas: ConvNeXt-SwiGLU tiny and medium, per-class attribution of the gate and value maps of late blocks, dense early checkpoints | instrument | code reviewed and ready (`experiments/convnext_train.py`, `experiments/convnext_atlas.py`, `experiments/convnext_growth.py`, `experiments/molab_e1.sh`); tiny AdamW run done, 18.5% top-1 (Sec. 7) |
 | E2 | Order of growth: when each class enters a neuron's writer set, and its distance to the classes already there | recursive generalization | |
 | E3 | Head start: did the neuron already fire on a class before that class wrote into it? | circuit racing | |
@@ -134,10 +134,14 @@ inputs we found, and they carry a small part of z. Heat montages agree: in 295 t
 sits on wheels and the lower side of side-on cars, and the dog response on the faces of terriers, mostly seen from the
 front, so the top images do not share a pose.
 
-Reading. For these two units, the exact input attribution matches what Zoom In described: a car feature merged into
-neurons that also detect dogs. It does not match a single detector of a pose shared across cars and dogs at the level
-of mixed4c. Separate inputs alone cannot exclude one variable built in mixed4d from class-specific channels (see the
-last limit), so low overlap bounds packing from above; the montages are what argue against that variant here.
+Reading (revised after E0d, below). The low overlap of 241 and 295 is mostly what any reader of these images gets:
+32 other units of the same mixed4d branch, read at the same positions on the same images, give a median overlap of
+0.18 and 0.17 (10th to 90th percentile 0.07 to 0.31). 241 sits below 88% of them and 295 below 62%, so neither reads
+the two groups through unusually separate inputs. Neither reads them through a shared input either: the excess over
+the baseline is negative, -0.10 and -0.06, with 95% intervals that exclude 0. So the exact attribution gives no support
+to a pose feature shared at mixed4c, and it does not show packing beyond what the images themselves impose. An earlier
+version of this section read the low overlap as Zoom In's packing; without the baseline that reading was not justified.
+Separate inputs alone also cannot exclude one variable built in mixed4d from class-specific channels (last limit).
 
 | overlap against the reader baseline | tuning on a shared attribute such as pose | reading |
 |---|---|---|
@@ -176,6 +180,43 @@ So the car half of 241 is read back out by one vehicle unit, at a small share, a
 Both units feed many unrelated mixed4e units at shares of 1% to 30%. Neither "stored, then recovered" nor "a pose
 feature that later layers build on" describes these two readouts well; they look like intermediate features with many
 small readers. Limits: readers are ranked by linearized weights, which ignore the ReLUs; only 8 readers per unit.
+
+**E0d: every mixed unit of mixed4c, 4d, 4e and 5b** (`experiments/inception_mixed.py`, reviewed before the run;
+`docs/data/e0/mixed_v2_cut7.json.gz`). A unit is mixed when its 100 strongest validation images fall into two WordNet
+clusters (average linkage, cut 7) of at least 15 images each. For both groups the exact input shares from the previous
+mixed layer are compared (cosine of the mean share vectors, and a shared-mass measure that one dominant channel does
+not sway), against the same numbers for 32 other units of the same branch read at this unit's positions on the same
+images (the reader baseline). A unit is 'shared' when both measures exceed the baseline (bootstrap interval above 0,
+above 95% of the readers, at least halfway to the sampling ceiling), 'separate' when both fall below it (interval below
+0, below 95% of the readers), else undetermined. Visual similarity of the two groups: DINOv2 ViT-S/14 embeddings,
+independent of InceptionV1; 'visually far' = below the median. Intervals: bootstrap over cluster pairs.
+
+| layer | mixed units (cluster pairs) | shared | separate | shared, visually far / near | excess over baseline, median (95% CI) | overlap below the class reference |
+|---|---|---|---|---|---|---|
+| mixed4c | 236 (80) | 23% (15-33%) | 0.8% (0-2%) | 10% / 36% | +0.021 (0.016, 0.025) | 83% |
+| mixed4d | 291 (102) | 16% (10-22%) | 1.7% (0.4-3.4%) | 6% / 26% | +0.022 (0.018, 0.030) | 84% |
+| mixed4e | 494 (145) | 23% (18-29%) | 0.4% (0-1.1%) | 9% / 38% | +0.050 (0.042, 0.064) | 86% |
+| mixed5b | 660 (125) | 1.4% (0-3.9%) | 2.9% (1.6-4.1%) | 0% / 3% | +0.014 (0.009, 0.018) | 96% |
+
+With the cut at 9 (fewer, coarser clusters) the same pattern holds: shared 15 to 19% in mixed4c-4e (5 to 7% for visually
+far pairs), 0.6% in mixed5b; separate 0 to 4% everywhere. Related pairs (two sub-clusters inside one cluster, cut 6):
+shared 23 to 36% in mixed4c-4e, 5% in mixed5b, separate 0%. By branch, 1x1 units share most (36 to 40% in mixed4c-4e).
+The class reference is the overlap between two halves of the classes of one group; most mixed units' two groups overlap
+less than that.
+
+Reading:
+- Packing beyond what the images impose is rare: at most 4% of mixed units read their two groups through more
+  separate inputs than an arbitrary reader of their branch.
+- Shared inputs are found for a minority: about a fifth of mixed units in mixed4c-4e, mostly where the two groups look
+  alike (the positive control, where both readings expect sharing). Where the groups look different, 5 to 10% share.
+  In mixed5b, mixed units almost never read their groups through shared inputs.
+- Most mixed units (75 to 85% in mixed4c-4e, 95% in mixed5b) are undetermined: they read each group through the inputs
+  that group activates, as any reader of the branch does.
+- For the essay: the claim that mixed units come from features shared by their classes holds for a minority of
+  units, and mostly for visually similar classes. For visually distant classes, the inputs do not show it. The test is
+  blind to a shared variable built inside the unit's own layer from group-specific channels (E0b's last limit), so
+  'undetermined' units can still be pose-like or packed; this needs tuning tests (for example on viewpoint labels).
+- Limits: the top 100 images only; WordNet clusters define the groups; 32 readers give a rank resolution of 1/32.
 
 ## 6. E8 results: relatedness against anticorrelation in a toy, ReLU and SwiGLU, 10 seeds
 
