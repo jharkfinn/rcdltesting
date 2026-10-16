@@ -151,11 +151,8 @@ Separate inputs alone also cannot exclude one variable built in mixed4d from cla
 | below | not tested | undecided |
 
 Limits:
-- No reader baseline yet. A review of the follow-up E0d (2026-10-16) showed that the overlap of two image groups is
-  well above 0 for any reader: other units of the same branch, read at the same positions, give a median of about 0.5
-  on synthetic image families, and the floor depends on the unit, the branch and how similar the two groups already
-  are in mixed4c. The 0.08 and 0.12 of 241 and 295 are below every floor seen there, but the comparison with 32 other
-  readers of the same branch on these very images is part of the E0d rerun.
+- The reader baseline was added in E0d (see the revised reading above): 32 other units of the same branch, on the
+  same images, give a median overlap of 0.18 (241) and 0.17 (295).
 - The cosine of mean share vectors depends on how concentrated the inputs are; 4c:447 holds about 60% of 241's
   positive vehicle mass. E0d adds a shared-mass measure and draws conclusions only where both agree.
 - Only the 100 strongest images per unit are used; a pose code could live in the weaker range.
