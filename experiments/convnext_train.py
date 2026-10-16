@@ -24,7 +24,9 @@ original run's, the same in both replays; with --batch_crops in the original run
 per batch and a control replay repeats the original run up to GPU nondeterminism). --freeze_gamma 1 (X3) keeps the
 layer scale of every stage-1 block at its value (the snapshot's in a replay): requires_grad False and left out of the
 optimizers, whose saved states are re-indexed without it (remap_optimizer_state); snapshots and resume states record the
-frozen stages. The attribution is unaffected (it tracks pw_gate and pw_value only). --zero_loss_classes gives the
+frozen stages; a listed stage without layer scales is an error, and a fresh run (no snapshot, no resume state) warns
+that the frozen scales stay at their initial value. The attribution is unaffected (it tracks pw_gate and pw_value
+only). --zero_loss_classes gives the
 listed classes' label terms loss weight 0 (an intervention: their examples still pass through the model, but teach
 nothing for those labels). --extra_ckpts adds
 checkpoints (attribution parts and model, no validation pass) for a denser record.
