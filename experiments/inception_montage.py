@@ -15,8 +15,14 @@ def montage(stats: str, val_dir: str, imagenet_dir: str, layer: str, channel: in
   from experiments.inception_e0 import class_names, concat_stats
   st = np.load(stats)
   a = concat_stats(st, layer, kind)[:, channel]
-  idx = np.argsort(-a if kind == 'max' else a)[:k]
   names = class_names(imagenet_dir)
+  order = np.argsort(-a if kind == 'max' else a)
+  if only:                                             # keep one class group: 'vehicles', 'dogs' or a class name
+    from experiments.inception_paths import DOGS, VEHICLES
+    keep = {'vehicles': {i for i, n in enumerate(names) if n in VEHICLES}, 'dogs': DOGS}.get(
+      only, {i for i, n in enumerate(names) if n == only})
+    order = order[np.isin(st['labels'][order], list(keep))]
+  idx = order[:k]
   files = sorted(glob.glob(os.path.join(val_dir, '**', 'validation-*.parquet'), recursive=True))
   sizes = [pq.ParquetFile(f).metadata.num_rows for f in files]
   starts = np.cumsum([0] + sizes)
@@ -75,5 +81,6 @@ if __name__ == '__main__':
   p.add_argument('--k', type=int, default=32)
   p.add_argument('--out', required=True)
   p.add_argument('--weights', default=None, help='inception5h.pth: overlay the channel\'s spatial response')
+  p.add_argument('--only', default=None, help="'vehicles', 'dogs' or one class name")
   a = p.parse_args()
-  montage(a.stats, a.val, a.imagenet, a.layer, a.channel, a.kind, a.k, a.out, a.weights)
+  montage(a.stats, a.val, a.imagenet, a.layer, a.channel, a.kind, a.k, a.out, a.weights, a.only)
