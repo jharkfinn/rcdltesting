@@ -10,6 +10,10 @@ from `starts` random rotations and from the identity (the neurons). Reported per
   align      for each found direction, max_i |Q_ij| (1: it is a unit axis); mean over directions and the share > 0.9
   J_ratio    J at the end / J at the neurons (identity); > 1: a rotation concentrates the activity more than the neurons
   identity   the same for the search started at the identity (does it stay)
+  l1         a second objective, sparsity: minimize sum_ij |(X Q)_ij| (Riemannian gradient descent with a polar
+             retraction, from a random start); L1_ratio = L1 at the neurons / L1 at the end (> 1: sparser than neurons)
+  top4       'a handful of units carry the most activity': the mean over samples of the share of the sample's energy in
+             its 4 largest coordinates, for the neuron basis, each found basis and a random basis
 Control: the same search on X R0 for a random rotation R0, where the neurons are not special by construction; the
 neurons of X are then the columns of R0^T, so the found directions must align with those (align_R0) and not with the unit
 axes (align_units), with J_ratio_vs_R0 measured against Q = R0^T.
@@ -75,6 +79,32 @@ def random_rotation(U, g):
   return Q * torch.sign(torch.diagonal(R))
 
 
+def l1_search(X, Q, iters=400, lr=0.5):
+  """Minimize mean |X Q| over orthogonal Q: Riemannian gradient step, polar retraction, step halved when it fails."""
+  f = lambda Q_: float((X @ Q_).abs().mean())
+  cur = f(Q)
+  for _ in range(iters):
+    G = X.T @ torch.sign(X @ Q) / X.shape[0]
+    G = G - Q @ ((Q.T @ G + G.T @ Q) / 2)                         # tangent space at Q
+    while lr > 1e-6:
+      U_, _, Vt = torch.linalg.svd(Q - lr * G)
+      Qn = U_ @ Vt
+      new = f(Qn)
+      if new < cur:
+        Q, cur = Qn, new
+        lr *= 1.2
+        break
+      lr /= 2
+    else:
+      break
+  return Q, cur
+
+
+def top_share(Y, k=4):
+  e = Y ** 2
+  return float((e.topk(k, dim=1).values.sum(1) / e.sum(1).clamp_min(1e-30)).mean())
+
+
 def align(Q, axes=None):
   """Mean over the columns of Q of the largest |cos| with the columns of `axes` (identity: unit axes), and the share
   above 0.9."""
@@ -92,6 +122,11 @@ def analyze(X, starts, g):
   for _ in range(starts):
     Q, J = quartimax(X, random_rotation(U, g))
     rec['random'].append({'align': align(Q), 'J_ratio': J / J0})
+  L0 = float(X.abs().mean())
+  Ql, Ll = l1_search(X, random_rotation(U, g))
+  Qr = random_rotation(U, g)
+  rec['l1'] = {'align': align(Ql), 'L1_ratio': L0 / Ll}
+  rec['top4'] = {'neurons': top_share(X), 'quartimax': top_share(X @ Q), 'l1': top_share(X @ Ql), 'random': top_share(X @ Qr)}
   R0 = random_rotation(U, g)                                       # control: neurons not special by construction
   Xr = X @ R0
   Q, J = quartimax(Xr, random_rotation(U, g))
@@ -128,7 +163,8 @@ def main():
     ra = np.array([s['align'][0] for s in r['random']]); rj = np.array([s['J_ratio'] for s in r['random']])
     print(n, json.dumps({'N': len(X), 'identity_align': r['identity']['align'], 'identity_J': round(r['identity']['J_ratio'], 3),
                          'random_align_mean': round(float(ra.mean()), 3), 'random_J': rj.round(3).tolist(),
-                         'control_align_units': r['control']['align_units'], 'control_align_R0': r['control']['align_R0']}),
+                         'control_align_units': r['control']['align_units'], 'control_align_R0': r['control']['align_R0'],
+                         'l1': r['l1'], 'top4': {k: round(v, 3) for k, v in r['top4'].items()}}),
           flush=True)
   json.dump(res, open(a.out or os.path.join(a.run, f'basis_rotation_{step:05d}.json'), 'w'), indent=1)
 
