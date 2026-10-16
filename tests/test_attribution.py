@@ -315,3 +315,33 @@ def test_lazy_decay_survives_strong_decay_and_flushes(opt):
   assert res['weight'] < 1e-12 * max(1.0, res['weight_scale']) and res['bias'] < 1e-12
   if opt == 'adamw':
     assert torch.allclose(model[0].weight, ref[0].weight, atol=1e-11, rtol=0)
+
+
+@pytest.mark.parametrize('opt', ['adamw', 'sgd', 'muon'])
+def test_shadow_split_leaves_training_unchanged_and_adds_up(opt):
+  """A shadow split over other groups (e.g. random groups as a control) does not change training: the weights equal
+  those of the owner alone, bit for bit; both splits add up to the same weights."""
+  base = tiny(6)
+  m1, m2 = copy.deepcopy(base), copy.deepcopy(base)
+  kw = dict(optimizer=opt, lr=1e-2, weight_decay=0.05, dtype=torch.float64)
+  a1 = GroupAttribution({'l0': m1[0], 'l2': m1[2]}, n_groups=4, **kw)
+  a2 = GroupAttribution({'l0': m2[0], 'l2': m2[2]}, n_groups=4, **kw)
+  sh = GroupAttribution({'l0': m2[0], 'l2': m2[2]}, n_groups=5, shadow=True, **kw)
+  x, y, groups = data(12, 6, seed=3)
+  g = torch.Generator().manual_seed(4)
+  for t in range(12):
+    for m in (m1, m2):
+      loss_fn(m(x[t]), y[t]).backward()
+    lam = 0.2 + 0.05 * t
+    a1.step(torch.stack([groups[t], groups[t].flip(0)], 1), weights=(lam, 1 - lam))
+    a2.step(torch.stack([groups[t], groups[t].flip(0)], 1), weights=(lam, 1 - lam))
+    rg = torch.randint(0, 5, (6,), generator=g)
+    sh.step(torch.stack([rg, rg.flip(0)], 1), weights=(lam, 1 - lam))
+  for p1, p2 in zip(m1.parameters(), m2.parameters()):
+    assert torch.equal(p1, p2)
+  for name in ('l0', 'l2'):
+    for at in (a2, sh):
+      r = at.residual(name)
+      assert r['weight'] < 1e-12 and r['bias'] < 1e-12
+    assert torch.allclose(a2.tracked[name].C.sum(0), sh.tracked[name].C.sum(0), atol=1e-12)
+    assert not torch.allclose(a2.tracked[name].C[:4], sh.tracked[name].C[:4])

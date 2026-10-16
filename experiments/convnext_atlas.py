@@ -164,13 +164,17 @@ def main():
   p.add_argument('--probe_cache', default='/dev/shm/probe_{per_class}.pt')
   p.add_argument('--steps', default='', help='comma-separated checkpoint steps (default: all, final first)')
   p.add_argument('--chunk', type=int, default=None, help='blocks per probe pass (wide models)')
+  p.add_argument('--split', default='class', choices=['class', 'random'],
+                 help='class: attr_*.pt -> atlas_*.pt; random: the random-group split of --rand_groups runs, '
+                      'attrR_*.pt -> atlasR_*.pt (same pole classes, atlas_poles.pt)')
   a = p.parse_args()
   dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   cfg = json.load(open(os.path.join(a.run, 'config.json')))
   model = build_convnext(cfg['size']).to(dev).eval()
   init = torch.load(os.path.join(a.run, 'attr_init.pt'), map_location='cpu')
   x, y = probe_set(a.val, a.per_class, a.probe_cache.format(per_class=a.per_class))
-  done = sorted(int(f[-8:-3]) for f in glob.glob(os.path.join(a.run, 'attr_[0-9]*.pt')))
+  ap, op = ('attr', 'atlas') if a.split == 'class' else ('attrR', 'atlasR')
+  done = sorted(int(f[-8:-3]) for f in glob.glob(os.path.join(a.run, f'{ap}_[0-9]*.pt')))
   steps = [int(t) for t in a.steps.split(',')] if a.steps else done
   final = max(done)
   complete = final == cfg['steps']
@@ -178,11 +182,11 @@ def main():
   pole_file = os.path.join(a.run, 'atlas_poles.pt')
   poles = torch.load(pole_file) if os.path.exists(pole_file) else None
   for s in steps:
-    out = os.path.join(a.run, f'atlas_{s:05d}.pt' if complete else f'atlas_prelim_{s:05d}.pt')
+    out = os.path.join(a.run, f'{op}_{s:05d}.pt' if complete else f'{op}_prelim_{s:05d}.pt')
     if os.path.exists(out):
       continue
     model.load_state_dict(torch.load(os.path.join(a.run, f'model_{s:05d}.pt'), map_location=dev))
-    attr = torch.load(os.path.join(a.run, f'attr_{s:05d}.pt'), map_location='cpu')
+    attr = torch.load(os.path.join(a.run, f'{ap}_{s:05d}.pt'), map_location='cpu')
     res = atlas_step(model, attr, init, x, y, 1000, poles if complete else None, a.poles, device=dev, chunk=a.chunk)
     if complete and poles is None:                             # pole classes of the final checkpoint, kept for all
       poles = {b: r['poles'] for b, r in res.items()}

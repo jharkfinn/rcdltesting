@@ -105,10 +105,10 @@ def to_fp16_scaled(T: torch.Tensor, chunk: int = 64):
 class _Tracked:
   """Per-group optimizer state and contributions for one nn.Linear."""
 
-  def __init__(self, lin: nn.Linear, n_groups: int, opt: str, hp: dict, dtype: torch.dtype):
+  def __init__(self, lin: nn.Linear, n_groups: int, opt: str, hp: dict, dtype: torch.dtype, shadow: bool = False):
     W = lin.weight
     K, dev = n_groups, W.device
-    self.lin, self.opt, self.hp, self.t = lin, opt, hp, 0
+    self.lin, self.opt, self.hp, self.t, self.shadow = lin, opt, hp, 0, shadow
     self.W0 = W.detach().to(dtype).clone()
     self.b0 = lin.bias.detach().to(dtype).clone() if lin.bias is not None else None
     self._C = torch.zeros(K, *W.shape, dtype=dtype, device=dev)   # the parts are s * _C (lazy uniform weight decay)
@@ -215,7 +215,8 @@ class _Tracked:
       upd = O * (-s * norm)
     else:
       raise ValueError(f'unknown optimizer {self.opt!r}')
-    W.mul_(1 - lr * wd).add_(upd.to(W.dtype))
+    if not self.shadow:                              # a shadow splits the same update, the owner applies it
+      W.mul_(1 - lr * wd).add_(upd.to(W.dtype))
     if Gb is None:
       return
     b = self.lin.bias
@@ -236,7 +237,8 @@ class _Tracked:
         _scatter(self.Cb, groups, weights, Gb, -lr)
       updb = -lr * ((mu if nest else 1.0) * self.mb.sum(0) + (Gb.sum(0) if nest else 0.0))
     self.ab *= 1 - lr * wd_b
-    b.mul_(1 - lr * wd_b).add_(updb.to(b.dtype))
+    if not self.shadow:
+      b.mul_(1 - lr * wd_b).add_(updb.to(b.dtype))
 
 
 class GroupAttribution:
@@ -245,18 +247,22 @@ class GroupAttribution:
   usage per training step:  loss.backward(); attr.step(groups, lr); other_optimizer.step()
   (the tracked weights get requires_grad False and must not be in the other optimizer).
   groups: LongTensor (B,) with values in [0, n_groups), e.g. the class labels, or one id per tracked example.
+  shadow=True: a second split of the same training into other groups (e.g. random groups as a control). It must be
+  built right after the owner (same weights), is stepped after it each step with its own groups, and never changes
+  the weights; both splits then add up to the same weights.
   """
 
   def __init__(self, layers: Dict[str, nn.Linear], n_groups: int, optimizer: str = 'adamw', lr: float = 1e-3,
                betas=(0.9, 0.999), eps: float = 1e-8, weight_decay: float = 0.0, bias_weight_decay: float = 0.0,
                momentum: float = 0.95, nesterov: bool = True, ns_steps: int = 5, ns_eps: float = 1e-7,
-               adjust_lr_fn: Optional[str] = None, bias_lr_scale: float = 1.0, dtype: torch.dtype = torch.float32):
+               adjust_lr_fn: Optional[str] = None, bias_lr_scale: float = 1.0, dtype: torch.dtype = torch.float32,
+               shadow: bool = False):
     """bias_lr_scale: under muon, the biases' AdamW learning rate is lr * bias_lr_scale (ignored for sgd and adamw)."""
     hp = dict(betas=betas, eps=eps, weight_decay=weight_decay, bias_weight_decay=bias_weight_decay, momentum=momentum,
               nesterov=nesterov, ns_steps=ns_steps, ns_eps=ns_eps, adjust_lr_fn=adjust_lr_fn,
               bias_lr_scale=bias_lr_scale)
     self.lr, self.n_groups = lr, n_groups
-    self.tracked = {name: _Tracked(lin, n_groups, optimizer, hp, dtype) for name, lin in layers.items()}
+    self.tracked = {name: _Tracked(lin, n_groups, optimizer, hp, dtype, shadow) for name, lin in layers.items()}
 
   def step(self, groups: torch.Tensor, lr: Optional[float] = None, weights=None):
     """groups (B,) hard, or (B, r) soft with weights (B, r) whose rows sum to 1, or a sequence of r floats shared by

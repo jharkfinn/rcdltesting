@@ -11,7 +11,9 @@ Attribution: rcdl.attribution.GroupAttribution tracks pw_gate and pw_value of th
 and mixup's two source classes as soft groups (lam, 1 - lam); the tracked maps are updated by it with the same optimizer
 settings, the rest by torch. Saved per checkpoint: the model, the per-class parts C (fp16 times a power-of-two scale,
 with the fp32 remainder R so that W = a W_0 + sum_k C_k + R exactly; GroupAttribution.compact_state) and validation
-accuracy.
+accuracy. With --rand_groups, the same updates are also split over 1,000 random groups of class size (the training
+labels shuffled across examples, rand_groups.npy; a shadow GroupAttribution, which leaves training unchanged), saved as
+attrR_{step}.pt: a control for how much of a class's part is class structure and how much is SGD noise.
 """
 
 import argparse
@@ -111,6 +113,7 @@ def main():
   p.add_argument('--val_limit', type=int, default=10000)
   p.add_argument('--max_steps', type=int, default=0, help='stop early (benchmarks)')
   p.add_argument('--resume_every', type=int, default=1000, help='steps between resume states (out/resume.pt)')
+  p.add_argument('--rand_groups', action='store_true', help='also split the updates over random groups (attrR_*.pt)')
   a = p.parse_args()
   dev = torch.device('cuda')
   torch.manual_seed(a.seed)
@@ -120,12 +123,14 @@ def main():
   blocks = tracked_blocks(model, a.track)
   layers = {f'{n}.{k}': getattr(b, k) for n, b in blocks for k in ('pw_gate', 'pw_value')}
   if a.opt == 'adamw':
-    attr = GroupAttribution(layers, n_groups=1000, optimizer='adamw', lr=a.lr, betas=(0.9, 0.999), eps=1e-8,
-                            weight_decay=a.wd, bias_weight_decay=0.0)
+    akw = dict(n_groups=1000, optimizer='adamw', lr=a.lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=a.wd,
+               bias_weight_decay=0.0)
   else:
-    attr = GroupAttribution(layers, n_groups=1000, optimizer='muon', lr=a.muon_lr, momentum=0.95, nesterov=True,
-                            weight_decay=a.wd, bias_weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8,
-                            bias_lr_scale=a.lr / a.muon_lr)   # tracked biases: AdamW at a.lr, like the other biases
+    akw = dict(n_groups=1000, optimizer='muon', lr=a.muon_lr, momentum=0.95, nesterov=True, weight_decay=a.wd,
+               bias_weight_decay=0.0, betas=(0.9, 0.999), eps=1e-8,
+               bias_lr_scale=a.lr / a.muon_lr)                # tracked biases: AdamW at a.lr, like the other biases
+  attr = GroupAttribution(layers, **akw)
+  attr_r = GroupAttribution(layers, shadow=True, **akw) if a.rand_groups else None
   tracked = [t for l in layers.values() for t in (l.weight, l.bias)]
   groups = param_groups(model, tracked, a.wd)
   if a.opt == 'adamw':
@@ -141,6 +146,10 @@ def main():
   json.dump(vars(a) | {'tracked': list(layers), 'params': sum(p.numel() for p in model.parameters()),
                        'ckpt_steps': CKPT_STEPS}, open(os.path.join(a.out, 'config.json'), 'w'), indent=1)
   loader = GPUTrainLoader(a.train, a.batch, dev, seed=a.seed)
+  if attr_r is not None:                       # random group of example j: the label of example perm[j]
+    rand_np = np.random.default_rng([a.seed, 777]).permutation(loader.labels)
+    np.save(os.path.join(a.out, 'rand_groups.npy'), rand_np.astype(np.int16))
+    rand_gpu = torch.from_numpy(rand_np.astype(np.int64)).to(dev)
   beta = torch.distributions.Beta(a.mixup, a.mixup) if a.mixup > 0 else None
   log, step, t0 = [], 0, time.time()
 
@@ -148,6 +157,8 @@ def main():
     acc, n_val = evaluate(model, a.val, dev, None if step == a.steps else a.val_limit)
     torch.save(model.state_dict(), os.path.join(a.out, f'model_{step:05d}.pt'))
     torch.save(attr.compact_state(), os.path.join(a.out, f'attr_{step:05d}.pt'))   # scaled fp16 parts + fp32 remainder
+    if attr_r is not None:
+      torch.save(attr_r.compact_state(), os.path.join(a.out, f'attrR_{step:05d}.pt'))
     if step == 0:
       torch.save({k: {'W0': tr.W0, 'b0': tr.b0} for k, tr in attr.tracked.items()}, os.path.join(a.out, 'attr_init.pt'))
     rec = {'step': step, 'val_acc': acc, 'n_val': n_val, 'sec': time.time() - t0}
@@ -160,7 +171,8 @@ def main():
     and renamed, so a crash during the write leaves the previous state."""
     tmp = os.path.join(a.out, 'resume.pt.tmp')
     torch.save({'step': step, 'model': model.state_dict(), 'opts': [o.state_dict() for o in opts],
-                'attr': attr.full_state(), 'log': log, 'torch_rng': torch.get_rng_state(),
+                'attr': attr.full_state(), 'attr_r': attr_r.full_state() if attr_r is not None else None,
+                'log': log, 'torch_rng': torch.get_rng_state(),
                 'cuda_rng': torch.cuda.get_rng_state()}, tmp)
     os.replace(tmp, os.path.join(a.out, 'resume.pt'))
 
@@ -171,6 +183,8 @@ def main():
     for o, os_ in zip(opts, st['opts']):
       o.load_state_dict(os_)
     attr.load_full_state(st['attr'])
+    if attr_r is not None:
+      attr_r.load_full_state(st['attr_r'])
     log[:] = st['log']
     torch.set_rng_state(st['torch_rng'].cpu())
     torch.cuda.set_rng_state(st['cuda_rng'].cpu())
@@ -182,7 +196,7 @@ def main():
   run_loss = []
   while step < a.steps:
     epoch, start = divmod(step, len(loader))
-    for x, y, _ in prefetch(loader.epoch(epoch, start)):
+    for x, y, idx in prefetch(loader.epoch(epoch, start)):
       lam = float(beta.sample()) if beta is not None else 1.0
       y2 = y.flip(0)
       x = lam * x + (1 - lam) * x.flip(0)
@@ -198,6 +212,10 @@ def main():
       loss.backward()
       attr.step(torch.stack([y, y2], 1), (a.lr if a.opt == 'adamw' else a.muon_lr) * sched(step),
                 weights=(lam, 1 - lam))                   # Python floats: no host-device sync
+      if attr_r is not None:
+        r = rand_gpu[idx.to(dev, non_blocking=True)]
+        attr_r.step(torch.stack([r, r.flip(0)], 1), (a.lr if a.opt == 'adamw' else a.muon_lr) * sched(step),
+                    weights=(lam, 1 - lam))
       for o in opts:
         o.step()
       step += 1
