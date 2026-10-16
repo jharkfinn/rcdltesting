@@ -103,7 +103,7 @@ def timeline(run, x, y, size='tiny'):
   model = build_convnext(size).to(dev).eval()
   steps = sorted(int(f[-8:-3]) for f in glob.glob(os.path.join(run, 'model_[0-9]*.pt')))
   is_car = torch.isin(y, torch.tensor(CAR))
-  out = np.zeros((len(steps), len(MODES), sum(64 for _ in model.blocks()), len(TARGETS)), np.float32)
+  out = np.zeros((len(steps), len(MODES), sum(b.pw_gate.out_features for _, b in model.blocks()), len(TARGETS)), np.float32)
   for si, s in enumerate(steps):
     model.load_state_dict(torch.load(os.path.join(run, f'model_{s:05d}.pt'), map_location=dev))
     pu = pooled_units(model, x)

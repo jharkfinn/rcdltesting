@@ -28,6 +28,9 @@ SIZES = {   # parameter counts without the classifier, as published (see the mod
   'wider': dict(dims=(24, 32, 48, 48), units=(64, 64, 128, 192), depths=(3, 3, 9, 3)),      # 345,576 (345,552)
   'medium': dict(dims=(48, 96, 192, 384), units=(128, 256, 512, 1024), depths=(3, 3, 9, 3)),  # 7,057,776 (7,057,377)
   'large': dict(dims=(96, 192, 384, 768), units=(256, 512, 1024, 2048), depths=(3, 3, 9, 3)),
+  # E7: tiny with its last layer crushed to 13 units (the essay's medium crush is 1,024 -> 13) and no route around it:
+  # the last block has no residual connection and no layer scale, so the classifier reads only that block's output
+  'tiny_crush13': dict(dims=(8, 8, 24, 28), units=(64, 64, 64, 64), depths=(3, 3, 9, 3), last_units=13, last_skip=False),
 }
 
 
@@ -39,8 +42,9 @@ class LayerNorm2d(nn.LayerNorm):
 
 
 class Block(nn.Module):
-  def __init__(self, d: int, units: int, layer_scale: float = 1e-6, drop_path: float = 0.0):
+  def __init__(self, d: int, units: int, layer_scale: float = 1e-6, drop_path: float = 0.0, skip: bool = True):
     super().__init__()
+    self.skip = skip
     self.dwconv = nn.Conv2d(d, d, 7, padding=3, groups=d)
     self.norm = nn.LayerNorm(d, eps=1e-6)
     self.pw_gate = nn.Linear(d, units)
@@ -62,12 +66,15 @@ class Block(nn.Module):
     if self.training and self.drop_path > 0:
       keep = torch.rand(x.shape[0], 1, 1, 1, device=x.device) >= self.drop_path
       h = h * keep / (1 - self.drop_path)
-    return x + h
+    return x + h if self.skip else h
 
 
 class ConvNeXt(nn.Module):
   def __init__(self, dims: Sequence[int], units: Sequence[int], depths: Sequence[int], n_classes: int = 1000,
-               stem: int = 4, drop_path: float = 0.0, layer_scale: float = 1e-6):
+               stem: int = 4, drop_path: float = 0.0, layer_scale: float = 1e-6, last_units: int = None,
+               last_skip: bool = True):
+    """last_units / last_skip: the width of the last block's SwiGLU layer and whether it has a residual connection
+    (without one it also has no layer scale, so the classifier reads only its output)."""
     super().__init__()
     self.dims, self.units, self.depths = tuple(dims), tuple(units), tuple(depths)
     rates = torch.linspace(0, drop_path, sum(depths)).tolist()
@@ -75,8 +82,15 @@ class ConvNeXt(nn.Module):
     for i in range(len(dims) - 1):
       self.downsample.append(nn.Sequential(LayerNorm2d(dims[i], eps=1e-6), nn.Conv2d(dims[i], dims[i + 1], 2, stride=2)))
     self.stages, k = nn.ModuleList(), 0
-    for d, u, n in zip(dims, units, depths):
-      self.stages.append(nn.Sequential(*[Block(d, u, layer_scale, rates[k + j]) for j in range(n)]))
+    for i, (d, u, n) in enumerate(zip(dims, units, depths)):
+      blocks = []
+      for j in range(n):
+        last = i == len(dims) - 1 and j == n - 1
+        if last and (last_units is not None or not last_skip):
+          blocks.append(Block(d, last_units or u, layer_scale if last_skip else 0.0, rates[k + j], skip=last_skip))
+        else:
+          blocks.append(Block(d, u, layer_scale, rates[k + j]))
+      self.stages.append(nn.Sequential(*blocks))
       k += n
     self.norm = nn.LayerNorm(dims[-1], eps=1e-6)
     self.head = nn.Linear(dims[-1], n_classes)
