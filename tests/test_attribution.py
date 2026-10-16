@@ -166,3 +166,32 @@ def test_channels_last_positions_sum_into_the_example_gradient():
   probe = x[0].reshape(-1, 5)
   parts = attr.parts('l0', probe)
   assert torch.allclose(parts['groups'].sum(0) + parts['init'], model[0](probe), atol=1e-12)
+
+
+@pytest.mark.parametrize('opt', ['adamw', 'sgd', 'muon'])
+def test_soft_groups_add_up_and_equal_hard_groups_when_one_hot(opt):
+  """Soft groups (mixup: two source classes with weights lam, 1 - lam): the parts add up exactly; with one-hot weights
+  they equal the hard-group parts."""
+  torch.manual_seed(5)
+  base = tiny(5)
+  m1, m2 = copy.deepcopy(base), copy.deepcopy(base)
+  kw = dict(n_groups=4, optimizer=opt, lr=1e-2, weight_decay=0.01, dtype=torch.float64)
+  a1, a2 = GroupAttribution({'l0': m1[0]}, **kw), GroupAttribution({'l0': m2[0]}, **kw)
+  x, y, groups = data(10, 6, seed=9)
+  g = torch.Generator().manual_seed(10)
+  for t in range(10):
+    for m in (m1, m2):
+      loss_fn(m(x[t]), y[t]).backward()
+    other = torch.randint(0, 4, (6,), generator=g)
+    a1.step(groups[t])
+    a2.step(torch.stack([groups[t], other], 1), weights=torch.tensor([[1.0, 0.0]] * 6))
+  assert torch.allclose(a1.tracked['l0'].C, a2.tracked['l0'].C, atol=1e-12)
+  m3 = copy.deepcopy(base)
+  a3 = GroupAttribution({'l0': m3[0]}, **kw)
+  for t in range(10):
+    loss_fn(m3(x[t]), y[t]).backward()
+    lam = torch.rand(6, generator=g, dtype=torch.float64)
+    a3.step(torch.stack([groups[t], torch.randint(0, 4, (6,), generator=g)], 1),
+            weights=torch.stack([lam, 1 - lam], 1))
+  r = a3.residual('l0')
+  assert r['weight'] < 1e-12 and r['bias'] < 1e-12

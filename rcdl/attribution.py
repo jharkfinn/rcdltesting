@@ -62,6 +62,16 @@ def muon_adjusted_lr(lr: float, shape, adjust_lr_fn: Optional[str] = None) -> fl
   raise ValueError(f'unknown adjust_lr_fn {adjust_lr_fn!r}')
 
 
+def _scatter(buf: torch.Tensor, groups: torch.Tensor, weights: Optional[torch.Tensor], G: torch.Tensor, alpha: float):
+  """buf[groups[i, r]] += alpha * weights[i, r] * G[i] (hard groups: groups (B,), weights None)."""
+  if groups.dim() == 1:
+    buf.index_add_(0, groups, G, alpha=alpha)
+    return
+  shape = (-1,) + (1,) * (G.dim() - 1)
+  for r in range(groups.shape[1]):
+    buf.index_add_(0, groups[:, r], G * weights[:, r].to(G.dtype).view(shape), alpha=alpha)
+
+
 class _Tracked:
   """Per-group optimizer state and contributions for one nn.Linear."""
 
@@ -108,7 +118,7 @@ class _Tracked:
     return G, Gb
 
   @torch.no_grad()
-  def step(self, groups: torch.Tensor, lr: float):
+  def step(self, groups: torch.Tensor, lr: float, weights: Optional[torch.Tensor] = None):
     if self.h is None or self.delta is None:
       raise RuntimeError('no (input, output gradient) captured: run forward and backward before step()')
     G, Gb = self.per_example()
@@ -119,7 +129,7 @@ class _Tracked:
       b1, b2, eps = hp['betas'][0], hp['betas'][1], hp['eps']
       c1, c2 = 1 - b1 ** self.t, 1 - b2 ** self.t
     if self.opt == 'adamw':
-      self.m.mul_(b1).index_add_(0, groups, G, alpha=1 - b1)
+      _scatter(self.m.mul_(b1), groups, weights, G, 1 - b1)
       g = G.sum(0)
       self.v.mul_(b2).addcmul_(g, g, value=1 - b2)
       D = 1.0 / ((self.v / c2).sqrt_() + eps)
@@ -128,15 +138,15 @@ class _Tracked:
       upd = self.m.sum(0).mul_(D).mul_(-lr / c1)
     elif self.opt == 'sgd':
       mu, nest = hp['momentum'], hp['nesterov']
-      self.m.mul_(mu).index_add_(0, groups, G)
+      _scatter(self.m.mul_(mu), groups, weights, G, 1.0)
       self.C.mul_(1 - lr * wd).add_(self.m, alpha=-lr * (mu if nest else 1.0))
       if nest:
-        self.C.index_add_(0, groups, G, alpha=-lr)
+        _scatter(self.C, groups, weights, G, -lr)
       self.a *= 1 - lr * wd
       upd = -lr * ((mu if nest else 1.0) * self.m.sum(0) + (G.sum(0) if nest else 0.0))
     elif self.opt == 'muon':
       mu, nest = hp['momentum'], hp['nesterov']
-      self.m.mul_(mu).index_add_(0, groups, G, alpha=1 - mu)
+      _scatter(self.m.mul_(mu), groups, weights, G, 1 - mu)
       g = G.sum(0)
       U = (1 - mu) * g + mu * self.m.sum(0) if nest else self.m.sum(0)
       O, P, transposed, norm = newton_schulz_factor(U, hp['ns_steps'], hp['ns_eps'])
@@ -147,12 +157,12 @@ class _Tracked:
         Pt = P.T.expand(K, *P.T.shape)
         self.C.baddbmm_(self.m, Pt, alpha=-s * (mu if nest else 1.0))
         if nest:
-          self.C.index_add_(0, groups, torch.matmul(G, P.T), alpha=-s * (1 - mu))
+          _scatter(self.C, groups, weights, torch.matmul(G, P.T), -s * (1 - mu))
       else:                                            # group part: P U^(k)
         Pe = P.expand(K, *P.shape)
         self.C.baddbmm_(Pe, self.m, alpha=-s * (mu if nest else 1.0))
         if nest:
-          self.C.index_add_(0, groups, torch.matmul(P, G), alpha=-s * (1 - mu))
+          _scatter(self.C, groups, weights, torch.matmul(P, G), -s * (1 - mu))
       self.a *= 1 - lr * wd
       upd = O * (-s * norm)
     else:
@@ -162,7 +172,7 @@ class _Tracked:
       return
     b = self.lin.bias
     if self.opt in ('adamw', 'muon'):                  # torch.optim.Muon takes matrices only: AdamW for the bias
-      self.mb.mul_(b1).index_add_(0, groups, Gb, alpha=1 - b1)
+      _scatter(self.mb.mul_(b1), groups, weights, Gb, 1 - b1)
       gb = Gb.sum(0)
       self.vb.mul_(b2).addcmul_(gb, gb, value=1 - b2)
       Db = 1.0 / ((self.vb / c2).sqrt_() + eps)
@@ -170,10 +180,10 @@ class _Tracked:
       updb = self.mb.sum(0).mul_(Db).mul_(-lr / c1)
     else:
       mu, nest = hp['momentum'], hp['nesterov']
-      self.mb.mul_(mu).index_add_(0, groups, Gb)
+      _scatter(self.mb.mul_(mu), groups, weights, Gb, 1.0)
       self.Cb.mul_(1 - lr * wd_b).add_(self.mb, alpha=-lr * (mu if nest else 1.0))
       if nest:
-        self.Cb.index_add_(0, groups, Gb, alpha=-lr)
+        _scatter(self.Cb, groups, weights, Gb, -lr)
       updb = -lr * ((mu if nest else 1.0) * self.mb.sum(0) + (Gb.sum(0) if nest else 0.0))
     self.ab *= 1 - lr * wd_b
     b.mul_(1 - lr * wd_b).add_(updb.to(b.dtype))
@@ -196,10 +206,13 @@ class GroupAttribution:
     self.lr, self.n_groups = lr, n_groups
     self.tracked = {name: _Tracked(lin, n_groups, optimizer, hp, dtype) for name, lin in layers.items()}
 
-  def step(self, groups: torch.Tensor, lr: Optional[float] = None):
+  def step(self, groups: torch.Tensor, lr: Optional[float] = None, weights: Optional[torch.Tensor] = None):
+    """groups (B,) hard, or (B, r) soft with weights (B, r) whose rows sum to 1 (e.g. mixup: the two source classes
+    with lam and 1 - lam): each example's gradient is split across its groups by these weights, so the parts still add
+    up exactly; the split itself is a modelling choice."""
     lr = self.lr if lr is None else lr
     for tr in self.tracked.values():
-      tr.step(groups, lr)
+      tr.step(groups, lr, weights)
 
   def residual(self, name: str) -> Dict[str, float]:
     """max |W - (a W_0 + sum_k C^(k))| (and the same for the bias): zero up to rounding."""
