@@ -18,7 +18,8 @@ python3 - <<EOF
 import os
 from huggingface_hub import hf_hub_download, snapshot_download
 tok = open('$W/.hf_token').read().strip()
-if not os.path.exists('$W/data/imagenet/classes.py'):
+import glob
+if not glob.glob('$W/data/imagenet/data/validation-*.parquet'):   # molab may restore classes.py alone
   snapshot_download('ILSVRC/imagenet-1k', repo_type='dataset', token=tok, local_dir='$W/data/imagenet',
                     allow_patterns=['classes.py', 'data/validation-*'])
   print('validation set downloaded', flush=True)
