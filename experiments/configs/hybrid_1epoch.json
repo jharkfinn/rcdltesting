@@ -1,0 +1,122 @@
+{
+ "_comment": "Paper Fig. 6 (hybrid layer, CIFAR-10, one epoch): test accuracy vs final capacity for growth thresholds tau in [35 .. 70]. Read off the plot: tau=35 ~58.5% at ~88% capacity, 40 ~58.5%/~79%, 45 ~58%/~65%, 50 ~56.5%/~45%, 55 ~54.5%/~26%, 60 ~50%/~5%, 65 ~41%/~1%, 70 ~34.5%/~0%. Other settings: notebook hybrid config (L=3, T=5, beta=30, eta=1, Adam 1e-3, batch 16). Capacity = stored rows summed over the 4 layers / (4 x 50,016).",
+ "defaults": {
+  "eval_every": 100000,
+  "eval_subset": 2000,
+  "eval_batch_size": 500
+ },
+ "experiments": {
+  "hybrid_tau35": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "temperature": 5.0,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "beta": 30.0,
+    "eta": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 16
+   }
+  },
+  "hybrid_tau40": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "temperature": 5.0,
+    "db_size": 50016,
+    "growth_threshold": 40.0,
+    "beta": 30.0,
+    "eta": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 16
+   }
+  },
+  "hybrid_tau45": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "temperature": 5.0,
+    "db_size": 50016,
+    "growth_threshold": 45.0,
+    "beta": 30.0,
+    "eta": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 16
+   }
+  },
+  "hybrid_tau50": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "temperature": 5.0,
+    "db_size": 50016,
+    "growth_threshold": 50.0,
+    "beta": 30.0,
+    "eta": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 16
+   }
+  },
+  "hybrid_tau55": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "temperature": 5.0,
+    "db_size": 50016,
+    "growth_threshold": 55.0,
+    "beta": 30.0,
+    "eta": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 16
+   }
+  },
+  "hybrid_tau60": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "temperature": 5.0,
+    "db_size": 50016,
+    "growth_threshold": 60.0,
+    "beta": 30.0,
+    "eta": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 16
+   }
+  },
+  "hybrid_tau65": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "temperature": 5.0,
+    "db_size": 50016,
+    "growth_threshold": 65.0,
+    "beta": 30.0,
+    "eta": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 16
+   }
+  },
+  "hybrid_tau70": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "temperature": 5.0,
+    "db_size": 50016,
+    "growth_threshold": 70.0,
+    "beta": 30.0,
+    "eta": 1.0,
+    "learning_rate": 0.001,
+    "batch_size": 16
+   }
+  }
+ }
+}

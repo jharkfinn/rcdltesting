@@ -1,0 +1,262 @@
+{
+ "_comment": "Article's language experiment (claims 19-20) on Zucchet et al.'s synthetic biographies with a small Gemma 3 style decoder (rcdl/bios.py): d = 256, 6 layers (5 local : 1 global), 4 query heads and 1 KV head of width 64, GeGLU width 1,024, tied embeddings. Batch 64 x 512 tokens (about 320 biographies per step), 6,000 steps, AdamW 4e-4 with betas 0.9 / 0.95, weight decay 0.1, cosine to 1e-7 (Zucchet et al. defaults). A: plateau against the number of individuals N (GeGLU; N = 8,192 is the C run). S: growing-RBF kernel width scan at N = 4,096 (3,000 steps, 2M-row tables; about 26 exposures per individual fit in the table). B and C at N = 8,192: Cos-Bochner throughout at widths 1k / 4k / 16k, Cos-Bochner 64k in the last layer, growing RBF and the routed-GeGLU control in the last layer; C runs then fine-tune on 1,024 new individuals for 1,000 steps at constant lr 3e-5 without replay (Zucchet et al. Sec. 4) with batch 16 x 512 tokens (about 80 biographies per step, about 78 exposures per new individual), and one GeGLU run with 50% replay. Growing RBF: a 2M-row ring buffer during pre-training (about 330 steps of rows, about 13 exposures per individual at N = 8,192); during fine-tuning the new rows are appended without evicting pre-training rows (2M extra rows). D (follow-up, beside the full-scale Fig. 5 run): growing RBF at N = 16,384; second seeds of the GeGLU and RBF fine-tuning runs; these also evaluate the same individuals with their training templates. E (diagnostic): Cos-Bochner 4k in all layers, trained and frozen frequencies, 3,000 steps, evaluated with held-out and seen templates (memorization against knowledge). D_rbf_T2_N8k_seed2 fine-tunes twice from the same pre-trained state: growing-layer write rate eta = 1 (as in C_rbf) and eta = 0.075 (scaled by the same factor as the optimizer rate, 3e-5 / 4e-4). F (diagnostic, user interest in Muon): Cos-Bochner 4k at the growing layer's kernel width (T = 2, AdamW), and Cos-Bochner 4k and GeGLU with Muon on the weight matrices (rates 1e-3 and 1e-2; AdamW 4e-4 on the embedding and norms), all with seen-template evaluation. G (Muon, rate 1e-2 on the weight matrices, fine-tuning rates scaled by the same factor as AdamW's): Cos-Bochner 4k, GeGLU and the growing RBF last layer, each pre-trained and fine-tuned on 1,024 new individuals.",
+ "defaults": {
+  "seq_len": 512,
+  "batch_size": 64,
+  "d_model": 256,
+  "layers": 6,
+  "heads": 4,
+  "kv_heads": 1,
+  "head_dim": 64,
+  "ffn_width": 1024,
+  "steps": 6000,
+  "eval_every": 100,
+  "eval_bios": 1024,
+  "lr": 0.0004,
+  "rbf_capacity": 4000000
+ },
+ "experiments": {
+  "A_geglu_N4k": {
+   "n_people": 4096
+  },
+  "A_geglu_N16k": {
+   "n_people": 16384
+  },
+  "S_rbf_T1_N4k": {
+   "n_people": 4096,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 1.0,
+   "steps": 3000,
+   "rbf_capacity": 2000000
+  },
+  "S_rbf_T2_N4k": {
+   "n_people": 4096,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 2.0,
+   "steps": 3000,
+   "rbf_capacity": 2000000
+  },
+  "S_rbf_T4_N4k": {
+   "n_people": 4096,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 4.0,
+   "steps": 3000,
+   "rbf_capacity": 2000000
+  },
+  "C_geglu_N8k": {
+   "n_people": 8192,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16
+  },
+  "C_rbf_T2_N8k": {
+   "n_people": 8192,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 2.0,
+   "rbf_capacity": 2000000,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16,
+   "rbf_finetune_rows": 2000000
+  },
+  "C_cos_all_D16k_N8k": {
+   "n_people": 8192,
+   "ffn": "cos",
+   "cos_width": 16384,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16
+  },
+  "C_geglu_replay50_N8k": {
+   "n_people": 8192,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_replay": 0.5,
+   "finetune_batch_size": 16
+  },
+  "B_gegluf_last_N8k": {
+   "n_people": 8192,
+   "special": "geglu_fact"
+  },
+  "B_cos_all_D1k_N8k": {
+   "n_people": 8192,
+   "ffn": "cos",
+   "cos_width": 1024
+  },
+  "B_cos_all_D4k_N8k": {
+   "n_people": 8192,
+   "ffn": "cos",
+   "cos_width": 4096
+  },
+  "B_cos_last_D64k_N8k": {
+   "n_people": 8192,
+   "special": "cos",
+   "cos_width": 65536
+  },
+  "D_rbf_T2_N16k": {
+   "n_people": 16384,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 2.0,
+   "rbf_capacity": 2000000,
+   "eval_seen_templates": true
+  },
+  "D_rbf_T2_N8k_seed2": {
+   "n_people": 8192,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 2.0,
+   "rbf_capacity": 2000000,
+   "rbf_finetune_rows": 2000000,
+   "seed": 2,
+   "eval_seen_templates": true,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16,
+   "finetune_variants": "[{\"name\": \"eta1\"}, {\"name\": \"eta_scaled\", \"rbf_eta\": 0.075}]"
+  },
+  "D_geglu_N8k_seed2": {
+   "n_people": 8192,
+   "seed": 2,
+   "eval_seen_templates": true,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16
+  },
+  "E_cos_all_D4k_seen": {
+   "n_people": 8192,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "steps": 3000,
+   "eval_seen_templates": true
+  },
+  "E_cos_all_D4k_frozen_seen": {
+   "n_people": 8192,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_train": false,
+   "steps": 3000,
+   "eval_seen_templates": true
+  },
+  "E_cos_all_D4k_seen_6k": {
+   "n_people": 8192,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "eval_seen_templates": true
+  },
+  "F_cos_all_D4k_T2": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_T": 2.0
+  },
+  "F_cos_all_D4k_muon_lr1e-3": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "optimizer": "muon",
+   "muon_lr": 0.001
+  },
+  "F_cos_all_D4k_muon_lr1e-2": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "optimizer": "muon",
+   "muon_lr": 0.01
+  },
+  "F_geglu_muon_lr1e-3": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "optimizer": "muon",
+   "muon_lr": 0.001
+  },
+  "F_geglu_muon_lr1e-2": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "optimizer": "muon",
+   "muon_lr": 0.01
+  },
+  "G_cos_all_D4k_muon_ft": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "optimizer": "muon",
+   "muon_lr": 0.01,
+   "ffn": "cos",
+   "cos_width": 4096,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16
+  },
+  "G_geglu_muon_ft": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "optimizer": "muon",
+   "muon_lr": 0.01,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16
+  },
+  "G_rbf_T2_muon_ft": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "optimizer": "muon",
+   "muon_lr": 0.01,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 2.0,
+   "rbf_capacity": 2000000,
+   "rbf_finetune_rows": 2000000,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16
+  },
+  "H_rbf_T2_muon_mech": {
+   "n_people": 8192,
+   "eval_seen_templates": true,
+   "optimizer": "muon",
+   "muon_lr": 0.01,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 2.0,
+   "rbf_capacity": 2000000,
+   "rbf_finetune_rows": 2000000,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16,
+   "eval_no_table": true,
+   "finetune_variants": "[{\"name\": \"muon\"}, {\"name\": \"frozen\", \"finetune_lr\": 0.0}, {\"name\": \"adamw\", \"finetune_optimizer\": \"adamw\"}]"
+  },
+  "H_rbf_T2_adamw_mech": {
+   "n_people": 8192,
+   "special": "rbf",
+   "rbf_eta": 1.0,
+   "rbf_T": 2.0,
+   "rbf_capacity": 2000000,
+   "finetune_people": 1024,
+   "finetune_steps": 1000,
+   "finetune_eval_every": 25,
+   "finetune_batch_size": 16,
+   "rbf_finetune_rows": 2000000,
+   "eval_seen_templates": true,
+   "eval_no_table": true,
+   "finetune_variants": "[{\"name\": \"adamw\"}, {\"name\": \"frozen\", \"finetune_lr\": 0.0}]"
+  }
+ }
+}

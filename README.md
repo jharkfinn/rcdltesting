@@ -4,6 +4,10 @@
 
 The notebooks (JAX/PyTorch) in this repository contain the implementations of main algorithms and baselines presented in the paper **"[Retrieval-Centric Deep Learning in Growing Nonparametric Neural Networks](https://arxiv.org/abs/2610.03858)"** (accepted at **NeurIPS 2026**) and reproduce the 1-epoch training run on CIFAR-10 experiment presented in Figure 2.
 
+## Reproduction study
+
+`docs/REPRODUCTION.md` reports an independent reproduction of the paper's and the accompanying X article's claims (claims table in its section 0), with a tested port of the notebook code (`rcdl/`), run scripts and configs (`experiments/`), tests (`tests/`, `python3 -m pytest -q tests`) and figures (`docs/figures/`).
+
 ## Citation
 
 If you find this code or paper useful in your research, please cite:

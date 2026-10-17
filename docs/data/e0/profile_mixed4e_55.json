@@ -1,0 +1,376 @@
+{
+ "unit": "mixed4e:55",
+ "classes_by_mean_max": [
+  [
+   "papillon",
+   243.3
+  ],
+  [
+   "Persian cat",
+   241.5
+  ],
+  [
+   "red fox",
+   232.0
+  ],
+  [
+   "Pomeranian",
+   227.4
+  ],
+  [
+   "tabby",
+   213.3
+  ],
+  [
+   "tiger cat",
+   211.2
+  ],
+  [
+   "Japanese spaniel",
+   202.6
+  ],
+  [
+   "Arctic fox",
+   202.0
+  ],
+  [
+   "kit fox",
+   200.5
+  ],
+  [
+   "lesser panda",
+   193.1
+  ],
+  [
+   "beach wagon",
+   189.2
+  ],
+  [
+   "hamster",
+   184.2
+  ],
+  [
+   "lynx",
+   183.6
+  ],
+  [
+   "Pembroke",
+   178.1
+  ],
+  [
+   "convertible",
+   176.8
+  ],
+  [
+   "dhole",
+   175.0
+  ],
+  [
+   "Samoyed",
+   173.5
+  ],
+  [
+   "weasel",
+   171.2
+  ],
+  [
+   "pickup",
+   170.0
+  ],
+  [
+   "Blenheim spaniel",
+   168.8
+  ],
+  [
+   "minivan",
+   165.3
+  ],
+  [
+   "limousine",
+   164.6
+  ],
+  [
+   "grey fox",
+   163.0
+  ],
+  [
+   "black-footed ferret",
+   162.7
+  ],
+  [
+   "Siamese cat",
+   162.3
+  ]
+ ],
+ "classes_by_mean_min": [
+  [
+   "bull mastiff",
+   -124.7
+  ],
+  [
+   "pug",
+   -107.0
+  ],
+  [
+   "black-and-tan coonhound",
+   -106.4
+  ],
+  [
+   "Doberman",
+   -101.9
+  ],
+  [
+   "jacamar",
+   -98.4
+  ],
+  [
+   "Rottweiler",
+   -98.4
+  ],
+  [
+   "boxer",
+   -97.3
+  ],
+  [
+   "lorikeet",
+   -95.9
+  ],
+  [
+   "Gordon setter",
+   -94.3
+  ],
+  [
+   "Rhodesian ridgeback",
+   -93.4
+  ],
+  [
+   "French bulldog",
+   -90.1
+  ],
+  [
+   "American Staffordshire terrier",
+   -88.3
+  ],
+  [
+   "Sussex spaniel",
+   -83.9
+  ],
+  [
+   "robin",
+   -83.8
+  ],
+  [
+   "redbone",
+   -82.2
+  ],
+  [
+   "box turtle",
+   -82.1
+  ],
+  [
+   "otterhound",
+   -82.0
+  ],
+  [
+   "golf ball",
+   -82.0
+  ],
+  [
+   "Airedale",
+   -81.6
+  ],
+  [
+   "Border terrier",
+   -80.7
+  ],
+  [
+   "bloodhound",
+   -80.1
+  ],
+  [
+   "German shepherd",
+   -79.0
+  ],
+  [
+   "Irish terrier",
+   -78.5
+  ],
+  [
+   "Chesapeake Bay retriever",
+   -78.1
+  ],
+  [
+   "Lakeland terrier",
+   -77.9
+  ]
+ ],
+ "vehicle_class_ranks_by_mean_max": [
+  [
+   10,
+   "beach wagon",
+   189.2
+  ],
+  [
+   14,
+   "convertible",
+   176.8
+  ],
+  [
+   18,
+   "pickup",
+   170.0
+  ],
+  [
+   20,
+   "minivan",
+   165.3
+  ],
+  [
+   21,
+   "limousine",
+   164.6
+  ],
+  [
+   25,
+   "ambulance",
+   161.5
+  ],
+  [
+   26,
+   "sports car",
+   160.8
+  ],
+  [
+   31,
+   "cab",
+   153.3
+  ],
+  [
+   32,
+   "police van",
+   151.4
+  ],
+  [
+   35,
+   "minibus",
+   143.6
+  ],
+  [
+   49,
+   "grille",
+   122.9
+  ],
+  [
+   54,
+   "tow truck",
+   117.2
+  ],
+  [
+   56,
+   "racer",
+   114.9
+  ],
+  [
+   57,
+   "jeep",
+   114.8
+  ],
+  [
+   67,
+   "car wheel",
+   108.3
+  ],
+  [
+   68,
+   "moving van",
+   106.6
+  ],
+  [
+   70,
+   "golfcart",
+   106.1
+  ],
+  [
+   78,
+   "recreational vehicle",
+   102.1
+  ],
+  [
+   81,
+   "Model T",
+   100.3
+  ],
+  [
+   95,
+   "school bus",
+   95.6
+  ],
+  [
+   106,
+   "trailer truck",
+   91.2
+  ],
+  [
+   107,
+   "fire engine",
+   91.1
+  ],
+  [
+   116,
+   "garbage truck",
+   89.1
+  ],
+  [
+   125,
+   "snowplow",
+   86.8
+  ],
+  [
+   126,
+   "trolleybus",
+   86.5
+  ],
+  [
+   172,
+   "go-kart",
+   75.8
+  ],
+  [
+   194,
+   "streetcar",
+   73.5
+  ],
+  [
+   223,
+   "amphibian",
+   69.8
+  ],
+  [
+   232,
+   "tank",
+   68.7
+  ],
+  [
+   243,
+   "tractor",
+   67.5
+  ],
+  [
+   251,
+   "half track",
+   66.6
+  ],
+  [
+   316,
+   "forklift",
+   62.1
+  ]
+ ],
+ "first_vehicle_image_rank_by_max": 55,
+ "all_images_max_percentiles": {
+  "50": 50.5,
+  "90": 110.9,
+  "99": 244.9,
+  "99.9": 354.3
+ }
+}

@@ -1,0 +1,388 @@
+{
+ "_comment": "Claim 17: the paper tuned the hybrid layer per threshold over T in {1, 5, 10}, beta in {10, 30, 60} and the Adam rate in {3e-4, 1e-3, 3e-3} (27 settings; App. E). hybrid_1epoch.json used the notebook setting (T = 5, beta = 30, Adam 1e-3) for every tau, which fails at tau = 35 on two seeds (49.5, 44.3; paper ~58.6). This grid repeats the paper's tuning at tau = 35 only. Order: beta = 30 first (Adam rate x T), then beta = 10 and 60, so a partial run is still useful. hybrid_tau35_T5_b30_lr0.001 is the notebook setting already run in hybrid_1epoch.json (as hybrid_tau35).",
+ "defaults": {
+  "eval_every": 100000,
+  "eval_subset": 2000,
+  "eval_batch_size": 500
+ },
+ "experiments": {
+  "hybrid_tau35_T10_b30_lr0.0003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 10.0,
+    "beta": 30.0,
+    "learning_rate": 0.0003
+   }
+  },
+  "hybrid_tau35_T10_b30_lr0.001": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 10.0,
+    "beta": 30.0,
+    "learning_rate": 0.001
+   }
+  },
+  "hybrid_tau35_T10_b30_lr0.003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 10.0,
+    "beta": 30.0,
+    "learning_rate": 0.003
+   }
+  },
+  "hybrid_tau35_T1_b30_lr0.0003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 1.0,
+    "beta": 30.0,
+    "learning_rate": 0.0003
+   }
+  },
+  "hybrid_tau35_T1_b30_lr0.001": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 1.0,
+    "beta": 30.0,
+    "learning_rate": 0.001
+   }
+  },
+  "hybrid_tau35_T1_b30_lr0.003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 1.0,
+    "beta": 30.0,
+    "learning_rate": 0.003
+   }
+  },
+  "hybrid_tau35_T5_b30_lr0.0003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 5.0,
+    "beta": 30.0,
+    "learning_rate": 0.0003
+   }
+  },
+  "hybrid_tau35_T5_b30_lr0.001": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 5.0,
+    "beta": 30.0,
+    "learning_rate": 0.001
+   }
+  },
+  "hybrid_tau35_T5_b30_lr0.003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 5.0,
+    "beta": 30.0,
+    "learning_rate": 0.003
+   }
+  },
+  "hybrid_tau35_T10_b10_lr0.0003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 10.0,
+    "beta": 10.0,
+    "learning_rate": 0.0003
+   }
+  },
+  "hybrid_tau35_T10_b10_lr0.001": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 10.0,
+    "beta": 10.0,
+    "learning_rate": 0.001
+   }
+  },
+  "hybrid_tau35_T10_b10_lr0.003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 10.0,
+    "beta": 10.0,
+    "learning_rate": 0.003
+   }
+  },
+  "hybrid_tau35_T1_b10_lr0.0003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 1.0,
+    "beta": 10.0,
+    "learning_rate": 0.0003
+   }
+  },
+  "hybrid_tau35_T1_b10_lr0.001": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 1.0,
+    "beta": 10.0,
+    "learning_rate": 0.001
+   }
+  },
+  "hybrid_tau35_T1_b10_lr0.003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 1.0,
+    "beta": 10.0,
+    "learning_rate": 0.003
+   }
+  },
+  "hybrid_tau35_T5_b10_lr0.0003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 5.0,
+    "beta": 10.0,
+    "learning_rate": 0.0003
+   }
+  },
+  "hybrid_tau35_T5_b10_lr0.001": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 5.0,
+    "beta": 10.0,
+    "learning_rate": 0.001
+   }
+  },
+  "hybrid_tau35_T5_b10_lr0.003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 5.0,
+    "beta": 10.0,
+    "learning_rate": 0.003
+   }
+  },
+  "hybrid_tau35_T10_b60_lr0.0003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 10.0,
+    "beta": 60.0,
+    "learning_rate": 0.0003
+   }
+  },
+  "hybrid_tau35_T10_b60_lr0.001": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 10.0,
+    "beta": 60.0,
+    "learning_rate": 0.001
+   }
+  },
+  "hybrid_tau35_T10_b60_lr0.003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 10.0,
+    "beta": 60.0,
+    "learning_rate": 0.003
+   }
+  },
+  "hybrid_tau35_T1_b60_lr0.0003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 1.0,
+    "beta": 60.0,
+    "learning_rate": 0.0003
+   }
+  },
+  "hybrid_tau35_T1_b60_lr0.001": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 1.0,
+    "beta": 60.0,
+    "learning_rate": 0.001
+   }
+  },
+  "hybrid_tau35_T1_b60_lr0.003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 1.0,
+    "beta": 60.0,
+    "learning_rate": 0.003
+   }
+  },
+  "hybrid_tau35_T5_b60_lr0.0003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 5.0,
+    "beta": 60.0,
+    "learning_rate": 0.0003
+   }
+  },
+  "hybrid_tau35_T5_b60_lr0.001": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 5.0,
+    "beta": 60.0,
+    "learning_rate": 0.001
+   }
+  },
+  "hybrid_tau35_T5_b60_lr0.003": {
+   "cfg": {
+    "kernel_type": "hybrid",
+    "hidden_dim": 3072,
+    "num_layers": 3,
+    "db_size": 50016,
+    "growth_threshold": 35.0,
+    "eta": 1.0,
+    "batch_size": 16,
+    "temperature": 5.0,
+    "beta": 60.0,
+    "learning_rate": 0.003
+   }
+  }
+ }
+}

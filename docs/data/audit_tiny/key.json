@@ -1,0 +1,3842 @@
+{
+ "n043": {
+  "model": "tiny",
+  "channel": 0,
+  "held_out_test_cells": [
+   2,
+   5,
+   7,
+   9,
+   10,
+   11,
+   12,
+   15
+  ],
+  "distractor_channels": [
+   58,
+   9,
+   20,
+   5,
+   15,
+   44,
+   16,
+   11
+  ]
+ },
+ "n020": {
+  "model": "tiny",
+  "channel": 1,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   7,
+   11,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   18,
+   54,
+   53,
+   34,
+   9,
+   10,
+   59,
+   49
+  ]
+ },
+ "n070": {
+  "model": "tiny",
+  "channel": 2,
+  "held_out_test_cells": [
+   1,
+   6,
+   7,
+   8,
+   10,
+   11,
+   12,
+   13
+  ],
+  "distractor_channels": [
+   28,
+   39,
+   24,
+   51,
+   44,
+   18,
+   53,
+   55
+  ]
+ },
+ "n059": {
+  "model": "tiny",
+  "channel": 3,
+  "held_out_test_cells": [
+   3,
+   7,
+   8,
+   11,
+   12,
+   13,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   22,
+   23,
+   62,
+   20,
+   13,
+   1,
+   31,
+   43
+  ]
+ },
+ "n061": {
+  "model": "tiny",
+  "channel": 4,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   7,
+   8,
+   10,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   23,
+   27,
+   28,
+   31,
+   1,
+   8,
+   22,
+   62
+  ]
+ },
+ "n047": {
+  "model": "tiny",
+  "channel": 5,
+  "held_out_test_cells": [
+   3,
+   4,
+   6,
+   7,
+   9,
+   11,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   31,
+   37,
+   3,
+   58,
+   2,
+   12,
+   34,
+   49
+  ]
+ },
+ "n122": {
+  "model": "tiny",
+  "channel": 6,
+  "held_out_test_cells": [
+   3,
+   6,
+   8,
+   9,
+   10,
+   11,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   1,
+   8,
+   40,
+   51,
+   10,
+   5,
+   23,
+   53
+  ]
+ },
+ "n038": {
+  "model": "tiny",
+  "channel": 7,
+  "held_out_test_cells": [
+   3,
+   4,
+   5,
+   6,
+   9,
+   10,
+   11,
+   15
+  ],
+  "distractor_channels": [
+   53,
+   59,
+   41,
+   27,
+   2,
+   1,
+   20,
+   9
+  ]
+ },
+ "n008": {
+  "model": "tiny",
+  "channel": 8,
+  "held_out_test_cells": [
+   5,
+   6,
+   7,
+   8,
+   9,
+   11,
+   12,
+   14
+  ],
+  "distractor_channels": [
+   7,
+   5,
+   55,
+   41,
+   33,
+   39,
+   38,
+   27
+  ]
+ },
+ "n151": {
+  "model": "tiny",
+  "channel": 9,
+  "held_out_test_cells": [
+   1,
+   5,
+   8,
+   11,
+   12,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   49,
+   32,
+   36,
+   20,
+   26,
+   29,
+   46,
+   30
+  ]
+ },
+ "n024": {
+  "model": "tiny",
+  "channel": 10,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   6,
+   9,
+   10,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   22,
+   0,
+   17,
+   4,
+   6,
+   3,
+   56,
+   30
+  ]
+ },
+ "n018": {
+  "model": "tiny",
+  "channel": 11,
+  "held_out_test_cells": [
+   2,
+   4,
+   7,
+   8,
+   11,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   55,
+   21,
+   9,
+   22,
+   14,
+   32,
+   31,
+   30
+  ]
+ },
+ "n105": {
+  "model": "tiny",
+  "channel": 12,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   5,
+   8,
+   10,
+   12,
+   13
+  ],
+  "distractor_channels": [
+   28,
+   39,
+   21,
+   9,
+   60,
+   15,
+   52,
+   27
+  ]
+ },
+ "n138": {
+  "model": "tiny",
+  "channel": 13,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   7,
+   8,
+   11,
+   12,
+   14
+  ],
+  "distractor_channels": [
+   23,
+   18,
+   28,
+   16,
+   43,
+   57,
+   37,
+   38
+  ]
+ },
+ "n143": {
+  "model": "tiny",
+  "channel": 14,
+  "held_out_test_cells": [
+   3,
+   4,
+   6,
+   9,
+   10,
+   11,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   24,
+   34,
+   61,
+   31,
+   63,
+   7,
+   22,
+   10
+  ]
+ },
+ "n022": {
+  "model": "tiny",
+  "channel": 15,
+  "held_out_test_cells": [
+   1,
+   6,
+   7,
+   8,
+   11,
+   12,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   1,
+   27,
+   60,
+   9,
+   30,
+   17,
+   46,
+   59
+  ]
+ },
+ "n080": {
+  "model": "tiny",
+  "channel": 16,
+  "held_out_test_cells": [
+   1,
+   4,
+   7,
+   9,
+   10,
+   11,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   12,
+   55,
+   6,
+   25,
+   19,
+   13,
+   9,
+   62
+  ]
+ },
+ "n013": {
+  "model": "tiny",
+  "channel": 17,
+  "held_out_test_cells": [
+   4,
+   7,
+   10,
+   11,
+   12,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   41,
+   51,
+   20,
+   46,
+   29,
+   16,
+   21,
+   39
+  ]
+ },
+ "n114": {
+  "model": "tiny",
+  "channel": 18,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   5,
+   6,
+   7,
+   9,
+   11
+  ],
+  "distractor_channels": [
+   36,
+   21,
+   53,
+   25,
+   35,
+   38,
+   12,
+   6
+  ]
+ },
+ "n110": {
+  "model": "tiny",
+  "channel": 19,
+  "held_out_test_cells": [
+   3,
+   7,
+   8,
+   9,
+   10,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   29,
+   18,
+   9,
+   42,
+   63,
+   52,
+   44,
+   20
+  ]
+ },
+ "n044": {
+  "model": "tiny",
+  "channel": 20,
+  "held_out_test_cells": [
+   1,
+   2,
+   3,
+   4,
+   6,
+   9,
+   10,
+   14
+  ],
+  "distractor_channels": [
+   50,
+   39,
+   62,
+   36,
+   59,
+   58,
+   55,
+   18
+  ]
+ },
+ "n052": {
+  "model": "tiny",
+  "channel": 21,
+  "held_out_test_cells": [
+   1,
+   3,
+   5,
+   7,
+   8,
+   11,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   10,
+   12,
+   48,
+   61,
+   20,
+   18,
+   24,
+   36
+  ]
+ },
+ "n031": {
+  "model": "tiny",
+  "channel": 22,
+  "held_out_test_cells": [
+   1,
+   2,
+   3,
+   4,
+   6,
+   9,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   41,
+   38,
+   26,
+   23,
+   8,
+   29,
+   32,
+   48
+  ]
+ },
+ "n005": {
+  "model": "tiny",
+  "channel": 23,
+  "held_out_test_cells": [
+   1,
+   6,
+   7,
+   8,
+   9,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   15,
+   6,
+   25,
+   50,
+   2,
+   21,
+   40,
+   12
+  ]
+ },
+ "n094": {
+  "model": "tiny",
+  "channel": 24,
+  "held_out_test_cells": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   10,
+   11,
+   13
+  ],
+  "distractor_channels": [
+   2,
+   6,
+   8,
+   34,
+   63,
+   33,
+   30,
+   14
+  ]
+ },
+ "n073": {
+  "model": "tiny",
+  "channel": 25,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   5,
+   7,
+   8,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   34,
+   49,
+   43,
+   32,
+   48,
+   30,
+   1,
+   13
+  ]
+ },
+ "n117": {
+  "model": "tiny",
+  "channel": 26,
+  "held_out_test_cells": [
+   2,
+   4,
+   6,
+   7,
+   8,
+   9,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   24,
+   56,
+   53,
+   47,
+   14,
+   13,
+   1,
+   60
+  ]
+ },
+ "n107": {
+  "model": "tiny",
+  "channel": 27,
+  "held_out_test_cells": [
+   1,
+   2,
+   6,
+   7,
+   8,
+   10,
+   11,
+   12
+  ],
+  "distractor_channels": [
+   28,
+   32,
+   36,
+   63,
+   40,
+   25,
+   47,
+   8
+  ]
+ },
+ "n087": {
+  "model": "tiny",
+  "channel": 28,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   5,
+   11,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   61,
+   36,
+   60,
+   19,
+   10,
+   54,
+   62,
+   15
+  ]
+ },
+ "n079": {
+  "model": "tiny",
+  "channel": 29,
+  "held_out_test_cells": [
+   4,
+   6,
+   7,
+   9,
+   10,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   52,
+   49,
+   26,
+   46,
+   54,
+   42,
+   16,
+   50
+  ]
+ },
+ "n084": {
+  "model": "tiny",
+  "channel": 30,
+  "held_out_test_cells": [
+   2,
+   3,
+   8,
+   9,
+   11,
+   12,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   55,
+   34,
+   45,
+   4,
+   48,
+   61,
+   7,
+   38
+  ]
+ },
+ "n123": {
+  "model": "tiny",
+  "channel": 31,
+  "held_out_test_cells": [
+   2,
+   3,
+   5,
+   7,
+   8,
+   9,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   4,
+   22,
+   26,
+   23,
+   14,
+   30,
+   56,
+   11
+  ]
+ },
+ "n004": {
+  "model": "tiny",
+  "channel": 32,
+  "held_out_test_cells": [
+   1,
+   4,
+   6,
+   8,
+   11,
+   12,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   39,
+   27,
+   16,
+   54,
+   48,
+   47,
+   5,
+   56
+  ]
+ },
+ "n147": {
+  "model": "tiny",
+  "channel": 33,
+  "held_out_test_cells": [
+   2,
+   4,
+   5,
+   8,
+   10,
+   12,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   6,
+   28,
+   57,
+   3,
+   60,
+   15,
+   4,
+   32
+  ]
+ },
+ "n032": {
+  "model": "tiny",
+  "channel": 34,
+  "held_out_test_cells": [
+   2,
+   5,
+   6,
+   10,
+   12,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   0,
+   13,
+   61,
+   31,
+   62,
+   37,
+   40,
+   7
+  ]
+ },
+ "n029": {
+  "model": "tiny",
+  "channel": 35,
+  "held_out_test_cells": [
+   2,
+   3,
+   7,
+   8,
+   11,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   9,
+   39,
+   12,
+   40,
+   60,
+   33,
+   50,
+   55
+  ]
+ },
+ "n090": {
+  "model": "tiny",
+  "channel": 36,
+  "held_out_test_cells": [
+   1,
+   7,
+   8,
+   9,
+   10,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   49,
+   32,
+   17,
+   14,
+   44,
+   20,
+   37,
+   35
+  ]
+ },
+ "n120": {
+  "model": "tiny",
+  "channel": 37,
+  "held_out_test_cells": [
+   1,
+   3,
+   5,
+   7,
+   9,
+   10,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   52,
+   63,
+   38,
+   43,
+   60,
+   34,
+   57,
+   62
+  ]
+ },
+ "n067": {
+  "model": "tiny",
+  "channel": 38,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   7,
+   8,
+   9,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   12,
+   53,
+   61,
+   47,
+   57,
+   20,
+   22,
+   3
+  ]
+ },
+ "n006": {
+  "model": "tiny",
+  "channel": 39,
+  "held_out_test_cells": [
+   1,
+   5,
+   7,
+   8,
+   11,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   62,
+   56,
+   11,
+   52,
+   60,
+   55,
+   25,
+   49
+  ]
+ },
+ "n112": {
+  "model": "tiny",
+  "channel": 40,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   5,
+   6,
+   11,
+   12,
+   14
+  ],
+  "distractor_channels": [
+   44,
+   34,
+   60,
+   18,
+   51,
+   47,
+   45,
+   3
+  ]
+ },
+ "n083": {
+  "model": "tiny",
+  "channel": 41,
+  "held_out_test_cells": [
+   1,
+   2,
+   3,
+   4,
+   6,
+   8,
+   11,
+   13
+  ],
+  "distractor_channels": [
+   28,
+   22,
+   53,
+   43,
+   3,
+   42,
+   56,
+   31
+  ]
+ },
+ "n149": {
+  "model": "tiny",
+  "channel": 42,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   6,
+   7,
+   10,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   32,
+   51,
+   27,
+   13,
+   29,
+   33,
+   7,
+   21
+  ]
+ },
+ "n103": {
+  "model": "tiny",
+  "channel": 43,
+  "held_out_test_cells": [
+   1,
+   4,
+   7,
+   9,
+   10,
+   12,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   39,
+   3,
+   22,
+   63,
+   32,
+   16,
+   28,
+   6
+  ]
+ },
+ "n097": {
+  "model": "tiny",
+  "channel": 44,
+  "held_out_test_cells": [
+   1,
+   2,
+   8,
+   9,
+   10,
+   11,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   25,
+   27,
+   55,
+   62,
+   14,
+   61,
+   34,
+   43
+  ]
+ },
+ "n065": {
+  "model": "tiny",
+  "channel": 45,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   7,
+   11,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   22,
+   51,
+   20,
+   37,
+   11,
+   34,
+   23,
+   40
+  ]
+ },
+ "n125": {
+  "model": "tiny",
+  "channel": 46,
+  "held_out_test_cells": [
+   2,
+   3,
+   6,
+   10,
+   11,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   28,
+   22,
+   8,
+   27,
+   7,
+   53,
+   56,
+   10
+  ]
+ },
+ "n066": {
+  "model": "tiny",
+  "channel": 47,
+  "held_out_test_cells": [
+   2,
+   4,
+   5,
+   6,
+   8,
+   9,
+   12,
+   13
+  ],
+  "distractor_channels": [
+   29,
+   44,
+   24,
+   41,
+   56,
+   13,
+   12,
+   38
+  ]
+ },
+ "n063": {
+  "model": "tiny",
+  "channel": 48,
+  "held_out_test_cells": [
+   2,
+   3,
+   4,
+   6,
+   10,
+   11,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   21,
+   29,
+   19,
+   17,
+   32,
+   4,
+   15,
+   12
+  ]
+ },
+ "n026": {
+  "model": "tiny",
+  "channel": 49,
+  "held_out_test_cells": [
+   1,
+   4,
+   6,
+   8,
+   9,
+   10,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   44,
+   36,
+   33,
+   43,
+   26,
+   34,
+   54,
+   18
+  ]
+ },
+ "n127": {
+  "model": "tiny",
+  "channel": 50,
+  "held_out_test_cells": [
+   4,
+   5,
+   7,
+   8,
+   9,
+   12,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   57,
+   4,
+   26,
+   0,
+   8,
+   55,
+   27,
+   61
+  ]
+ },
+ "n007": {
+  "model": "tiny",
+  "channel": 51,
+  "held_out_test_cells": [
+   3,
+   4,
+   5,
+   7,
+   9,
+   10,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   47,
+   12,
+   3,
+   37,
+   58,
+   24,
+   10,
+   53
+  ]
+ },
+ "n054": {
+  "model": "tiny",
+  "channel": 52,
+  "held_out_test_cells": [
+   2,
+   7,
+   8,
+   9,
+   12,
+   13,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   14,
+   4,
+   33,
+   34,
+   43,
+   17,
+   38,
+   26
+  ]
+ },
+ "n037": {
+  "model": "tiny",
+  "channel": 53,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   5,
+   7,
+   9,
+   10,
+   15
+  ],
+  "distractor_channels": [
+   46,
+   50,
+   19,
+   56,
+   37,
+   34,
+   62,
+   57
+  ]
+ },
+ "n048": {
+  "model": "tiny",
+  "channel": 54,
+  "held_out_test_cells": [
+   1,
+   2,
+   3,
+   7,
+   10,
+   11,
+   12,
+   15
+  ],
+  "distractor_channels": [
+   4,
+   46,
+   49,
+   31,
+   32,
+   43,
+   62,
+   37
+  ]
+ },
+ "n023": {
+  "model": "tiny",
+  "channel": 55,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   7,
+   8,
+   10,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   53,
+   47,
+   63,
+   9,
+   26,
+   7,
+   32,
+   27
+  ]
+ },
+ "n021": {
+  "model": "tiny",
+  "channel": 56,
+  "held_out_test_cells": [
+   1,
+   2,
+   3,
+   5,
+   12,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   61,
+   31,
+   55,
+   53,
+   3,
+   20,
+   32,
+   44
+  ]
+ },
+ "n034": {
+  "model": "tiny",
+  "channel": 57,
+  "held_out_test_cells": [
+   3,
+   4,
+   5,
+   8,
+   10,
+   12,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   32,
+   5,
+   21,
+   0,
+   59,
+   4,
+   13,
+   54
+  ]
+ },
+ "n089": {
+  "model": "tiny",
+  "channel": 58,
+  "held_out_test_cells": [
+   2,
+   6,
+   7,
+   10,
+   11,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   30,
+   4,
+   3,
+   17,
+   18,
+   0,
+   27,
+   12
+  ]
+ },
+ "n019": {
+  "model": "tiny",
+  "channel": 59,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   6,
+   7,
+   9,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   44,
+   40,
+   58,
+   36,
+   63,
+   35,
+   24,
+   47
+  ]
+ },
+ "n027": {
+  "model": "tiny",
+  "channel": 60,
+  "held_out_test_cells": [
+   2,
+   5,
+   7,
+   8,
+   9,
+   10,
+   11,
+   13
+  ],
+  "distractor_channels": [
+   12,
+   2,
+   22,
+   13,
+   5,
+   40,
+   7,
+   14
+  ]
+ },
+ "n040": {
+  "model": "tiny",
+  "channel": 61,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   5,
+   6,
+   7,
+   10,
+   13
+  ],
+  "distractor_channels": [
+   57,
+   52,
+   4,
+   34,
+   16,
+   32,
+   36,
+   27
+  ]
+ },
+ "n111": {
+  "model": "tiny",
+  "channel": 62,
+  "held_out_test_cells": [
+   1,
+   3,
+   5,
+   9,
+   13,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   38,
+   31,
+   63,
+   44,
+   59,
+   35,
+   23,
+   8
+  ]
+ },
+ "n081": {
+  "model": "tiny",
+  "channel": 63,
+  "held_out_test_cells": [
+   4,
+   5,
+   8,
+   9,
+   10,
+   11,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   25,
+   36,
+   30,
+   3,
+   4,
+   46,
+   47,
+   43
+  ]
+ },
+ "n017": {
+  "model": "e1:unit",
+  "channel": 0,
+  "held_out_test_cells": [
+   3,
+   4,
+   7,
+   9,
+   11,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   45,
+   53,
+   44,
+   22,
+   10,
+   63,
+   18,
+   34
+  ]
+ },
+ "n126": {
+  "model": "e1:unit",
+  "channel": 1,
+  "held_out_test_cells": [
+   2,
+   7,
+   8,
+   9,
+   10,
+   12,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   22,
+   62,
+   59,
+   46,
+   51,
+   36,
+   12,
+   52
+  ]
+ },
+ "n028": {
+  "model": "e1:unit",
+  "channel": 2,
+  "held_out_test_cells": [
+   3,
+   4,
+   6,
+   8,
+   12,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   35,
+   39,
+   8,
+   53,
+   14,
+   46,
+   36,
+   60
+  ]
+ },
+ "n134": {
+  "model": "e1:unit",
+  "channel": 3,
+  "held_out_test_cells": [
+   1,
+   2,
+   6,
+   9,
+   10,
+   12,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   50,
+   41,
+   54,
+   0,
+   8,
+   30,
+   48,
+   13
+  ]
+ },
+ "n141": {
+  "model": "e1:unit",
+  "channel": 4,
+  "held_out_test_cells": [
+   3,
+   5,
+   7,
+   8,
+   10,
+   11,
+   12,
+   14
+  ],
+  "distractor_channels": [
+   53,
+   27,
+   20,
+   28,
+   58,
+   21,
+   49,
+   37
+  ]
+ },
+ "n108": {
+  "model": "e1:unit",
+  "channel": 5,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   7,
+   8,
+   10,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   42,
+   22,
+   59,
+   34,
+   36,
+   41,
+   19,
+   16
+  ]
+ },
+ "n016": {
+  "model": "e1:unit",
+  "channel": 6,
+  "held_out_test_cells": [
+   2,
+   4,
+   6,
+   8,
+   11,
+   12,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   49,
+   39,
+   4,
+   18,
+   51,
+   7,
+   44,
+   56
+  ]
+ },
+ "n035": {
+  "model": "e1:unit",
+  "channel": 7,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   7,
+   8,
+   10,
+   12,
+   14
+  ],
+  "distractor_channels": [
+   29,
+   8,
+   48,
+   3,
+   20,
+   37,
+   26,
+   2
+  ]
+ },
+ "n119": {
+  "model": "e1:unit",
+  "channel": 8,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   5,
+   6,
+   7,
+   9,
+   10
+  ],
+  "distractor_channels": [
+   4,
+   3,
+   12,
+   27,
+   33,
+   57,
+   48,
+   15
+  ]
+ },
+ "n121": {
+  "model": "e1:unit",
+  "channel": 9,
+  "held_out_test_cells": [
+   1,
+   4,
+   8,
+   10,
+   11,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   29,
+   40,
+   33,
+   32,
+   12,
+   51,
+   46,
+   27
+  ]
+ },
+ "n078": {
+  "model": "e1:unit",
+  "channel": 10,
+  "held_out_test_cells": [
+   2,
+   3,
+   4,
+   6,
+   8,
+   10,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   13,
+   23,
+   26,
+   47,
+   3,
+   49,
+   4,
+   57
+  ]
+ },
+ "n075": {
+  "model": "e1:unit",
+  "channel": 11,
+  "held_out_test_cells": [
+   1,
+   4,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12
+  ],
+  "distractor_channels": [
+   48,
+   19,
+   3,
+   34,
+   28,
+   32,
+   63,
+   38
+  ]
+ },
+ "n140": {
+  "model": "e1:unit",
+  "channel": 12,
+  "held_out_test_cells": [
+   3,
+   4,
+   5,
+   6,
+   9,
+   10,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   55,
+   54,
+   37,
+   57,
+   34,
+   7,
+   19,
+   47
+  ]
+ },
+ "n150": {
+  "model": "e1:unit",
+  "channel": 13,
+  "held_out_test_cells": [
+   1,
+   3,
+   5,
+   9,
+   11,
+   12,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   27,
+   25,
+   32,
+   21,
+   9,
+   62,
+   35,
+   5
+  ]
+ },
+ "n014": {
+  "model": "e1:unit",
+  "channel": 14,
+  "held_out_test_cells": [
+   7,
+   8,
+   9,
+   10,
+   11,
+   12,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   57,
+   20,
+   22,
+   2,
+   59,
+   44,
+   23,
+   21
+  ]
+ },
+ "n128": {
+  "model": "e1:unit",
+  "channel": 15,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   8,
+   10,
+   11,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   21,
+   11,
+   58,
+   62,
+   13,
+   9,
+   8,
+   31
+  ]
+ },
+ "n055": {
+  "model": "e1:unit",
+  "channel": 16,
+  "held_out_test_cells": [
+   1,
+   2,
+   6,
+   7,
+   9,
+   10,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   2,
+   61,
+   18,
+   57,
+   32,
+   48,
+   3,
+   6
+  ]
+ },
+ "n159": {
+  "model": "e1:unit",
+  "channel": 17,
+  "held_out_test_cells": [
+   1,
+   8,
+   10,
+   11,
+   12,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   60,
+   22,
+   9,
+   43,
+   13,
+   61,
+   39,
+   0
+  ]
+ },
+ "n045": {
+  "model": "e1:unit",
+  "channel": 18,
+  "held_out_test_cells": [
+   2,
+   5,
+   6,
+   7,
+   10,
+   12,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   41,
+   27,
+   14,
+   25,
+   36,
+   20,
+   55,
+   56
+  ]
+ },
+ "n030": {
+  "model": "e1:unit",
+  "channel": 19,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   5,
+   7,
+   9,
+   12,
+   16
+  ],
+  "distractor_channels": [
+   23,
+   17,
+   32,
+   38,
+   21,
+   26,
+   14,
+   46
+  ]
+ },
+ "n130": {
+  "model": "e1:unit",
+  "channel": 20,
+  "held_out_test_cells": [
+   1,
+   6,
+   7,
+   11,
+   12,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   6,
+   30,
+   1,
+   32,
+   43,
+   7,
+   15,
+   29
+  ]
+ },
+ "n139": {
+  "model": "e1:unit",
+  "channel": 21,
+  "held_out_test_cells": [
+   2,
+   3,
+   6,
+   8,
+   9,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   8,
+   22,
+   7,
+   49,
+   25,
+   42,
+   30,
+   53
+  ]
+ },
+ "n101": {
+  "model": "e1:unit",
+  "channel": 22,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   7,
+   8,
+   10,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   52,
+   32,
+   49,
+   45,
+   25,
+   37,
+   36,
+   20
+  ]
+ },
+ "n109": {
+  "model": "e1:unit",
+  "channel": 23,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   6,
+   8,
+   10,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   11,
+   62,
+   26,
+   39,
+   52,
+   54,
+   8,
+   20
+  ]
+ },
+ "n001": {
+  "model": "e1:unit",
+  "channel": 24,
+  "held_out_test_cells": [
+   3,
+   4,
+   8,
+   9,
+   11,
+   12,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   38,
+   12,
+   41,
+   46,
+   11,
+   19,
+   6,
+   48
+  ]
+ },
+ "n060": {
+  "model": "e1:unit",
+  "channel": 25,
+  "held_out_test_cells": [
+   4,
+   7,
+   9,
+   10,
+   12,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   14,
+   56,
+   45,
+   34,
+   20,
+   51,
+   22,
+   36
+  ]
+ },
+ "n096": {
+  "model": "e1:unit",
+  "channel": 26,
+  "held_out_test_cells": [
+   2,
+   4,
+   5,
+   11,
+   12,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   3,
+   24,
+   60,
+   45,
+   5,
+   39,
+   9,
+   6
+  ]
+ },
+ "n064": {
+  "model": "e1:unit",
+  "channel": 27,
+  "held_out_test_cells": [
+   2,
+   3,
+   4,
+   5,
+   6,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   44,
+   56,
+   37,
+   35,
+   32,
+   34,
+   57,
+   25
+  ]
+ },
+ "n135": {
+  "model": "e1:unit",
+  "channel": 28,
+  "held_out_test_cells": [
+   2,
+   4,
+   5,
+   6,
+   8,
+   11,
+   12,
+   16
+  ],
+  "distractor_channels": [
+   35,
+   0,
+   25,
+   26,
+   9,
+   53,
+   55,
+   59
+  ]
+ },
+ "n015": {
+  "model": "e1:unit",
+  "channel": 29,
+  "held_out_test_cells": [
+   2,
+   3,
+   7,
+   9,
+   10,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   26,
+   13,
+   51,
+   41,
+   23,
+   44,
+   9,
+   11
+  ]
+ },
+ "n039": {
+  "model": "e1:unit",
+  "channel": 30,
+  "held_out_test_cells": [
+   1,
+   4,
+   5,
+   6,
+   7,
+   10,
+   11,
+   15
+  ],
+  "distractor_channels": [
+   4,
+   34,
+   18,
+   54,
+   14,
+   36,
+   15,
+   59
+  ]
+ },
+ "n124": {
+  "model": "e1:unit",
+  "channel": 31,
+  "held_out_test_cells": [
+   2,
+   5,
+   6,
+   8,
+   9,
+   10,
+   12,
+   14
+  ],
+  "distractor_channels": [
+   45,
+   0,
+   43,
+   23,
+   46,
+   9,
+   39,
+   19
+  ]
+ },
+ "n153": {
+  "model": "e1:unit",
+  "channel": 32,
+  "held_out_test_cells": [
+   1,
+   5,
+   7,
+   9,
+   10,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   54,
+   43,
+   41,
+   33,
+   52,
+   21,
+   61,
+   42
+  ]
+ },
+ "n154": {
+  "model": "e1:unit",
+  "channel": 33,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   6,
+   8,
+   9,
+   12,
+   13
+  ],
+  "distractor_channels": [
+   10,
+   7,
+   5,
+   59,
+   22,
+   20,
+   17,
+   6
+  ]
+ },
+ "n056": {
+  "model": "e1:unit",
+  "channel": 34,
+  "held_out_test_cells": [
+   3,
+   4,
+   5,
+   7,
+   10,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   48,
+   6,
+   0,
+   30,
+   37,
+   33,
+   5,
+   29
+  ]
+ },
+ "n113": {
+  "model": "e1:unit",
+  "channel": 35,
+  "held_out_test_cells": [
+   3,
+   6,
+   7,
+   8,
+   10,
+   12,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   17,
+   1,
+   47,
+   10,
+   5,
+   27,
+   3,
+   60
+  ]
+ },
+ "n091": {
+  "model": "e1:unit",
+  "channel": 36,
+  "held_out_test_cells": [
+   2,
+   3,
+   4,
+   9,
+   11,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   21,
+   62,
+   6,
+   60,
+   45,
+   35,
+   59,
+   39
+  ]
+ },
+ "n003": {
+  "model": "e1:unit",
+  "channel": 37,
+  "held_out_test_cells": [
+   1,
+   2,
+   6,
+   8,
+   10,
+   12,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   59,
+   44,
+   61,
+   53,
+   30,
+   48,
+   45,
+   56
+  ]
+ },
+ "n082": {
+  "model": "e1:unit",
+  "channel": 38,
+  "held_out_test_cells": [
+   2,
+   3,
+   7,
+   8,
+   9,
+   11,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   24,
+   54,
+   58,
+   12,
+   51,
+   60,
+   26,
+   34
+  ]
+ },
+ "n099": {
+  "model": "e1:unit",
+  "channel": 39,
+  "held_out_test_cells": [
+   1,
+   7,
+   8,
+   9,
+   11,
+   13,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   41,
+   1,
+   46,
+   8,
+   30,
+   24,
+   26,
+   44
+  ]
+ },
+ "n106": {
+  "model": "e1:unit",
+  "channel": 40,
+  "held_out_test_cells": [
+   1,
+   3,
+   8,
+   10,
+   11,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   63,
+   58,
+   44,
+   46,
+   51,
+   0,
+   2,
+   11
+  ]
+ },
+ "n137": {
+  "model": "e1:unit",
+  "channel": 41,
+  "held_out_test_cells": [
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   45,
+   32,
+   6,
+   7,
+   62,
+   52,
+   9,
+   37
+  ]
+ },
+ "n062": {
+  "model": "e1:unit",
+  "channel": 42,
+  "held_out_test_cells": [
+   7,
+   8,
+   11,
+   12,
+   13,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   31,
+   5,
+   43,
+   12,
+   14,
+   60,
+   24,
+   32
+  ]
+ },
+ "n071": {
+  "model": "e1:unit",
+  "channel": 43,
+  "held_out_test_cells": [
+   3,
+   4,
+   6,
+   7,
+   8,
+   9,
+   12,
+   16
+  ],
+  "distractor_channels": [
+   15,
+   25,
+   1,
+   50,
+   40,
+   39,
+   31,
+   51
+  ]
+ },
+ "n146": {
+  "model": "e1:unit",
+  "channel": 44,
+  "held_out_test_cells": [
+   2,
+   4,
+   5,
+   7,
+   11,
+   12,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   15,
+   34,
+   29,
+   56,
+   18,
+   48,
+   0,
+   24
+  ]
+ },
+ "n155": {
+  "model": "e1:unit",
+  "channel": 45,
+  "held_out_test_cells": [
+   1,
+   6,
+   7,
+   8,
+   9,
+   11,
+   12,
+   16
+  ],
+  "distractor_channels": [
+   57,
+   54,
+   62,
+   14,
+   13,
+   17,
+   30,
+   28
+  ]
+ },
+ "n074": {
+  "model": "e1:unit",
+  "channel": 46,
+  "held_out_test_cells": [
+   2,
+   5,
+   7,
+   8,
+   9,
+   10,
+   11,
+   16
+  ],
+  "distractor_channels": [
+   6,
+   40,
+   39,
+   3,
+   12,
+   59,
+   20,
+   57
+  ]
+ },
+ "n086": {
+  "model": "e1:unit",
+  "channel": 47,
+  "held_out_test_cells": [
+   5,
+   6,
+   7,
+   8,
+   9,
+   11,
+   12,
+   15
+  ],
+  "distractor_channels": [
+   6,
+   50,
+   58,
+   25,
+   26,
+   23,
+   4,
+   19
+  ]
+ },
+ "n095": {
+  "model": "e1:unit",
+  "channel": 48,
+  "held_out_test_cells": [
+   2,
+   4,
+   5,
+   6,
+   8,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   18,
+   34,
+   40,
+   5,
+   17,
+   16,
+   30,
+   2
+  ]
+ },
+ "n136": {
+  "model": "e1:unit",
+  "channel": 49,
+  "held_out_test_cells": [
+   5,
+   6,
+   7,
+   10,
+   11,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   55,
+   4,
+   25,
+   28,
+   22,
+   47,
+   9,
+   50
+  ]
+ },
+ "n131": {
+  "model": "e1:unit",
+  "channel": 50,
+  "held_out_test_cells": [
+   3,
+   4,
+   8,
+   9,
+   10,
+   11,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   52,
+   36,
+   53,
+   32,
+   4,
+   16,
+   41,
+   14
+  ]
+ },
+ "n068": {
+  "model": "e1:unit",
+  "channel": 51,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   6,
+   8,
+   9,
+   10,
+   14
+  ],
+  "distractor_channels": [
+   37,
+   0,
+   6,
+   3,
+   54,
+   49,
+   11,
+   1
+  ]
+ },
+ "n104": {
+  "model": "e1:unit",
+  "channel": 52,
+  "held_out_test_cells": [
+   1,
+   6,
+   7,
+   9,
+   11,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   29,
+   39,
+   1,
+   40,
+   61,
+   2,
+   10,
+   44
+  ]
+ },
+ "n088": {
+  "model": "e1:unit",
+  "channel": 53,
+  "held_out_test_cells": [
+   2,
+   3,
+   5,
+   7,
+   9,
+   12,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   39,
+   36,
+   23,
+   20,
+   43,
+   46,
+   49,
+   3
+  ]
+ },
+ "n033": {
+  "model": "e1:unit",
+  "channel": 54,
+  "held_out_test_cells": [
+   5,
+   6,
+   7,
+   8,
+   10,
+   11,
+   12,
+   16
+  ],
+  "distractor_channels": [
+   41,
+   13,
+   10,
+   49,
+   21,
+   8,
+   29,
+   38
+  ]
+ },
+ "n142": {
+  "model": "e1:unit",
+  "channel": 55,
+  "held_out_test_cells": [
+   1,
+   2,
+   3,
+   10,
+   11,
+   13,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   62,
+   53,
+   20,
+   38,
+   28,
+   19,
+   12,
+   10
+  ]
+ },
+ "n041": {
+  "model": "e1:unit",
+  "channel": 56,
+  "held_out_test_cells": [
+   4,
+   5,
+   8,
+   9,
+   12,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   59,
+   22,
+   8,
+   6,
+   14,
+   2,
+   32,
+   45
+  ]
+ },
+ "n152": {
+  "model": "e1:unit",
+  "channel": 57,
+  "held_out_test_cells": [
+   3,
+   4,
+   6,
+   8,
+   10,
+   11,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   28,
+   51,
+   63,
+   3,
+   4,
+   61,
+   9,
+   37
+  ]
+ },
+ "n115": {
+  "model": "e1:unit",
+  "channel": 58,
+  "held_out_test_cells": [
+   1,
+   6,
+   8,
+   10,
+   11,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   29,
+   46,
+   43,
+   18,
+   62,
+   12,
+   54,
+   5
+  ]
+ },
+ "n025": {
+  "model": "e1:unit",
+  "channel": 59,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   6,
+   7,
+   8,
+   12,
+   14
+  ],
+  "distractor_channels": [
+   57,
+   3,
+   61,
+   47,
+   56,
+   42,
+   35,
+   55
+  ]
+ },
+ "n009": {
+  "model": "e1:unit",
+  "channel": 60,
+  "held_out_test_cells": [
+   2,
+   3,
+   4,
+   8,
+   12,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   28,
+   53,
+   12,
+   29,
+   24,
+   23,
+   51,
+   50
+  ]
+ },
+ "n057": {
+  "model": "e1:unit",
+  "channel": 61,
+  "held_out_test_cells": [
+   1,
+   2,
+   6,
+   7,
+   11,
+   13,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   55,
+   60,
+   27,
+   6,
+   14,
+   5,
+   51,
+   13
+  ]
+ },
+ "n092": {
+  "model": "e1:unit",
+  "channel": 62,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   7,
+   8,
+   11,
+   12,
+   16
+  ],
+  "distractor_channels": [
+   10,
+   44,
+   46,
+   11,
+   51,
+   33,
+   48,
+   40
+  ]
+ },
+ "n145": {
+  "model": "e1:unit",
+  "channel": 63,
+  "held_out_test_cells": [
+   3,
+   7,
+   8,
+   9,
+   11,
+   12,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   46,
+   39,
+   52,
+   0,
+   30,
+   58,
+   32,
+   59
+  ]
+ },
+ "n100": {
+  "model": "e1:random_direction",
+  "channel": 64,
+  "held_out_test_cells": [
+   5,
+   8,
+   9,
+   11,
+   12,
+   13,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   82,
+   87,
+   94,
+   74,
+   81,
+   72,
+   73,
+   67
+  ]
+ },
+ "n116": {
+  "model": "e1:random_direction",
+  "channel": 65,
+  "held_out_test_cells": [
+   1,
+   4,
+   5,
+   7,
+   12,
+   13,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   76,
+   86,
+   95,
+   82,
+   78,
+   77,
+   84,
+   68
+  ]
+ },
+ "n000": {
+  "model": "e1:random_direction",
+  "channel": 66,
+  "held_out_test_cells": [
+   1,
+   4,
+   6,
+   7,
+   11,
+   12,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   91,
+   89,
+   68,
+   67,
+   95,
+   85,
+   87,
+   64
+  ]
+ },
+ "n133": {
+  "model": "e1:random_direction",
+  "channel": 67,
+  "held_out_test_cells": [
+   3,
+   5,
+   6,
+   10,
+   11,
+   12,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   83,
+   87,
+   73,
+   80,
+   68,
+   91,
+   93,
+   79
+  ]
+ },
+ "n118": {
+  "model": "e1:random_direction",
+  "channel": 68,
+  "held_out_test_cells": [
+   1,
+   5,
+   6,
+   8,
+   10,
+   12,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   69,
+   67,
+   78,
+   73,
+   76,
+   92,
+   70,
+   77
+  ]
+ },
+ "n077": {
+  "model": "e1:random_direction",
+  "channel": 69,
+  "held_out_test_cells": [
+   4,
+   5,
+   8,
+   10,
+   11,
+   12,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   89,
+   88,
+   82,
+   73,
+   79,
+   70,
+   80,
+   90
+  ]
+ },
+ "n144": {
+  "model": "e1:random_direction",
+  "channel": 70,
+  "held_out_test_cells": [
+   3,
+   4,
+   5,
+   7,
+   8,
+   9,
+   10,
+   13
+  ],
+  "distractor_channels": [
+   83,
+   86,
+   89,
+   95,
+   93,
+   81,
+   84,
+   77
+  ]
+ },
+ "n049": {
+  "model": "e1:random_direction",
+  "channel": 71,
+  "held_out_test_cells": [
+   5,
+   7,
+   8,
+   9,
+   10,
+   11,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   66,
+   78,
+   65,
+   90,
+   91,
+   84,
+   81,
+   75
+  ]
+ },
+ "n132": {
+  "model": "e1:random_direction",
+  "channel": 72,
+  "held_out_test_cells": [
+   2,
+   7,
+   8,
+   12,
+   13,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   74,
+   76,
+   75,
+   89,
+   68,
+   64,
+   78,
+   85
+  ]
+ },
+ "n085": {
+  "model": "e1:random_direction",
+  "channel": 73,
+  "held_out_test_cells": [
+   3,
+   5,
+   6,
+   7,
+   10,
+   11,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   92,
+   64,
+   77,
+   94,
+   93,
+   83,
+   86,
+   84
+  ]
+ },
+ "n093": {
+  "model": "e1:random_direction",
+  "channel": 74,
+  "held_out_test_cells": [
+   1,
+   4,
+   5,
+   6,
+   11,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   93,
+   67,
+   82,
+   72,
+   91,
+   90,
+   80,
+   66
+  ]
+ },
+ "n129": {
+  "model": "e1:random_direction",
+  "channel": 75,
+  "held_out_test_cells": [
+   2,
+   3,
+   6,
+   7,
+   8,
+   12,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   77,
+   84,
+   82,
+   68,
+   78,
+   87,
+   94,
+   76
+  ]
+ },
+ "n011": {
+  "model": "e1:random_direction",
+  "channel": 76,
+  "held_out_test_cells": [
+   1,
+   4,
+   5,
+   8,
+   12,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   75,
+   71,
+   69,
+   83,
+   89,
+   85,
+   92,
+   66
+  ]
+ },
+ "n012": {
+  "model": "e1:random_direction",
+  "channel": 77,
+  "held_out_test_cells": [
+   2,
+   3,
+   6,
+   9,
+   10,
+   12,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   91,
+   69,
+   67,
+   87,
+   78,
+   65,
+   82,
+   95
+  ]
+ },
+ "n148": {
+  "model": "e1:random_direction",
+  "channel": 78,
+  "held_out_test_cells": [
+   1,
+   3,
+   6,
+   8,
+   12,
+   14,
+   15,
+   16
+  ],
+  "distractor_channels": [
+   85,
+   81,
+   73,
+   93,
+   91,
+   82,
+   87,
+   64
+  ]
+ },
+ "n156": {
+  "model": "e1:random_direction",
+  "channel": 79,
+  "held_out_test_cells": [
+   2,
+   5,
+   6,
+   8,
+   9,
+   10,
+   11,
+   13
+  ],
+  "distractor_channels": [
+   90,
+   74,
+   89,
+   91,
+   76,
+   85,
+   80,
+   88
+  ]
+ },
+ "n157": {
+  "model": "e1:random_direction",
+  "channel": 80,
+  "held_out_test_cells": [
+   4,
+   5,
+   6,
+   8,
+   10,
+   11,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   81,
+   95,
+   89,
+   82,
+   79,
+   66,
+   64,
+   83
+  ]
+ },
+ "n010": {
+  "model": "e1:random_direction",
+  "channel": 81,
+  "held_out_test_cells": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   10,
+   13
+  ],
+  "distractor_channels": [
+   76,
+   90,
+   91,
+   75,
+   74,
+   71,
+   65,
+   66
+  ]
+ },
+ "n058": {
+  "model": "e1:random_direction",
+  "channel": 82,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   6,
+   7,
+   9,
+   13,
+   14
+  ],
+  "distractor_channels": [
+   93,
+   66,
+   78,
+   75,
+   85,
+   65,
+   92,
+   90
+  ]
+ },
+ "n158": {
+  "model": "e1:random_direction",
+  "channel": 83,
+  "held_out_test_cells": [
+   2,
+   4,
+   8,
+   9,
+   11,
+   12,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   88,
+   92,
+   79,
+   80,
+   95,
+   76,
+   78,
+   64
+  ]
+ },
+ "n046": {
+  "model": "e1:random_direction",
+  "channel": 84,
+  "held_out_test_cells": [
+   1,
+   2,
+   5,
+   7,
+   9,
+   11,
+   13,
+   15
+  ],
+  "distractor_channels": [
+   71,
+   80,
+   67,
+   65,
+   77,
+   89,
+   72,
+   69
+  ]
+ },
+ "n053": {
+  "model": "e1:random_direction",
+  "channel": 85,
+  "held_out_test_cells": [
+   4,
+   6,
+   9,
+   10,
+   11,
+   12,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   74,
+   90,
+   67,
+   79,
+   75,
+   87,
+   80,
+   73
+  ]
+ },
+ "n050": {
+  "model": "e1:random_direction",
+  "channel": 86,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   7,
+   8,
+   9,
+   10,
+   15
+  ],
+  "distractor_channels": [
+   69,
+   92,
+   91,
+   87,
+   71,
+   78,
+   67,
+   75
+  ]
+ },
+ "n098": {
+  "model": "e1:random_direction",
+  "channel": 87,
+  "held_out_test_cells": [
+   1,
+   2,
+   4,
+   5,
+   7,
+   9,
+   11,
+   16
+  ],
+  "distractor_channels": [
+   91,
+   86,
+   83,
+   92,
+   70,
+   93,
+   81,
+   74
+  ]
+ },
+ "n002": {
+  "model": "e1:random_direction",
+  "channel": 88,
+  "held_out_test_cells": [
+   1,
+   3,
+   4,
+   5,
+   8,
+   9,
+   10,
+   15
+  ],
+  "distractor_channels": [
+   82,
+   76,
+   65,
+   93,
+   78,
+   87,
+   68,
+   80
+  ]
+ },
+ "n042": {
+  "model": "e1:random_direction",
+  "channel": 89,
+  "held_out_test_cells": [
+   3,
+   5,
+   6,
+   7,
+   10,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   88,
+   70,
+   77,
+   76,
+   78,
+   64,
+   71,
+   93
+  ]
+ },
+ "n076": {
+  "model": "e1:random_direction",
+  "channel": 90,
+  "held_out_test_cells": [
+   1,
+   2,
+   3,
+   5,
+   7,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   67,
+   86,
+   91,
+   84,
+   85,
+   72,
+   73,
+   80
+  ]
+ },
+ "n051": {
+  "model": "e1:random_direction",
+  "channel": 91,
+  "held_out_test_cells": [
+   2,
+   4,
+   5,
+   9,
+   10,
+   11,
+   12,
+   14
+  ],
+  "distractor_channels": [
+   81,
+   90,
+   72,
+   75,
+   94,
+   73,
+   85,
+   95
+  ]
+ },
+ "n036": {
+  "model": "e1:random_direction",
+  "channel": 92,
+  "held_out_test_cells": [
+   2,
+   4,
+   7,
+   8,
+   9,
+   11,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   75,
+   77,
+   69,
+   87,
+   65,
+   89,
+   78,
+   81
+  ]
+ },
+ "n069": {
+  "model": "e1:random_direction",
+  "channel": 93,
+  "held_out_test_cells": [
+   1,
+   4,
+   5,
+   6,
+   10,
+   13,
+   14,
+   15
+  ],
+  "distractor_channels": [
+   90,
+   74,
+   68,
+   77,
+   86,
+   76,
+   75,
+   72
+  ]
+ },
+ "n072": {
+  "model": "e1:random_direction",
+  "channel": 94,
+  "held_out_test_cells": [
+   1,
+   3,
+   8,
+   9,
+   11,
+   12,
+   13,
+   16
+  ],
+  "distractor_channels": [
+   82,
+   68,
+   69,
+   66,
+   67,
+   95,
+   75,
+   64
+  ]
+ },
+ "n102": {
+  "model": "e1:random_direction",
+  "channel": 95,
+  "held_out_test_cells": [
+   4,
+   7,
+   9,
+   11,
+   12,
+   13,
+   14,
+   16
+  ],
+  "distractor_channels": [
+   73,
+   70,
+   79,
+   92,
+   80,
+   75,
+   74,
+   69
+  ]
+ }
+}

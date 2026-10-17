@@ -1,0 +1,8 @@
+{
+  "_comment": "Final test accuracies of the first Colab L4 batch (experiments/gpu_batch.sh, results/gpu, Hugging Face sample order, seeds 1-5). The session was evicted when a third GPU session was opened (account limit: two), so its files were lost; these values were read from its logged run summaries during the session. Same configurations as experiments/configs/repro_1epoch.json.",
+  "gws": [0.5918, 0.5964, 0.5936, 0.5964, 0.5924],
+  "rbf": [0.5842, 0.5951, 0.5846, 0.5975, 0.5934],
+  "gauge": [0.5848, 0.5898, 0.5801, 0.5911, 0.5850],
+  "mlp_adam": [0.4998, 0.4850, 0.4955, 0.4972, 0.4963],
+  "mlp_muon": [0.5704]
+}

@@ -1,0 +1,67 @@
+{
+ "medium": {
+  "ratings": 80,
+  "pos_interpretable": 1.0,
+  "pos_interpretable_ci95": [
+   0.954180263735425,
+   1.0
+  ],
+  "pos_non_arbitrary": 1.0,
+  "pos_non_arbitrary_ci95": [
+   0.954180263735425,
+   1.0
+  ],
+  "pos_categories": {
+   "one_job": 36,
+   "one_job_related_offshoots": 44
+  },
+  "neg_categories": {
+   "none_or_weak": 20,
+   "one_job": 59,
+   "one_job_related_offshoots": 1
+  },
+  "test_hits_mean": 7.45,
+  "test_hits_by_category": {
+   "one_job": 7.527777777777778,
+   "one_job_related_offshoots": 7.386363636363637
+  },
+  "rater_agreement": 1.0,
+  "cohen_kappa": NaN
+ },
+ "iv1": {
+  "ratings": 80,
+  "pos_interpretable": 0.625,
+  "pos_interpretable_ci95": [
+   0.515485228513904,
+   0.7230598374199522
+  ],
+  "pos_non_arbitrary": 0.65,
+  "pos_non_arbitrary_ci95": [
+   0.5407980232189245,
+   0.7454560559017032
+  ],
+  "pos_categories": {
+   "not_understood": 17,
+   "one_job": 2,
+   "one_job_related_offshoots": 48,
+   "several_unrelated": 11,
+   "two_related_jobs": 2
+  },
+  "neg_categories": {
+   "not_understood": 6,
+   "one_job": 44,
+   "one_job_related_offshoots": 25,
+   "several_unrelated": 5
+  },
+  "test_hits_mean": 5.425,
+  "test_hits_by_category": {
+   "not_understood": 5.294117647058823,
+   "one_job": 5.5,
+   "one_job_related_offshoots": 5.395833333333333,
+   "several_unrelated": 5.636363636363637,
+   "two_related_jobs": 6.0
+  },
+  "rater_agreement": 0.8,
+  "cohen_kappa": 0.5833333333333334
+ }
+}

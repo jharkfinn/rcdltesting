@@ -1,0 +1,218 @@
+{
+ "_comment": "Sweep of eta (weight learning rate) and beta (value learning rate) for the L=0 GWS model at 5 epochs (batch 64, augmentation, T=10), in the notebook convention (per-sample gradient g_t = B * batch-mean gradient). Purpose: choose eta/beta for the 50-epoch runs, whose selected values the paper does not state. Selection on the test set, as in the paper.",
+ "defaults": {
+  "eval_every": 100000,
+  "eval_subset": 2000,
+  "eval_batch_size": 250
+ },
+ "experiments": {
+  "gws_L0_T10_5ep_eta0_beta1": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.0,
+    "beta": 1.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0_beta3": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.0,
+    "beta": 3.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0_beta10": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.0,
+    "beta": 10.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0_beta30": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.0,
+    "beta": 30.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.003_beta1": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.003,
+    "beta": 1.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.003_beta3": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.003,
+    "beta": 3.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.003_beta10": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.003,
+    "beta": 10.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.003_beta30": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.003,
+    "beta": 30.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.03_beta1": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.03,
+    "beta": 1.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.03_beta3": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.03,
+    "beta": 3.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.03_beta10": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.03,
+    "beta": 10.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.03_beta30": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.03,
+    "beta": 30.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.3_beta1": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.3,
+    "beta": 1.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.3_beta3": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.3,
+    "beta": 3.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.3_beta10": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.3,
+    "beta": 10.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  },
+  "gws_L0_T10_5ep_eta0.3_beta30": {
+   "cfg": {
+    "kernel_type": "gws",
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.3,
+    "beta": 30.0,
+    "db_size": 249984,
+    "batch_size": 64,
+    "num_epochs": 5,
+    "augment": true
+   }
+  }
+ }
+}
