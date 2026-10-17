@@ -53,9 +53,10 @@ def collect(model, block, batches, dirs=None):
   h = blk.pw_down.register_forward_pre_hook(lambda m, inp: got.__setitem__('u', inp[0]))
   D = None if dirs is None else torch.as_tensor(dirs, dtype=torch.float32)
   out = {k: [] for k in ('maxv', 'minv', 'pmax', 'pmin', 'labels')}
+  correct = 0
   try:
     for x, y in batches:
-      model(x)
+      correct += int((model(x).argmax(1) == y).sum())
       u = got['u'].float()                                         # (B, H, W, U)
       B, H, W, U = u.shape
       if D is not None:
@@ -72,6 +73,7 @@ def collect(model, block, batches, dirs=None):
   for k in ('pmax', 'pmin'):
     res[k] = res[k].astype(np.int32)
   res['grid'] = grid
+  res['top1'] = correct / max(len(res['labels']), 1)                  # the model's top-1 on these images
   return res
 
 
@@ -149,7 +151,7 @@ def write(out, layer, sel, crops, labels, names, n_units, S):
                               'p99': float(np.quantile(mx, 0.99)), 'mean_max': float(mx.mean())},
                     'examples': examples})
   json.dump({'layer': layer, 'channels': len(neurons), 'units': n_units,
-             'imageCount': int(len(labels)), 'neurons': neurons}, open(os.path.join(out, f'data_{layer}.json'), 'w'))
+             'imageCount': int(len(labels)), 'top1': S.get('top1'), 'neurons': neurons}, open(os.path.join(out, f'data_{layer}.json'), 'w'))
 
 
 def main():
@@ -174,14 +176,14 @@ def main():
   U = model.stages[stage][j].pw_down.in_features
   dirs = random_dirs(U, a.dirs, a.seed) if a.dirs else None
   S = collect(model, a.block, val_batches(a.val, a.batch, dev), dirs)
-  print('collected', S['maxv'].shape, 'grid', S['grid'], flush=True)
+  print('collected', S['maxv'].shape, 'grid', S['grid'], 'top1', round(S['top1'], 5), flush=True)
   sel = select(S)
   crops = gather_crops(val_batches(a.val, a.batch, dev), sel, S['grid'], stage)
   layer = a.block.replace('.', '_')
   os.makedirs(a.out, exist_ok=True)
   if dirs is not None:
     np.save(os.path.join(a.out, f'dirs_{layer}.npy'), dirs)
-  np.savez_compressed(os.path.join(a.out, f'stats_{layer}.npz'), **{k: v for k, v in S.items() if k != 'grid'})
+  np.savez_compressed(os.path.join(a.out, f'stats_{layer}.npz'), **{k: v for k, v in S.items() if k not in ('grid', 'top1')})
   write(a.out, layer, sel, crops, S['labels'], class_names(a.imagenet), U, S)
   print('MICROSCOPE_DONE', len(sel), 'channels', flush=True)
 

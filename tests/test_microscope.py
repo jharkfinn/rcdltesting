@@ -39,6 +39,9 @@ def test_collect_matches_brute_force_and_dirs():
   np.testing.assert_allclose(S['maxv'], u.max(1).values.numpy(), rtol=1e-6)
   np.testing.assert_allclose(S['minv'], u.min(1).values.numpy(), rtol=1e-6)
   assert (S['pmax'] == u.argmax(1).numpy()).all() and S['grid'] == (2, 2)
+  with torch.no_grad():
+    acc = (m(x).argmax(1) == torch.cat([b[1] for b in _batches()])).float().mean().item()
+  assert abs(S['top1'] - acc) < 1e-6
   np.testing.assert_allclose(np.linalg.norm(dirs, axis=1), 1)
 
 
