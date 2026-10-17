@@ -1093,7 +1093,7 @@ def x4_block(model, names, X, y, rel=None, stats=None, batch=100, n_sample=16, e
            'edges_sout': st['edg'].cpu().numpy(), 'e_perp': st['Ep'].cpu().numpy(), 'bin_w': bw}
     stat = None
     if qs is not None:                                          # the classifier's rows along e: weights only
-      q = qs.cpu().numpy() @ E.T                                                            # (C, U)
+      q = qs[:C].cpu().numpy() @ E.T                                    # (C, U): the probe's classes
       cm = lambda m: (q * m).sum(0) / np.maximum(m.sum(0), 1)
       stat = cm(roles['top20']) - cm(roles['rest'])
       summ['static_head_offset'] = float(_nanmean(_div(stat, q.std(0))[live]))

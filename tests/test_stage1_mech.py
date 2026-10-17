@@ -524,6 +524,9 @@ def test_x4_block_matches_x1():
   np.testing.assert_allclose(r4b['stage1.block1'][0]['ce']['role_offset_r_stage2_by_sout'],
                              r4['stage1.block1'][0]['ce']['role_offset_r_stage2_by_sout'], rtol=1e-6)
   assert 'ce_fixed' not in r4b['stage1.block1'][0]
+  keep = y < 3                                                                  # a probe of fewer classes than the head
+  r4c = sm.x4_block(m, ['stage1.block0'], X0[keep], y[keep], batch=3, n_sample=8, top_n=1, seed=2)['stage1.block0']
+  assert r4c[1]['static_q'].shape == (3, 6) and np.isfinite(r4c[0]['static_head_offset'])
 
 
 def test_x4_block_by_brute_force():
