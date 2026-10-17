@@ -322,6 +322,13 @@ class GroupAttribution:
       out[name] = rec
     return out
 
+  @torch.no_grad()
+  def flush(self):
+    """Applies the parts' deferred weight decay, as reading C (compact_state, full_state) does: a caller that skips
+    a compact_state keeps the same fp32 rounding by calling this instead."""
+    for tr in self.tracked.values():
+      tr._flush()
+
   _STATE = ('W0', 'b0', 'C', 'Cb', 'm', 'mb', 'v', 'vb', 'a', 'ab', 't', 'v_frozen_c2')
 
   def full_state(self) -> Dict[str, dict]:

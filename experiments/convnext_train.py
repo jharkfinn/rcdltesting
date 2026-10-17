@@ -38,7 +38,8 @@ attrF_{step}.pt. --track_head adds the classifier to the tracked maps (AdamW onl
 
 Storage and safety (medium runs; the defaults keep the earlier behaviour): --track none tracks no map (a block name that
 matches no block is an error); --attr_steps limits the checkpoints that write attr_/attrR_/attrF_ files (attr_init.pt
-is written as before); --resume_at_ckpts 0 writes resume.pt only every --resume_every steps and at the last step (1:
+is written as before; the parts stay bit-identical to the default's, since the other checkpoints still apply the
+deferred weight decay; --resume_every, as before, changes them at fp32 rounding level); --resume_at_ckpts 0 writes resume.pt only every --resume_every steps and at the last step (1:
 also at every fixed checkpoint step). A non-finite running loss at a 100-step print ends the run with exit code 3,
 before that step's checkpoint or resume state. log.json records the peak GPU memory so far (max_mem_gb) at every
 checkpoint. --device cpu runs the same loop on the CPU (tests).
@@ -369,6 +370,10 @@ def main():
         torch.save(attr_r.compact_state(), os.path.join(a.out, f'attrR_{step:05d}.pt'))
       if attr_f is not None:
         torch.save(attr_f.compact_state(), os.path.join(a.out, f'attrF_{step:05d}.pt'))
+    else:                                       # no files, but the deferred decay as compact_state applies it: the
+      for g in (attr, attr_r, attr_f):          # parts keep the default's fp32 rounding
+        if g is not None:
+          g.flush()
     if not os.path.exists(os.path.join(a.out, 'attr_init.pt')):   # step 0, or the first step of a replay
       torch.save({k: {'W0': tr.W0, 'b0': tr.b0} for k, tr in attr.tracked.items()}, os.path.join(a.out, 'attr_init.pt'))
     if a.snapshots:
