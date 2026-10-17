@@ -1415,14 +1415,15 @@ class Ctx:
 
 def class_counts(a, run: Run, C: int):
   """(n_c, n_r, info): training images per class and per random group (n_r None without a random split), and where
-  n_c came from (source, kind, file sha256, n_c_sha of the counts themselves, min, max, sum, zero_classes). Source:
-  --class_counts, else <run>/rand_groups.npy, else /dev/shm/imagenet256/labels.npy. A file of exactly C entries is
+  n_c came from (source, kind, file sha256, n_c_sha of the counts themselves, min, max, sum, zero_classes). Source of
+  n_c: --class_counts, else /dev/shm/imagenet256/labels.npy; <run>/rand_groups.npy (random-group ids) gives only n_r.
+  A file of exactly C entries is
   per-class counts (any dtype; a label file has one entry per training image), any other length per-example labels
   (all in 0..C-1). No source is an error: equal counts would silently turn every count-matched null into a
   size-matched one; only --params '{"equal_counts": true}' (toy tests) allows them."""
   rg = os.path.join(run.dir, 'rand_groups.npy')
   n_r = np.bincount(np.load(rg).astype(np.int64), minlength=C).astype(float) if os.path.exists(rg) else None
-  src = a.class_counts or (rg if os.path.exists(rg) else '/dev/shm/imagenet256/labels.npy')
+  src = a.class_counts or '/dev/shm/imagenet256/labels.npy'           # never rand_groups.npy: those are group ids
   if src and os.path.exists(src):
     v = np.asarray(np.load(src)).ravel()
     per_class = len(v) == C
@@ -1442,7 +1443,7 @@ def class_counts(a, run: Run, C: int):
     n_c = np.ones(C)
     info = {'source': 'equal (equal_counts)', 'kind': 'equal', 'sha256': ''}
   else:
-    raise SystemExit(f'no class counts: {src or "--class_counts"} not found and no {rg}; pass --class_counts '
+    raise SystemExit(f'no class counts: {src} not found; pass --class_counts '
                      f'(per-example labels, or a {C}-entry per-class counts file), or --params '
                      '\'{"equal_counts": true}\' (toy tests)')
   zero = int((n_c == 0).sum())
@@ -2719,10 +2720,10 @@ def main():
   p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
   p.add_argument('--visual', default='docs/data/imagenet_dinov2_classdist.npz')
   p.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz')
-  p.add_argument('--class_counts', default='', help='per-example labels (labels.npy or rand_groups.npy), or per-class '
-                 'counts: a file of exactly C entries, any dtype; default: <run>/rand_groups.npy, then '
-                 '/dev/shm/imagenet256/labels.npy; none found is an error (toy tests: --params \'{"equal_counts": '
-                 'true}\')')
+  p.add_argument('--class_counts', default='', help='per-example class labels (labels.npy), or per-class counts: a '
+                 'file of exactly C entries, any dtype; default: /dev/shm/imagenet256/labels.npy (<run>/rand_groups.npy '
+                 'gives only the random-group sizes); none found is an error (toy tests: --params '
+                 '\'{"equal_counts": true}\')')
   p.add_argument('--params', default='', help='JSON overrides of the protocol parameters (tests on toy runs only)')
   p.add_argument('--force', action='store_true', help='events: rebuild a frozen events.json')
   p.add_argument('--no_events', action='store_true', help='intervals without events.json (no event pairs; tests only)')

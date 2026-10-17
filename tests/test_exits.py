@@ -274,6 +274,21 @@ def test_class_counts_reads_int_per_class_counts_and_refuses_silent_fallbacks(tm
   assert (n_c == 1).all() and info['equal'] and info['kind'] == 'equal'
 
 
+def test_class_counts_never_come_from_random_groups(tmp_path):
+  """A random-split run (E1r) has rand_groups.npy (group ids per example): it gives n_r only; n_c comes from the class
+  labels even when the group sizes differ from the class sizes."""
+  C = 4
+  run = SimpleNamespace(dir=str(tmp_path))
+  np.save(tmp_path / 'rand_groups.npy', np.array([0, 0, 0, 0, 1, 2, 3, 3], np.int16))
+  np.save(tmp_path / 'labels.npy', np.array([0, 1, 1, 2, 2, 2, 3, 3], np.int16))
+  a = argparse.Namespace(class_counts=str(tmp_path / 'labels.npy'), prm=X.defaults())
+  n_c, n_r, info = X.class_counts(a, run, C)
+  assert n_c.tolist() == [1, 2, 3, 2] and n_r.tolist() == [4, 1, 1, 2] and info['source'].endswith('labels.npy')
+  if not os.path.exists('/dev/shm/imagenet256/labels.npy'):
+    with pytest.raises(SystemExit):                                  # no silent use of the group ids as classes
+      X.class_counts(argparse.Namespace(class_counts='', prm=X.defaults()), run, C)
+
+
 # ---------------------------------------------------------------------------------------- statistics helpers
 
 def test_rank_ols_leaves_columns_without_spread_missing():
@@ -457,7 +472,7 @@ def toy(tmp_path_factory):
     common = ['--run', str(root), '--out', str(root / 'exits'), '--history', str(root / 'history'), '--full',
               str(root / 'full'), '--probe', str(root / 'probe.pt'), '--visual', str(root / 'visual.npz'), '--wordnet',
               str(root / 'wordnet.npz'), '--batch', '16', '--device', 'cpu', '--grid', ','.join(map(str, TOY_GRID)),
-              '--params', json.dumps(TOY_PARAMS)]
+              '--class_counts', str(root / 'labels.npy'), '--params', json.dumps(TOY_PARAMS)]
     for stage in ('integrity', 'stock', 'events', 'intervals', 'gradstate', 'tests'):
       sys.argv = ['convnext_exits', stage] + common
       X.main()
@@ -479,7 +494,7 @@ def test_toy_outputs_record_the_fixes(toy):
   assert integ['checked'] == [10, 25, 40, 55] and integ['dropped_no_full'] == []
   res = json.load(open(root / 'exits' / 'exits_tests.json'))
   assert res['has_random'] and res['band_source']['X3_S1_primary'] == 'C1' and res['snapshots_dropped_no_full'] == []
-  assert res['class_counts']['source'].endswith('rand_groups.npy') and res['class_counts']['kind'] == 'labels'
+  assert res['class_counts']['source'].endswith('labels.npy') and res['class_counts']['kind'] == 'labels'
   assert res['checks']['n_c_equal'] is True                        # the toy trains 16 images per class
   late = res['pooled']['late']['s0m1']
   sh = late['X1']['anchored_all']['excess_vs_C1'].get('shares')
@@ -509,7 +524,8 @@ def test_toy_f2_columns_are_zero_at_step_0(toy):
   root, _ = toy
   T = str(root)
   from test_interval_split import TOY_GRID, TOY_PARAMS
-  a = argparse.Namespace(out=f'{T}/exits', visual=f'{T}/visual.npz', wordnet=f'{T}/wordnet.npz', class_counts='',
+  a = argparse.Namespace(out=f'{T}/exits', visual=f'{T}/visual.npz', wordnet=f'{T}/wordnet.npz',
+                         class_counts=f'{T}/labels.npy',
                          prm=X.defaults() | TOY_PARAMS, skip_integrity=False)
   run = X.Run(T, f'{T}/history', f'{T}/full', grid=list(TOY_GRID), snaps=X.usable_snaps(a, T, f'{T}/history',
                                                                                          f'{T}/full'))

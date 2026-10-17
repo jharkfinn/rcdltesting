@@ -416,6 +416,7 @@ def build_toy_run(root, C=10, per_train=16, per_probe=4, size=32, steps=60, seed
   torch.save({'x': xpr, 'y': ypr}, root / 'probe.pt')
   rand = ytr[torch.randperm(len(ytr), generator=g)]
   np.save(root / 'rand_groups.npy', rand.numpy().astype(np.int16))
+  np.save(root / 'labels.npy', ytr.numpy().astype(np.int16))                # per-example class labels
   model = build_convnext('tiny', n_classes=C)
   named = dict(model.blocks())
   layers = {f'{n}.{k}': getattr(named[n], k) for n in TOY_BLOCKS for k in ('pw_gate', 'pw_value')}
@@ -479,7 +480,7 @@ def toy_exits(tmp_path_factory):
     common = ['--run', str(root), '--out', str(root / 'exits'), '--history', str(root / 'history'), '--full',
               str(root / 'full'), '--probe', str(root / 'probe.pt'), '--visual', str(root / 'visual.npz'), '--wordnet',
               str(root / 'wordnet.npz'), '--batch', '16', '--device', 'cpu', '--grid', ','.join(map(str, TOY_GRID)),
-              '--params', json.dumps(TOY_PARAMS)]
+              '--class_counts', str(root / 'labels.npy'), '--params', json.dumps(TOY_PARAMS)]
     argv = sys.argv
     for stage in ('integrity', 'stock', 'events', 'intervals', 'gradstate', 'tests'):
       sys.argv = ['convnext_exits', stage] + common
@@ -527,7 +528,8 @@ def test_exits_components_equal_brute_force_and_stock(toy_exits):
   import numpy as np
   from experiments import convnext_exits as X
   T = str(toy_exits)
-  a = argparse.Namespace(out=f'{T}/exits', visual=f'{T}/visual.npz', wordnet=f'{T}/wordnet.npz', class_counts='',
+  a = argparse.Namespace(out=f'{T}/exits', visual=f'{T}/visual.npz', wordnet=f'{T}/wordnet.npz',
+                         class_counts=f'{T}/labels.npy',
                          prm=X.defaults() | TOY_PARAMS, skip_integrity=False)
   run = X.Run(T, f'{T}/history', f'{T}/full', grid=list(TOY_GRID),
               snaps=X.usable_snaps(a, T, f'{T}/history', f'{T}/full'))
@@ -631,7 +633,8 @@ def toy_ctx(root):
   import argparse
   from experiments import convnext_exits as X
   T = str(root)
-  a = argparse.Namespace(out=f'{T}/exits', visual=f'{T}/visual.npz', wordnet=f'{T}/wordnet.npz', class_counts='',
+  a = argparse.Namespace(out=f'{T}/exits', visual=f'{T}/visual.npz', wordnet=f'{T}/wordnet.npz',
+                         class_counts=f'{T}/labels.npy',
                          prm=X.defaults() | TOY_PARAMS, skip_integrity=False)
   run = X.Run(T, f'{T}/history', f'{T}/full', grid=list(TOY_GRID),
               snaps=X.usable_snaps(a, T, f'{T}/history', f'{T}/full'))
