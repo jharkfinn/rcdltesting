@@ -842,6 +842,51 @@ without changing the growth statistics of the other blocks. Whether the crushed 
 relatedness, which the essay expects) or unrelated ones is the question of the rare-class experiment
 (`docs/EXACT_HISTORY.md` Sec. 4.3).
 
+### Blind audit of the essay's own last-layer neurons (pilot, Haiku raters, 2026-10-17)
+
+The essay puts the share of easily interpretable last-layer neurons at about 50% for InceptionV1 mixed5b "with better
+tools" and about 99% for its parameter-matched ConvNeXt-SwiGLU ('medium', 7,057,377 parameters). Both of its
+microscopes are public, with an example sheet per neuron and the label, value and rank of every crop. The medium
+microscope is of a 90-epoch checkpoint (`epoch_090.pt`), not of the 10-epoch recipe of the training map that E1 copies;
+a 90-epoch tiny microscope (91,828 parameters) and a ConvNeXt-T-sized one are also public. The InceptionV1 microscope
+uses Lucent's weights, whose two LRN layers differ from Google's graph (Sec. 2).
+
+Protocol (`experiments/microscope_audit.py`; data in `docs/data/audit_pilot/`): 40 random neurons of the medium model's
+last block (stage3.block2, 1,024 units) and 40 of mixed5b (1,024), seed 0. Each sheet is cut into its crops and rebuilt
+in one layout (128 px crops: 12 of the top 16, 4 near the 99.9th percentile, 8 near the 99th, the 4 most negative), with
+each crop's label and activation relative to the strongest crop, so the rater cannot tell the model from the format.
+Two independent raters per neuron (Claude Haiku agents) follow the essay's own method (describe the positive pole
+without a list of nouns first; abstract shared properties count; related offshoots count; weak activations count less;
+the negative pole is judged on its own; no vague umbrella) and choose one of: one job, one job with related offshoots,
+two related jobs, several unrelated, not understood. Description test: 8 strong crops of each neuron are held out (top-16
+ranks 3, 7, 11, 15 and half of the 99.9% crops); a third, blind agent sees only the rater's description and must pick
+those 8 from 16 crops, the other 8 being strong crops of 8 other sampled neurons of the same model. Chance is 4 of 8;
+6 or more correct happens by chance with probability 0.066 (hypergeometric).
+
+| | medium ConvNeXt (essay ~99%) | InceptionV1 mixed5b (essay ~50%) |
+|---|---|---|
+| ratings 'one job' or 'one job with related offshoots' | 80 of 80 (Wilson 95%: 0.95 to 1) | 50 of 80 (0.52 to 0.72) |
+| neurons rated so by both raters / by either | 40 / 40 of 40 | 21 / 29 of 40 |
+| rater agreement on that call (Cohen's kappa) | 1.0 (kappa undefined: no variation) | 0.80 (0.58) |
+| description test, mean correct of 8 (neuron minimum) | 7.45 (6.0) | 5.43 (3.0) |
+| ratings with the call above and 6 or more correct | 80 of 80 | 24 of 80 |
+| rater confidence (1 to 5), mode | 4 | 3 |
+| negative pole rated one job | 59 of 80 (20 'none or weak') | 44 of 80 (pre-ReLU: it does not reach the next layer) |
+
+Reading: on the essay's own neurons, blind raters reproduce its contrast. Every sampled medium neuron is read as one job
+(often with offshoots) by both raters, and every description finds at least 6 of the 8 held-out crops; mixed5b is read
+as one job about 60% of the time, and its descriptions find the held-out crops much less well. With 40 of 40 neurons,
+the medium model's true rate is at least 0.91 (Wilson lower bound), which agrees with 99% but cannot tell it from about
+93%. Limits: (1) the raters are Haiku; on mixed5b they call some neurons one job whose descriptions find no more held-out
+crops than chance (for example a long-necked water-bird neuron, 3 of 8), so their calls are lenient there, and the test
+column is the more objective one; (2) the description test rewards specificity, not unity: a neuron read as two unrelated
+jobs (shaggy fur and spoked cart wheels) can score 7.5 of 8 when both are named; (3) the medium last-layer units are
+largely class or class-group detectors (wolves, revolvers, tabby fur), as expected one block before the classifier of a
+well-trained model; the essay's claim that the network is "broadly legible the whole way through" needs mid layers;
+(4) dataset examples only (no feature visualizations, which are in a different style per microscope and would break
+the blinding); (5) the two microscopes draw crops from different image pools (mixed5b: the first 50,000 training
+images, with negatives from all 1.28M; medium: the 50,000 validation images); (6) 40 neurons per model.
+
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
 - Pipeline: `experiments/molab_e1.sh <run> [trainer args]` downloads the validation set, packs the training set into RAM
