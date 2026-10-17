@@ -3,7 +3,11 @@ its bins, quadrants and readout r add up to it, every X2 config reduces to the b
 independent computation otherwise, and X4's readers add up to the readout r, each matches a finite difference that only
 it sees, and X4's total is X1's readout."""
 
+import json
+import sys
+
 import numpy as np
+import pytest
 import torch
 import torch.nn.functional as F
 
@@ -305,9 +309,32 @@ def _fd_loss(m, b, x_b, y, d, reader, loss):
   return sm.X4_LOSS[loss](m.head(m.norm(x.mean((2, 3)))), y)
 
 
+def _fd_single(m, b, x_b, y, d, reader, loss):
+  """L with the perturbation d of x_b seen only along the path reader -> pure skips -> pool: skips carry d to the
+  reader's input, the reader's block adds f(x + d) - f(x) to its output, and only skips carry that change on (through a
+  downsample D as D(x + o) - D(x)); no other block sees d or the change."""
+  x, dd, o = x_b, d, None
+  for t in range(1, len(m.stages)):
+    if t > 1:
+      xd = m.downsample[t](x)
+      dd, o = (None if v is None else m.downsample[t](x + v) - xd for v in (dd, o))
+      x = xd
+    for l, blk in enumerate(m.stages[t]):
+      if t == 1 and l <= b:
+        continue
+      if dd is not None and reader == f'stage{t}.block{l}':
+        f = (lambda z, blk=blk: blk(z) - z) if blk.skip else blk
+        o, dd = f(x + dd) - f(x), None
+      elif not blk.skip:
+        dd = o = None
+      x = blk(x)
+  return sm.X4_LOSS[loss](m.head(m.norm((x if o is None else x + o).mean((2, 3)))), y)
+
+
 def test_x4_readers_add_up_to_the_readout():
   """For every stage-1 block and unit, the readers' parts add up to r = e . dCE/dx_out from autograd (another graph),
-  and L_true's parts plus logsumexp's are CE's, reader by reader."""
+  and L_true's parts plus logsumexp's are CE's, reader by reader; the network's last block has one path (its single
+  path is its first-reader term)."""
   m = _model4(torch.float64)
   xs, y = _data()
   x0 = _stage1_out(m, xs, 0)
@@ -316,28 +343,32 @@ def test_x4_readers_add_up_to_the_readout():
   for b in range(3):
     x_out = _stage1_out(m, xs, b).requires_grad_(True)
     go, = torch.autograd.grad(F.cross_entropy(_rest_logits(m, 1, b, x_out), y, reduction='sum'), [x_out])
-    g, T = terms['ce']
+    g, T, T1 = terms['ce']
     torch.testing.assert_close(g[b], go, rtol=1e-10, atol=1e-12)
     rd = sm.x4_readers(1, b, 0, g, T)
     assert list(rd) == [f'stage1.block{j}' for j in range(b + 1, 3)] + expect
+    assert list(sm.x4_single(1, b, T1)) == [f'{R}>head' for R in list(rd)[:-1]]
     E = _dirs(m, b)
     r = _proj(go, E)
     parts = {R: _proj(t, E) for R, t in rd.items()}
     torch.testing.assert_close(sum(parts.values()), r, rtol=1e-9, atol=1e-11)
     assert all(p.abs().max() > 1e-6 for p in parts.values())                    # every reader reads something
-    lt, ll = (sm.x4_readers(1, b, 0, *terms[k]) for k in ('true', 'lse'))      # true + lse = ce, reader by reader
+    lt, ll = (sm.x4_readers(1, b, 0, *terms[k][:2]) for k in ('true', 'lse'))  # true + lse = ce, reader by reader
     for R in rd:
       torch.testing.assert_close(lt[R] + ll[R], rd[R], rtol=1e-9, atol=1e-12)
     torch.testing.assert_close(terms['true'][0][b] + terms['lse'][0][b], g[b], rtol=1e-9, atol=1e-12)
+  torch.testing.assert_close(terms['ce'][2]['stage3.block1'], terms['ce'][1]['stage3.block1'], rtol=0, atol=0)
   tb = sm.x4_terms(m, 1, 1, _stage1_out(m, xs, 1), y, ('ce',))['ce']           # starting later: the same terms
-  for R, t in sm.x4_readers(1, 1, 1, *tb).items():
-    torch.testing.assert_close(t, sm.x4_readers(1, 1, 0, *terms['ce'])[R], rtol=1e-10, atol=1e-12)
+  for R, t in {**sm.x4_readers(1, 1, 1, *tb[:2]), **sm.x4_single(1, 1, tb[2])}.items():
+    ref = {**sm.x4_readers(1, 1, 0, *terms['ce'][:2]), **sm.x4_single(1, 1, terms['ce'][2])}[R]
+    torch.testing.assert_close(t, ref, rtol=1e-10, atol=1e-12)
 
 
 def test_x4_single_readers_by_finite_differences():
   """Perturb x_b by eps e_n at one position of one image and let only reader R see it: (L(+eps) - L(-eps)) / 2 eps
   is r_R there (float64), for CE and L_true; also with a last block without skip (its reader is entered by every path
-  that reaches it, and head reads nothing)."""
+  that reaches it, and head reads nothing). The same for each block's single path R>head (only skips carry the block's
+  output change to the pool; 0 for every block but the last when the last has no skip)."""
   xs, y = _data()
   eps = 1e-5
   for skip, b, n, img, (h, w) in ((True, 0, 1, 3, (2, 5)), (True, 1, 4, 6, (7, 0)), (True, 2, 0, 1, (4, 4)),
@@ -348,7 +379,8 @@ def test_x4_single_readers_by_finite_differences():
     d = torch.zeros_like(x_b)
     d[img, :, h, w] = eps * E[n]
     for loss in ('ce', 'true'):
-      rd = sm.x4_readers(1, b, b, *sm.x4_terms(m, 1, b, x_b, y, (loss,))[loss])
+      g, T, T1 = sm.x4_terms(m, 1, b, x_b, y, (loss,))[loss]
+      rd, r1 = sm.x4_readers(1, b, b, g, T), sm.x4_single(1, b, T1)
       tot = 0.0
       with torch.no_grad():
         for R, t in rd.items():
@@ -356,8 +388,15 @@ def test_x4_single_readers_by_finite_differences():
           ref = float(t[img, :, h, w] @ E[n])
           np.testing.assert_allclose(fd, ref, rtol=1e-6, atol=1e-9, err_msg=f'{b} {loss} {R}')
           tot += fd
+        for R1, t in r1.items():
+          R = R1[:-len('>head')]
+          fd = float(_fd_single(m, b, x_b, y, d, R, loss) - _fd_single(m, b, x_b, y, -d, R, loss)) / (2 * eps)
+          ref = float(t[img, :, h, w] @ E[n])
+          np.testing.assert_allclose(fd, ref, rtol=1e-6, atol=1e-9, err_msg=f'{b} {loss} {R1}')
+          assert skip or R == 'stage3.block1' or (fd == 0 and t.abs().max() == 0), R1
         if not skip:
           assert rd['head'].abs().max() == 0 and rd['stage3.block1'].abs().max() > 1e-6
+        assert abs(float(r1['stage2.block0>head'][img, :, h, w] @ E[n])) > 1e-9 or not skip
         x_p = x_b.clone()
         x_p[img, :, h, w] += eps * E[n]
         x_m = x_b.clone()
@@ -379,16 +418,61 @@ def test_x4_fixed_sigma():
     gf, = torch.autograd.grad(F.cross_entropy(z, y, reduction='sum'), [x_out])
     g0, = torch.autograd.grad(F.cross_entropy(_rest_logits(m, 1, b, x_out), y, reduction='sum'), [x_out])
     assert (gf - g0).abs().max() > 1e-3 * g0.abs().max()
-    g, T = terms['ce']
+    g, T, _ = terms['ce']
     torch.testing.assert_close(g[b], gf, rtol=1e-9, atol=1e-12)
     torch.testing.assert_close(sum(sm.x4_readers(1, b, 0, g, T).values()), gf, rtol=1e-9, atol=1e-11)
-    gt, Tt = terms['true']
+    gt, Tt, _ = terms['true']
     torch.testing.assert_close(sum(sm.x4_readers(1, b, 0, gt, Tt).values()), gt[b], rtol=1e-9, atol=1e-11)
 
 
+def test_x4_head_static():
+  """head_static is L_true's head term under fixed sigma with each LayerNorm's 1 / sigma (and the pool's 1 / P)
+  multiplied out, averaged over the positions (each pair of 2x2 phases of D1 and D2 equally often)."""
+  m = _model4(torch.float64)
+  xs, y = _data()
+  x0 = _stage1_out(m, xs, 0)
+  _, T, _ = sm.x4_terms(m, 1, 0, x0, y, ('true',), sigma=True)['true']
+  with torch.no_grad():
+    xs_, later, _ = sm.x4_streams(m, 1, 0, x0)
+    sig = lambda t: (t.var(1, unbiased=False, keepdim=True) + 1e-6).sqrt()        # over the channels
+    s1 = sig(xs_[-1])                                                              # D1's LayerNorm2d, at x_S
+    s2 = sig(later[0][-1]).repeat_interleave(2, 2).repeat_interleave(2, 3)        # D2's, at the x_S positions
+    zL = later[1][-1]
+    sf = sig(zL.mean((2, 3), keepdim=True))                                        # the final LayerNorm
+    scaled = (T['head'] * s1 * s2 * sf * zL.shape[2] * zL.shape[3]).mean((2, 3))
+  c = sm.head_static(m, 1)
+  assert tuple(c.shape) == (4, 8)
+  torch.testing.assert_close(scaled, c[y], rtol=1e-9, atol=1e-12)
+  assert sm.head_static(_model4(torch.float64, last_skip=False), 1) is None
+
+
+def test_x4_check_and_tf32(tmp_path, monkeypatch):
+  """x4_check rejects blocks of two stages, missing blocks, bad names and a unit block without skip; the CLI does so
+  before loading anything (no probe set here, no files written); no_tf32 turns TF32 off and restores the flags."""
+  m = _model4()
+  assert sm.x4_check(m, ['stage1.block2', 'stage1.block0']) == (1, [0, 2])
+  assert sm.x4_check(_model4(last_skip=False), ['stage1.block0']) == (1, [0])
+  for bad, mm in ((['stage1.block0', 'stage2.block0'], m), (['stage1.block3'], m), (['stage1.blk0'], m), ([], m),
+                  (['stage3.block1'], _model4(last_skip=False))):
+    with pytest.raises(ValueError):
+      sm.x4_check(mm, bad)
+  (tmp_path / 'config.json').write_text(json.dumps({'size': 'tiny'}))
+  for bad in ('stage1.block0,stage2.block0', 'stage1.block5', 'stage1.blk0'):
+    monkeypatch.setattr(sys, 'argv', ['x', '--run', str(tmp_path), '--steps', '1', '--x4_blocks', bad, '--probe_cache',
+                                      str(tmp_path / 'none.pt'), '--val', str(tmp_path / 'none')])
+    with pytest.raises(SystemExit) as e:
+      sm.main()
+    assert e.value.code == 2
+  assert [p.name for p in tmp_path.iterdir()] == ['config.json']
+  flags = torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32
+  with sm.no_tf32():
+    assert not torch.backends.cuda.matmul.allow_tf32 and not torch.backends.cudnn.allow_tf32
+  assert (torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32) == flags
+
+
 def test_x4_block_matches_x1():
-  """x4_block's total is X1's readout (same edges, weights, roles, live units); the readers, the groups and the
-  fixed-sigma pass add up; the control direction is a unit vector orthogonal to e."""
+  """x4_block's total is X1's readout (same edges, weights, roles, live units); the readers, the groups, the kappa
+  sign parts and the fixed-sigma pass add up; the control direction is a unit vector orthogonal to e."""
   m = _model4()
   xs, y = _data()
   rel = np.zeros((4, 4), bool)
@@ -413,17 +497,25 @@ def test_x4_block_matches_x1():
                                  atol=1e-6)
     assert s4['readers'][:2 - j] == [f'stage1.block{j2}' for j2 in range(j + 1, 3)]
     assert s4['groups']['stage1_later'] == s4['readers'][:2 - j] and s4['groups']['head'] == ['head']
+    assert s4['single'] == [f'{R}>head' for R in s4['readers'][:-1]]
+    assert list(s4['single_groups']) == ['stage1_later>head', 'stage2>head', 'stage3>head']
     for k in ('ce', 'true', 'ce_fixed', 'true_fixed'):
       d = s4[k]
       assert s4[f'sum_err_{k}'] < 1e-5
-      for f in ('role_offset_r_{}_by_sout', 'r0_{}_top20', 'r0_{}_rest'):
-        np.testing.assert_allclose(sum(d[f.format(R)] for R in s4['readers']), d[f.format('total')], rtol=1e-5,
-                                   atol=1e-7)
-        np.testing.assert_allclose(sum(d[f.format(R)] for R in s4['groups']), d[f.format('total')], rtol=1e-5,
-                                   atol=1e-7)
-      for key in ('role_offset_r_perp_by_sout', 'role_offset_abs_r_perp_by_sout', 'role_offset_abs_r_total_by_sout',
-                  'r0_head_top20', 'r0_stage2_rest'):
+      for f in ('role_offset_r_{}_by_sout', 'role_offset_r_{}_by_sout_kpos', 'r0_{}_top20', 'r0_{}_rest'):
+        for parts in (s4['readers'], s4['groups']):
+          np.testing.assert_allclose(sum(d[f.format(R)] for R in parts), d[f.format('total')], rtol=1e-5, atol=1e-7)
+        for G, mem in s4['single_groups'].items():
+          np.testing.assert_allclose(sum((d[f.format(R)] for R in mem), 0.0), d[f.format(G)], rtol=1e-5, atol=1e-7)
+      for R in s4['readers'] + s4['single'] + list(s4['groups']) + list(s4['single_groups']) + ['total', 'perp']:
+        np.testing.assert_allclose(d[f'role_offset_r_{R}_by_sout_kpos'] + d[f'role_offset_r_{R}_by_sout_kneg'],
+                                   d[f'role_offset_r_{R}_by_sout'], rtol=1e-6, atol=1e-8)
+      np.testing.assert_allclose(d['role_offset_r_stage3.block1>head_by_sout'], d['role_offset_r_stage3.block1_by_sout'],
+                                 rtol=1e-6, atol=1e-8)                           # the last block: one path
+      for key in ('role_offset_r_perp_by_sout', 'r0_head_top20', 'r0_stage2_rest', 'offset_null_sd_total',
+                  'offset_vec_cos_e_head', 'spearman_static_head', 'head_offset_at_static_0'):
         assert np.isfinite(d[key]), (k, key)
+    assert np.isfinite(s4['static_head_offset']) and 0 <= s4['static_head_pos'] <= 1
     Ep, E = raw4['e_perp'], sm.write_geometry(m.stages[1][j])['E'].numpy()
     np.testing.assert_allclose(np.abs((Ep * E).sum(1)).max(), 0, atol=1e-6)
     np.testing.assert_allclose(np.linalg.norm(Ep, axis=1), 1, rtol=1e-6)
@@ -431,3 +523,61 @@ def test_x4_block_matches_x1():
   np.testing.assert_allclose(r4b['stage1.block1'][0]['ce']['role_offset_r_stage2_by_sout'],
                              r4['stage1.block1'][0]['ce']['role_offset_r_stage2_by_sout'], rtol=1e-6)
   assert 'ce_fixed' not in r4b['stage1.block1'][0]
+
+
+def test_x4_block_by_brute_force():
+  """x4_block's bins equal a per-position accumulation in numpy (|kappa| r_R and its kappa > 0 part, the |kappa|
+  stream-gradient vectors), the offset vector O_n gives the offset along e and along e_perp, and offset_null_sd is the
+  spread of the unit mean of v_n . O_n over random unit v_n orthogonal to e_n."""
+  m = _model4()
+  xs, y = _data()
+  rel = np.zeros((4, 4), bool)
+  rel[0, 1] = rel[1, 0] = True
+  X0 = ur.block_inputs(m, xs, 1, 0, 3, 'cpu')
+  j, N = 1, sm.N_BINS
+  s4, raw = sm.x4_block(m, [f'stage1.block{j}'], X0, y, rel=rel, batch=3, n_sample=8, top_n=1, seed=1)['stage1.block1']
+  blk = m.stages[1][j]
+  E = sm.write_geometry(blk)['E']
+  with torch.no_grad():
+    xin = m.stages[1][:j](X0)
+    g, v, u = sm.block_guv(blk, xin)
+    kap = sm._kappa(g, v, torch.from_numpy(raw['pa_v']).float(), torch.from_numpy(raw['pa_g']).float()).flatten(1, 2)
+    s_out = _proj(ur.block_out(blk, xin, u), E).numpy()
+  gl, T, T1 = sm.x4_terms(m, 1, j, ur.block_out(blk, xin, u).detach(), y, ('ce',))['ce']
+  rd = sm.x4_readers(1, j, j, gl, T)
+  kap, U = kap.double().numpy(), E.shape[0]
+  B, P = s_out.shape[:2]
+  ix = np.stack([np.searchsorted(raw['edges_sout'][n], s_out[..., n]) for n in range(U)], -1)          # (B, P, U)
+  roles = sm.roles_of(raw['top'], 4, rel)
+  ridx = np.select([roles['top20'], roles['relatives']], [0, 1], 2)                                    # (C, U)
+  wimg = 1 / np.bincount(y.numpy(), minlength=4)[y.numpy()]
+  bi, pi, ui = np.meshgrid(np.arange(B), np.arange(P), np.arange(U), indexing='ij')
+  role, wt = ridx[y.numpy()[bi], ui], wimg[bi] * np.abs(kap)
+  def acc(val, split=False):                                                   # val (B, P, U[, d]) -> (3, U, N[, d])
+    out = np.zeros((3, U, 2 * N) + val.shape[3:])
+    np.add.at(out, (role, ui, ix + N * (kap > 0)), (wt.reshape(wt.shape + (1,) * (val.ndim - 3)) * val))
+    return out if split else out[:, :, :N] + out[:, :, N:]
+  np.testing.assert_allclose(raw['bin_w'], acc(np.ones_like(kap)), rtol=1e-6)
+  for R, t in {'stage1.block2': rd['stage1.block2'], 'head': rd['head'], 'total': gl[0],
+               'stage2.block1>head': T1['stage2.block1']}.items():
+    a = acc(_proj(t, E).double().numpy(), True)
+    np.testing.assert_allclose(raw['bin_rw_ce'][R], a[..., :N] + a[..., N:], rtol=1e-5, atol=1e-9)
+    np.testing.assert_allclose(raw['bin_rwp_ce'][R], a[..., N:], rtol=1e-5, atol=1e-9)
+  gvec = gl[0].permute(0, 2, 3, 1).flatten(1, 2).double().numpy()                                      # (B, P, d)
+  np.testing.assert_allclose(raw['bin_rv_ce']['total'], acc(np.broadcast_to(gvec[:, :, None], (B, P, U, 8))),
+                             rtol=1e-5, atol=1e-9)
+  bw, Pn, live, d = raw['bin_w'], raw['P'], raw['live'], s4['ce']
+  rv = sm._div(raw['bin_rv_ce']['total'], bw[..., None]) * Pn
+  O = sm._unit_offset_vecs(rv[0] - rv[2], bw[0])                                                     # (U, 8)
+  En = E.double().numpy()
+  ok = live & np.isfinite(O).all(1)
+  np.testing.assert_allclose((O * En).sum(1)[ok], raw['unit_offset_ce']['total'][ok], rtol=1e-6, atol=1e-9)
+  np.testing.assert_allclose(np.mean((O * En).sum(1)[ok]), d['role_offset_r_total_by_sout'], rtol=1e-6, atol=1e-9)
+  np.testing.assert_allclose(np.mean((O * raw['e_perp']).sum(1)[ok]), d['role_offset_r_perp_by_sout'], rtol=1e-5,
+                             atol=1e-8)
+  np.testing.assert_allclose(np.mean(np.linalg.norm(O[ok], axis=1)), d['offset_vec_norm_total'], rtol=1e-6)
+  rng = np.random.default_rng(0)
+  V = rng.standard_normal((20000, U, 8))
+  V -= (V * En).sum(-1, keepdims=True) * En
+  V /= np.linalg.norm(V, axis=-1, keepdims=True)
+  np.testing.assert_allclose(((V * O).sum(-1)[:, ok]).mean(1).std(), d['offset_null_sd_total'], rtol=0.03)

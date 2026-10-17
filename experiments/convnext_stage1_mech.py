@@ -932,7 +932,8 @@ def _x4_sum_err(d, readers, roles):
   """Largest |sum over the readers - total| over X4's linear keys, relative to the largest |value| (inf: the NaN
   patterns differ)."""
   err, scale = 0.0, 1e-30
-  for f in ['role_offset_r_{}_by_sout'] + [p + role for role in roles for p in ('r0_{}_', 'r_{}_by_sout_bin_')]:
+  for f in ['role_offset_r_{}_by_sout', 'role_offset_r_{}_by_sout_kpos'] + \
+           [p + role for role in roles for p in ('r0_{}_', 'r_{}_by_sout_bin_')]:
     tot = np.asarray(d[f.format('total')], float)
     parts = np.array([d[f.format(R)] for R in readers], float).reshape((len(readers),) + tot.shape)
     if (np.isnan(parts.sum(0)) != np.isnan(tot)).any():
@@ -942,15 +943,19 @@ def _x4_sum_err(d, readers, roles):
   return float(err / scale)
 
 
+def _unit_offset_vecs(d, wgt):
+  """_unit_offsets for vectors: d (U, N, k), wgt (U, N) -> (U, k), over the cells where d is finite."""
+  wgt = np.where(np.isfinite(d).all(-1), wgt, 0)
+  return _div(np.einsum('un,unk->uk', wgt, np.nan_to_num(d)), wgt.sum(1)[:, None])
+
+
 def x4_block(model, names, X, y, rel=None, stats=None, batch=100, n_sample=16, edges='kappa', seed=0, top_n=20,
              sigma=False, tol=1e-3):
   """X4 for the blocks names, all of one stage i, in one pass (the later stages' reader terms are shared). X: the
   stage's input (block (i, 0)'s input) for all probe images (on the device), y: labels (same device); stats: optional
   {name: (R, G, V)} as class_stats. Live units, roles, |kappa| and s_out bins as x1_block with the same batch,
-  n_sample, edges, seed and top_n. Returns {name: (summary, raw)}."""
-  ij = sorted({parse_block(b) for b in names})
-  i, js = ij[0][0], [j for _, j in ij]
-  assert all(t[0] == i for t in ij), 'X4: blocks of one stage'
+  n_sample, edges, seed and top_n; the backward pass with TF32 off. Returns {name: (summary, raw)}."""
+  i, js = x4_check(model, names)
   stage, j0, dev = model.stages[i], js[0], X.device
   C = int(y.max()) + 1
   n_img_t = torch.bincount(y, minlength=C).double()
@@ -959,6 +964,7 @@ def x4_block(model, names, X, y, rel=None, stats=None, batch=100, n_sample=16, e
   later = [f'stage{t}.block{l}' for t in range(i + 1, len(model.stages)) for l in range(len(model.stages[t]))]
   f64 = lambda *s: torch.zeros(*s, dtype=torch.float64, device=dev)
   proj = lambda t, E: t.permute(0, 2, 3, 1).flatten(1, 2) @ E.T                            # (B, P, U)
+  qs = head_static(model, i)
   S = {}
   with torch.no_grad():
     for j in js:
@@ -976,12 +982,18 @@ def x4_block(model, names, X, y, rel=None, stats=None, batch=100, n_sample=16, e
       Z = torch.from_numpy(np.random.default_rng([seed, i, j]).standard_normal(tuple(E.shape))).to(E)
       Z = Z - (Z * E).sum(1, keepdim=True) * E                                              # e_perp: random, _|_ e
       readers = [f'stage{i}.block{j2}' for j2 in range(j + 1, len(stage))] + later + ['head']
+      groups = {f'stage{i}_later': [R for R in readers if R.startswith(f'stage{i}.')],
+                **{f'stage{t}': [R for R in readers if R.startswith(f'stage{t}.')]
+                   for t in range(i + 1, len(model.stages))}, 'head': ['head']}
+      single = [f'{R}>head' for R in readers[:-1]]
       S[j] = dict(name=name, blk=blk, top=top, pa_v=pa_v, pa_g=pa_g, live=live, pv=pv, pg=pg, E=E,
                   Ep=Z / Z.norm(dim=1, keepdim=True), edg=edg['sout'], P=n_pos // len(X), roles=roles,
-                  ridx=torch.from_numpy(ridx).to(dev), readers=readers, w=f64(3, U, N_BINS),
-                  rw={k: {R: f64(3, U, N_BINS) for R in readers + ['total', 'perp']} for k in losses})
+                  ridx=torch.from_numpy(ridx).to(dev), readers=readers, groups=groups, single=single,
+                  w=f64(3, U, 2 * N_BINS),                     # bins [N_BINS:]: the positions with kappa > 0
+                  rw={k: {R: f64(3, U, 2 * N_BINS) for R in readers + single + ['total', 'perp']} for k in losses},
+                  rv=f64(3, U, N_BINS, len(losses) * (len(groups) + 1) * E.shape[1]))
   # one pass: the streams once, the reader terms per loss, then each block's bins (role sums of class means)
-  with no_param_grads(model):
+  with no_param_grads(model), no_tf32():
     for s in range(0, len(X), batch):
       yb = y[s:s + batch]
       with torch.no_grad():
@@ -996,46 +1008,93 @@ def x4_block(model, names, X, y, rel=None, stats=None, batch=100, n_sample=16, e
         for j in js:
           st = S[j]
           g, v, u = block_guv(st['blk'], xin[j])
-          ka = _kappa(g, v, st['pv'], st['pg']).flatten(1, 2).abs()
+          kap = _kappa(g, v, st['pv'], st['pg']).flatten(1, 2)
+          ka = kap.abs()
           s_out = proj(block_out(st['blk'], xin[j], u), st['E'])
           B, P, U = s_out.shape
           ix = torch.searchsorted(st['edg'], s_out.permute(2, 0, 1).reshape(U, -1).contiguous()).reshape(U, B, P) \
               .permute(1, 0, 2).contiguous()                                                 # (B, U, P)
+          ix2 = ix + N_BINS * (kap > 0).permute(0, 2, 1)
           oh = F.one_hot(st['ridx'][yb], 3).double() * wimg[:, None, None]                  # (B, U, 3)
           def add(acc, t):                                                                  # t (B, P, U)
-            acc += torch.einsum('bur,bun->run', oh, f64(B, U, N_BINS).scatter_add_(2, ix, t.double().permute(0, 2, 1)))
+            acc += torch.einsum('bur,bun->run', oh,
+                                f64(B, U, 2 * N_BINS).scatter_add_(2, ix2, t.double().permute(0, 2, 1)))
           add(st['w'], ka)
-          for k, (gl, T) in terms.items():
-            for R, t in {**x4_readers(i, j, j0, gl, T), 'total': gl[j - j0]}.items():
+          vecs = []
+          for k in losses:
+            gl, T, T1 = terms[k]
+            rd = x4_readers(i, j, j0, gl, T)
+            for R, t in {**rd, **x4_single(i, j, T1), 'total': gl[j - j0]}.items():
               add(st['rw'][k][R], ka * proj(t, st['E']))
             add(st['rw'][k]['perp'], ka * proj(gl[j - j0], st['Ep']))
+            vecs += [sum((rd[R] for R in mem), torch.zeros_like(gl[0])) for mem in st['groups'].values()]
+            vecs.append(gl[j - j0])
+          V = torch.cat([t.permute(0, 2, 3, 1).flatten(1, 2) for t in vecs], 2).double()     # (B, P, K)
+          kau = ka.permute(0, 2, 1).double()                                                # (B, U, P)
+          for n in range(N_BINS):                                     # |kappa| term_G per bin, all d components
+            st['rv'][:, :, n] += torch.einsum('bur,buk->ruk', oh, torch.bmm(kau * (ix == n), V))
   out = {}
   for j in js:
     st = S[j]
-    live, P, roles, readers = st['live'], st['P'], st['roles'], st['readers']
-    bw = st['w'].cpu().numpy()
-    groups = {f'stage{i}_later': [R for R in readers if R.startswith(f'stage{i}.')],
-              **{f'stage{t}': [R for R in readers if R.startswith(f'stage{t}.')]
-                 for t in range(i + 1, len(model.stages))}, 'head': ['head']}
+    live, P, roles, readers, groups = st['live'], st['P'], st['roles'], st['readers'], st['groups']
+    E = st['E'].double().cpu().numpy()
+    U, dim = E.shape
+    sgroups = {f'{G}>head': [f'{R}>head' for R in mem] for G, mem in groups.items() if G != 'head'}
+    w2 = st['w'].cpu().numpy()
+    bw = w2[..., :N_BINS] + w2[..., N_BINS:]
     um = lambda M: _nanmean(M[live], 0)
-    summ = {'units': int(live.sum()), 'positions': P, 'edges_weight': edges, 'readers': readers, 'groups': groups}
+    summ = {'units': int(live.sum()), 'positions': P, 'edges_weight': edges, 'readers': readers, 'groups': groups,
+            'single': st['single'], 'single_groups': sgroups}
     raw = {'top': st['top'], 'pa_v': st['pa_v'], 'pa_g': st['pa_g'], 'live': live, 'P': P, 'roles': ROLES,
            'edges_sout': st['edg'].cpu().numpy(), 'e_perp': st['Ep'].cpu().numpy(), 'bin_w': bw}
-    for k in losses:
-      brw = {R: a.cpu().numpy() for R, a in st['rw'][k].items()}
-      for gname, mem in groups.items():
-        brw.setdefault(gname, sum((brw[m] for m in mem), np.zeros_like(bw)))
-      raw[f'bin_rw_{k}'] = brw
-      d = {}
+    stat = None
+    if qs is not None:                                          # the classifier's rows along e: weights only
+      q = qs.cpu().numpy() @ E.T                                                            # (C, U)
+      cm = lambda m: (q * m).sum(0) / np.maximum(m.sum(0), 1)
+      stat = cm(roles['top20']) - cm(roles['rest'])
+      summ['static_head_offset'] = float(_nanmean(_div(stat, q.std(0))[live]))
+      summ['static_head_pos'] = float((stat[live] > 0).mean())
+      raw['static_q'], raw['static_offset'] = q.astype(np.float32), stat
+    rv = st['rv'].cpu().numpy().reshape(3, U, N_BINS, len(losses), len(groups) + 1, dim)
+    for li, k in enumerate(losses):
+      a2 = {R: a.cpu().numpy() for R, a in st['rw'][k].items()}
+      for gname, mem in {**groups, **sgroups}.items():
+        a2.setdefault(gname, sum((a2[m] for m in mem), np.zeros_like(w2)))
+      brw = {R: a[..., :N_BINS] + a[..., N_BINS:] for R, a in a2.items()}
+      raw[f'bin_rw_{k}'], raw[f'bin_rwp_{k}'] = brw, {R: a[..., N_BINS:] for R, a in a2.items()}
+      d, uo = {}, {}
       for R, a in brw.items():
         rr = _div(a, bw) * P                                                                # (3, U, N_BINS)
         for role in roles:
           ri = ROLES.index(role)
           d[f'r_{R}_by_sout_bin_{role}'] = [float(x) for x in um(rr[ri])]
           d[f'r0_{R}_{role}'] = float(_nanmean((_div(a[ri].sum(-1), bw[ri].sum(-1)) * P)[live]))
-        d[f'role_offset_r_{R}_by_sout'] = _offset(rr[0] - rr[2], bw[0], live)
-        if R in ('total', 'perp'):
-          d[f'role_offset_abs_r_{R}_by_sout'] = float(_nanmean(np.abs(_unit_offsets(rr[0] - rr[2], bw[0]))[live]))
+        uo[R] = _unit_offsets(rr[0] - rr[2], bw[0])
+        d[f'role_offset_r_{R}_by_sout'] = float(_nanmean(uo[R][live]))
+        for q_, h in (('kpos', a2[R][..., N_BINS:]), ('kneg', a2[R][..., :N_BINS])):
+          rq = _div(h, bw) * P                                  # the same |kappa| mass below: the two add up
+          d[f'role_offset_r_{R}_by_sout_{q_}'] = _offset(rq[0] - rq[2], bw[0], live)
+      raw[f'unit_offset_{k}'] = uo
+      bv = {}
+      for gi, G in enumerate(list(groups) + ['total']):         # the role offset as a vector O_n (U, d)
+        bv[G] = rv[:, :, :, li, gi]
+        O = _unit_offset_vecs(_div(bv[G][0], bw[0][..., None]) * P - _div(bv[G][2], bw[2][..., None]) * P, bw[0])
+        oe, nrm = (O * E).sum(1), np.linalg.norm(O, axis=1)
+        ok = live & np.isfinite(oe)
+        d[f'offset_vec_norm_{G}'] = float(nrm[ok].mean()) if ok.any() else float('nan')
+        d[f'offset_vec_cos_e_{G}'] = float(_div(oe, nrm)[ok].mean()) if ok.any() else float('nan')
+        d[f'offset_vec_e_pos_{G}'] = float((oe[ok] > 0).mean()) if ok.any() else float('nan')
+        d[f'offset_null_sd_{G}'] = (float(np.sqrt(np.clip(nrm[ok] ** 2 - oe[ok] ** 2, 0, None).sum() / (dim - 1))
+                                          / ok.sum()) if ok.any() else float('nan'))
+      raw[f'bin_rv_{k}'] = bv
+      if stat is not None:
+        for G in list(groups) + ['total']:
+          ok = live & np.isfinite(uo[G])
+          d[f'spearman_static_{G}'] = spearman(stat[ok], uo[G][ok]) if ok.sum() > 2 and np.ptp(uo[G][ok]) > 0 \
+              else float('nan')
+        ok = live & np.isfinite(uo['head'])
+        d['head_offset_at_static_0'] = float(np.linalg.lstsq(np.c_[np.ones(ok.sum()), stat[ok]], uo['head'][ok],
+                                                             rcond=None)[0][0]) if ok.sum() > 2 else float('nan')
       summ[k] = d
       summ[f'sum_err_{k}'] = err = _x4_sum_err(d, readers, roles)
       assert err < tol, f'X4 {st["name"]} {k}: the readers do not add up to the total (relative error {err:.2e})'
@@ -1077,7 +1136,13 @@ def main():
   steps = [int(t) for t in a.steps.split(',')]
   b1 = [b for b in a.blocks.split(',') if b]
   b2 = [b for b in a.x2_blocks.split(',') if b]
-  b4 = sorted({b for b in a.x4_blocks.split(',') if b}, key=parse_block)
+  b4 = sorted({b for b in a.x4_blocks.split(',') if b})
+  if b4:
+    try:                                                # before any work: a bad name fails here, not after X1 and X2
+      x4_check(model, b4)
+    except ValueError as e:
+      p.error(str(e))
+    b4.sort(key=parse_block)
   blocks = sorted(set(b1) | set(b2), key=parse_block)
   if a.geometry_only:
     res = {}
@@ -1103,6 +1168,9 @@ def main():
   odir = os.path.dirname(os.path.abspath(out))
   os.makedirs(odir, exist_ok=True)
   res = {}
+  def save(s, raw):
+    torch.save(raw, os.path.join(odir, f'stage1_mech_raw_{s:05d}.pt'))
+    json.dump(res, open(out, 'w'), indent=1)
   for s in steps:
     model.load_state_dict(torch.load(os.path.join(a.run, f'model_{s:05d}.pt'), map_location=dev))
     res[s], raw = {'x1': {}, 'x2': {}}, {'x1': {}, 'x2': {}}
@@ -1129,19 +1197,26 @@ def main():
                            or k.startswith(('d_', 'top20_beta', 'top20_splus_e', 'top20_splus_perp'))}, flush=True)
       del X
     if b4:
+      save(s, raw)                                      # X1 and X2 of this step are kept if X4 fails
       X = block_inputs(model, xs, parse_block(b4[0])[0], 0, a.batch, dev)          # the stage's input
       r4 = x4_block(model, b4, X, y, rel, cache, a.batch, a.n_sample, a.edges, a.seed, sigma=a.x4_sigma)
       del X
       res[s]['x4'], raw['x4'] = {b: r[0] for b, r in r4.items()}, {b: r[1] for b, r in r4.items()}
       for b, (r, _) in r4.items():
         losses = [k for k in X4_LOSSES + tuple(f'{k}_fixed' for k in X4_LOSSES) if k in r]
-        print(s, b, 'X4 role_offset_r_by_sout', {k: {R: round(r[k][f'role_offset_r_{R}_by_sout'], 3)
-                                                     for R in ['total', *r['groups'], 'perp']} for k in losses},
-              'abs total/perp', {k: (round(r[k]['role_offset_abs_r_total_by_sout'], 3),
-                                     round(r[k]['role_offset_abs_r_perp_by_sout'], 3)) for k in losses},
+        rd = lambda v: round(v, 3)
+        print(s, b, 'X4 role_offset_r_by_sout', {k: {R: rd(r[k][f'role_offset_r_{R}_by_sout'])
+                                                     for R in ['total', *r['groups'], *r['single_groups']]}
+                                                 for k in losses},
+              'total kpos/kneg', {k: (rd(r[k]['role_offset_r_total_by_sout_kpos']),
+                                      rd(r[k]['role_offset_r_total_by_sout_kneg'])) for k in losses},
+              'perp / null sd', {k: (rd(r[k]['role_offset_r_perp_by_sout']), rd(r[k]['offset_null_sd_total']))
+                                 for k in losses},
+              'cos(e, O_total)', {k: rd(r[k]['offset_vec_cos_e_total']) for k in losses},
+              'static head', rd(r.get('static_head_offset', float('nan'))),
+              {k: rd(r[k].get('spearman_static_head', float('nan'))) for k in losses},
               'sum_err', max(r[f'sum_err_{k}'] for k in losses), flush=True)
-    torch.save(raw, os.path.join(odir, f'stage1_mech_raw_{s:05d}.pt'))
-    json.dump(res, open(out, 'w'), indent=1)
+    save(s, raw)
   print('STAGE1_MECH_DONE', flush=True)
 
 
