@@ -62,7 +62,6 @@ if [ "$HF_SYNC" != off ]; then
   SYNC=$(python3 -c "import sys; from experiments.hf_sync import sync_status; print(sync_status(sys.argv[1]))" \
     $OUT/resume.pt)
   if [[ $SYNC == uploaded:* ]] && [ "$HF_SYNC_RESTART" = 1 ]; then
-    for pid in ${SYNC#uploaded:}; do :; done
     python3 - ${SYNC#uploaded:} $W/hf_sync.log <<'EOF'
 import os, signal, subprocess, sys, time
 from experiments.hf_sync import running_syncs
