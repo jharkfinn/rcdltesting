@@ -48,6 +48,10 @@ MICRO = {
          'convnext-capacity-polysemanticity/tiny/investigation/epoch_090/microscope-50k',
     layer='stage3_block2', sheet='examples/{layer}/{channel:04d}.jpg', data='data/{layer}.json', cell=96),
 }
+for _name, _layer in (('medium_s2b4', 'stage2_block4'), ('medium_s1b1', 'stage1_block1')):    # mid layers of the same
+  MICRO[_name] = dict(MICRO['medium'], layer=_layer)                                           # microscopes
+for _name, _layer in (('iv1_4c', 'mixed4c'), ('iv1_4e', 'mixed4e')):
+  MICRO[_name] = dict(MICRO['iv1'], layer=_layer)
 LOCAL = dict(layer='stage3_block2', sheet='examples/{layer}/{channel:04d}.jpg', data='data_{layer}.json', cell=96)
 CELL = 128                                   # common cell size (px)
 COLS = 8
