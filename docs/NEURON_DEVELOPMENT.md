@@ -1451,6 +1451,24 @@ same set). Data in `docs/data/audit_tiny/`.
   and are still read as one job, which is the essay's "coarser, not mixed". The two kinds of measure answer different
   questions (class purity against visual coherence), and only the second separates the essay's tiny model from E1.
 
+T90 at 10 epochs (same protocol, 2026-10-17). T90 is the E1 recipe and seed trained for 90 epochs (225,180 steps,
+warm-up 12,510; still running). Its stage3.block2 microscope at step 25,020 (10 epochs; learning rate still high, top-1
+15.76% against E1's 18.52% at the end of its own 10-epoch schedule), 64 units and 32 random directions, rated blind
+(192 ratings; data `docs/data/audit_t90/e10/`):
+
+| | 'one job' ratings | both raters | description test | 'one job' and 6 or more correct |
+|---|---|---|---|---|
+| T90 units, 10 epochs | 90 of 128 (0.70) | 40 of 64 | 5.43 | 48 of 128 |
+| T90 random directions, 10 epochs | 60 of 64 (0.94) | 29 of 32 | 5.81 | 40 of 64 |
+| E1 units (above) | 76 of 128 (0.59) | 32 of 64 | 5.35 | 45 of 128 |
+| essay tiny, 90 epochs (above) | 116 of 128 (0.91) | 54 of 64 | 6.83 | 105 of 128 |
+
+- Random directions again read better than units (Fisher exact p = 0.0002 for the call, 0.0013 for the strict count), as
+  in E1. T90's units at 10 epochs do not differ clearly from E1's (p = 0.09; strict p = 0.80).
+- The 30, 60 and 90-epoch checkpoints (steps 75,060, 150,120 and 225,180) get the same audit. The question they answer:
+  does longer training raise the units toward the essay's 90-epoch tiny model (0.91, strict 105 of 128) and past the
+  random directions, which would make the units, and not only the space, legible?
+
 ### Blind audit of a middle layer: the essay's medium stage2.block4 against InceptionV1 mixed4c (2026-10-17)
 
 The essay says its medium ConvNeXt is "broadly legible the whole way through". Same protocol as the pilot (Haiku raters,
