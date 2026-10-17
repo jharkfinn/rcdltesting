@@ -545,6 +545,47 @@ at a balance of strong, class-specific opposing pushes, upward from its pole and
 the rest; a tug of war that continues through training. These are descriptive; the interval-split tests in
 `docs/EXACT_HISTORY.md` ask what the pushes do to individual classes.
 
+### E1f: two clean reruns of E1 (the loader race and run-to-run spread)
+
+E1 was trained before the GPU-decode race in the training loader was fixed (`docs/EXACT_HISTORY.md` Sec. 5). Runs
+`e1f_a` and `e1f_b` repeat E1 exactly (flags, seed, data order) with the fixed loader, saving models at E1's checkpoints
+and history steps. Both were interrupted by lost sandboxes and resumed from `resume.pt`; their first analyses saw only
+the checkpoints present after the resume (e1f_a from 19,000, e1f_b from 2,000) and were redone after restoring every
+file from the HF dataset. The growth tests below use E1's 16 checkpoint steps, so they are comparable with E1 and E1r
+(on all 24 saved steps the same order holds).
+
+Weight distance d(X, Y) = ||theta_X - theta_Y|| / sqrt(||theta_X|| ||theta_Y||) over all parameters
+(`experiments/convnext_rerun_compare.py`):
+
+| step | 100 | 200 | 350 | 1,000 | 2,000 | 5,000 | 12,500 | 23,000 |
+|---|---|---|---|---|---|---|---|---|
+| d(E1, e1f_a) | 0 | 0.043 | 0.244 | 0.734 | 0.955 | 1.068 | 1.055 | 1.015 |
+| d(e1f_a, e1f_b) | 0 | 0.0008 | 0.020 | 0.180 | 0.500 | 0.776 | 0.862 | 0.848 |
+
+- E1 is bit-identical to the clean reruns up to step 100 and leaves them between steps 100 and 200 by 50 times more
+  than the reruns differ from each other; afterwards it stays further away (1.01 against 0.85). This fits corrupted
+  batches early in E1. The two clean reruns also separate (GPU non-determinism, amplified by training) and end far
+  apart in weight space, with the same accuracy: top-1 18.52% (E1), 18.60% (e1f_a), 18.61% (e1f_b).
+
+Growth tests v4 on E1's 16 steps:
+
+| statistic | E1 | E1r (seed 1) | e1f_a | e1f_b |
+|---|---|---|---|---|
+| WordNet co-timing, late blocks: Mantel r (z against the tercile shuffle) | 0.029 (5.7) | 0.025 (6.4) | 0.021 (4.0) | 0.037 (7.7) |
+| the same after the network clock | 0.033 (5.8) | 0.028 (6.1) | 0.021 (4.2) | 0.042 (8.1) |
+| WordNet co-timing, early blocks | 0.010 (1.3) | 0.016 (2.9) | 0.015 (2.6) | 0.016 (2.0) |
+| visual co-timing, late blocks | 0.014 (3.4) | 0.016 (4.8) | 0.011 (3.3) | 0.014 (4.2) |
+| visual nearest-earlier, early blocks: fraction of a planted order | 0.33 | 0.09 | 0.08 | 0.02 |
+| visual nearest-earlier, late blocks | 0.13 | 0.08 | 0.23 | 0.07 |
+| T2 outward slope, late blocks, fraction of a planted order | 0.046 | 0.019 | 0.027 | -0.020 |
+
+- The co-timing of near classes in late blocks holds in all four runs (z 4.0 to 7.7), with a run-to-run spread (r 0.021
+  to 0.037 at the same seed) about as large as the spread between seeds.
+- E1's strong early order result (33 to 43% of a planted order, the only order-specific statistic that leaned strongly
+  toward order) appears in neither clean rerun of the same seed (8%, 2%) nor in E1r (9%). It is not a property of the
+  recipe; whether the corrupted early batches or chance produced it is not decided, and it should not be cited.
+- No outward direction in any run. The conclusions of the E2/E3 section stand, without E1's early order statistic.
+
 ### Stage 1: a unit's strongest classes teach it down, and its output hurts them
 
 The bias signal above has one exception to the late-block pattern. In stage 1 (three blocks, residual width 8), a
