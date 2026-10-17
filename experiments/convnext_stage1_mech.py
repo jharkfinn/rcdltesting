@@ -325,11 +325,42 @@ def _slope(curve):
   return spearman(np.arange(len(curve))[ok], curve[ok]) if ok.sum() > 2 and np.ptp(curve[ok]) > 0 else float('nan')
 
 
-def _offset(d, wgt, live):
-  """Per unit the wgt-weighted mean of d over its finite cells (U, ...), then the mean over live units."""
+def _unit_offsets(d, wgt):
+  """Per unit the wgt-weighted mean of d over its finite cells (U, ...) -> (U,)."""
   d, wgt = d.reshape(len(d), -1), wgt.reshape(len(wgt), -1)
   wgt = np.where(np.isfinite(d), wgt, 0)
-  return float(_nanmean(_div((wgt * np.nan_to_num(d)).sum(1), wgt.sum(1))[live]))
+  return _div((wgt * np.nan_to_num(d)).sum(1), wgt.sum(1))
+
+
+def _offset(d, wgt, live):
+  """Per unit the wgt-weighted mean of d over its finite cells (U, ...), then the mean over live units."""
+  return float(_nanmean(_unit_offsets(d, wgt)[live]))
+
+
+@torch.no_grad()
+def bin_edges(blk, inputs, geo, pv, pg, n_sample=16, edges='kappa', seed=0):
+  """X1's pass 1. inputs: the block's input, batch by batch. Per unit the inner edges {v: (U, N_BINS - 1)} of the bin
+  variables, from n_sample positions per image drawn by a generator seeded with seed (one draw per batch), |kappa|-
+  weighted (edges 'kappa') or not ('positions'); the sums of s_in^2 and s_out^2 (2, U); the number of positions."""
+  U = blk.pw_gate.out_features
+  dev = geo['E'].device
+  gen = torch.Generator().manual_seed(seed)
+  samp = {k: [] for k in BIN_VARS + ('w',)}
+  sq = torch.zeros(2, U, dtype=torch.float64, device=dev)
+  n_pos = 0
+  for xb in inputs:
+    g, v, u = block_guv(blk, xb)
+    sp = stream_parts(blk, xb, u, geo)
+    B, P = sp['s_in'].shape[:2]
+    kap = _kappa(g, v, pv, pg).flatten(1, 2)
+    idx = torch.randint(P, (B, min(n_sample, P)), generator=gen).to(dev)[..., None].expand(-1, -1, U)
+    for k, t in list(bin_values(sp, u).items()) + [('w', kap.abs())]:
+      samp[k].append(t.gather(1, idx).flatten(0, 1))
+    sq[0] += (sp['s_in'].double() ** 2).sum((0, 1))
+    sq[1] += (sp['s_out'].double() ** 2).sum((0, 1))
+    n_pos += B * P
+  w = torch.cat(samp['w']) if edges == 'kappa' else torch.ones_like(torch.cat(samp['w']))
+  return {k: weighted_edges(torch.cat(samp[k]), w).float().contiguous() for k in BIN_VARS}, sq, n_pos
 
 
 def x1_block(model, name, X, y, rel=None, stats=None, batch=100, n_sample=16, edges='kappa', seed=0, top_n=20,
@@ -358,27 +389,9 @@ def x1_block(model, name, X, y, rel=None, stats=None, batch=100, n_sample=16, ed
       return (uf >= thr) & (thr > 0)
     ustar = uf.amax(1, keepdim=True)
     return (uf >= 0.5 * ustar) & (ustar > 0)
-  gen = torch.Generator().manual_seed(seed)
   # pass 1: bin edges from a sample of positions, and the RMS of the stream along e
-  samp = {k: [] for k in BIN_VARS + ('w',)}
-  sq = torch.zeros(2, U, dtype=torch.float64, device=dev)
-  n_pos = 0
-  with torch.no_grad():
-    for s in range(0, len(X), batch):
-      xb = X[s:s + batch]
-      g, v, u = block_guv(blk, xb)
-      sp = stream_parts(blk, xb, u, geo)
-      B, P = sp['s_in'].shape[:2]
-      kap = _kappa(g, v, pv, pg).flatten(1, 2)
-      idx = torch.randint(P, (B, min(n_sample, P)), generator=gen).to(dev)[..., None].expand(-1, -1, U)
-      for k, t in list(bin_values(sp, u).items()) + [('w', kap.abs())]:
-        samp[k].append(t.gather(1, idx).flatten(0, 1))
-      sq[0] += (sp['s_in'].double() ** 2).sum((0, 1))
-      sq[1] += (sp['s_out'].double() ** 2).sum((0, 1))
-      n_pos += B * P
-  w = torch.cat(samp['w']) if edges == 'kappa' else torch.ones_like(torch.cat(samp['w']))
-  edg = {k: weighted_edges(torch.cat(samp[k]), w).float().contiguous() for k in BIN_VARS}     # (U, N_BINS - 1)
-  del samp
+  edg, sq, n_pos = bin_edges(blk, (X[s:s + batch] for s in range(0, len(X), batch)), geo, pv, pg, n_sample, edges,
+                             seed)                                                           # (U, N_BINS - 1)
   # pass 2: dCE/du and the per-class sums (C, U[, cells]); bins are scattered per image first (few atomic collisions)
   f64 = lambda *s: torch.zeros(*s, dtype=torch.float64, device=dev)
   reg_keys = [(a_, b_) for a_ in range(3) for b_ in range(a_, 4)]                   # b_ = 3: the product with r
