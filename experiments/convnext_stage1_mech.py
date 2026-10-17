@@ -123,35 +123,79 @@ g_b = sum over the readers R of term_R, exactly:
   head                      D1^T D2^T zeta_L            (skips all the way to the pool)
 (a last block without a residual connection, tiny_crush13's, is entered by every path that reaches it: its term is
 D1^T D2^T zeta_{L-1}, and head is 0). The later stages' terms do not depend on b (pure skips inside stage 1), so they
-are pulled back once per batch for all blocks. Per position and unit: r_R = e . term_R (sum over R: r, X1's readout);
-groups: stage1_later (the stage-1 readers after b; none for the stage's last block), stage2, stage3 (sums over their
-blocks), head; total: r itself (e . g_b, from the autograd call, not the sum); perp: the control e_perp . g_b, with
-e_perp a random unit vector orthogonal to e (per unit; seeded by --seed and the block; raw e_perp). Losses (summary
-keys): ce (L = CE), true (L = -z[k], the true-class term; ce - true is the logsumexp term); with --x4_sigma also
-ce_fixed and true_fixed (every LayerNorm's 1 / sigma held fixed in the backward, convnext_bias_paths.fixed_sigma;
-ce - ce_fixed is the path through the normalisers' scale). Live units, roles, |kappa| weights and the s_out bins are
-X1's (the same edges from the same --n_sample positions per image, --seed, --edges and --batch), and every quantity is
-accumulated as X1's r_by bins (class sums of |kappa| r, each class weighted by 1 / its images, per role, unit and bin),
-so ce's total is X1's readout. Per loss (summary[loss]) and R in the readers, groups, total and perp:
+are pulled back once per batch for all blocks. A reader's term covers every path that enters it first, including the
+paths through later blocks after it. 'head' is the linear path into the classifier: zeta_L is the same at every
+position of z_L (the mean pool), so the head term at a position is the classifier's rows (weighted by softmax - onehot
+for CE; -W_head[k] for L_true) pulled back through the final LayerNorm and, at that position, D2's and D1's LayerNorm
+and conv phase. For L_true its only class dependence is W_head[k], a weight quantity that does not depend on the stream
+along e, so it survives matching on s_out (static_head below).
+Single paths, for every block reader R: R>head = D^T (J_{f_R}^T c_R), c_R the head's skip-only cotangent at R's output
+(the head term there; zeta_L at z_L): the path R, then pure skips to the pool. term_R - term_{R>head} are the paths
+from R through later blocks; for the network's last block the two are equal. Cost: one more block backward per block
+reader, batch and loss (about one more backward pass) and its pullbacks through the downsamples.
+Per position and unit: r_R = e . term_R (sum over the readers: r, X1's readout); groups: stage1_later (the stage-1
+readers after b; none for the stage's last block), stage2, stage3 (sums over their blocks), head; single groups:
+stage1_later>head, stage2>head, stage3>head (sums of the single paths); total: r itself (e . g_b, from the autograd
+call, not the sum); perp: e_perp . g_b, with e_perp one random unit vector orthogonal to e per unit (seeded by --seed
+and the block; raw e_perp). Losses (summary keys): ce (L = CE), true (L = -z[k], the true-class term; ce - true is the
+logsumexp term); with --x4_sigma also ce_fixed and true_fixed (every LayerNorm's 1 / sigma held fixed in the backward,
+convnext_bias_paths.fixed_sigma; ce - ce_fixed is the path through the normalisers' scale). Live units, roles, |kappa|
+weights and the s_out bins are X1's (the same edges from the same --n_sample positions per image, --seed, --edges and
+--batch), and every quantity is accumulated as X1's r_by bins (class sums of |kappa| r, each class weighted by 1 / its
+images, per role, unit and bin), so ce's total is X1's readout (on a GPU up to TF32 rounding: X4's pass runs with
+TF32 off, torch.backends.cuda.matmul and cudnn.allow_tf32 restored after, since TF32 rounds each reader's pullback
+through a downsample separately and the readers would add up only to about 1e-3; X1 keeps the default). Per loss
+(summary[loss]) and R in the readers, single paths, groups, single groups, total and perp:
   r_{R}_by_sout_bin_{role}    as X1's r_by_sout_bin_{role}, from r_R: per unit and bin the |kappa|-weighted mean of r_R
                               times the positions per image, mean over live units
   role_offset_r_{R}_by_sout   as X1's role_offset_r_by_sout: per unit, top20 minus rest in the same s_out bin, weighted
                               by the top20 |kappa| mass in the bin, mean over live units
+  role_offset_r_{R}_by_sout_kpos, _kneg   the same from the positions with kappa > 0 and kappa < 0 alone, over the same
+                              |kappa| mass (the two add up to role_offset_r_{R}_by_sout). The push is -kappa |w_n| r: a
+                              positive offset of r deepens the reversal at kappa > 0 and relieves it at kappa < 0, where
+                              a negative one drives it (as in E4 at step 2,000)
   r0_{R}_{role}               per unit the |kappa|-weighted mean of r_R over all positions of the role's images (classes
                               weighted equally) times the positions per image, mean over live units (not X1's
                               regression intercept r0)
-  role_offset_abs_r_{R}_by_sout   (total and perp) the mean over live units of |the per-unit offset|; e_perp has no sign
-                              of its own, so its signed offset averages to about 0 over units whatever the readout,
-                              and the per-unit size is the comparison
-These (but the abs keys) are linear in r with weights shared by all R, so the readers add up to the total and the
-groups to the same: sum_err_{loss} is the largest |sum over the readers - total| over the offset, r0 and bin keys,
-relative to the largest |value| (asserted < 1e-3). Also: units, positions, edges_weight, readers, groups. Raw
-(raw['x4'][block]): bin_w (3, U, N_BINS) the |kappa| mass per role, unit and s_out bin, bin_rw_{loss} {R: (3, U,
-N_BINS)} the |kappa| r_R sums (roles in ROLES order), edges_sout, e_perp, live, top, pa_v, pa_g, P.
-Readings: the group (and block) carrying role_offset_r_total_by_sout is where e is read against the top classes; true
+The role offset as a vector, per group and total G: O_n = per unit, top20 minus rest of the |kappa|-weighted mean of
+term_G (all d components of the stream gradient) in the same s_out bin, weighted as role_offset_r, so e_n . O_n is unit
+n's role_offset_r_{G} and v . O_n the offset along any direction v (perp's along e_perp):
+  offset_vec_norm_{G}         mean over live units of |O_n|
+  offset_vec_cos_e_{G}        mean of cos(e_n, O_n) (a random direction instead of e: 0 +/- 1 / sqrt(d U), U live units)
+  offset_vec_e_pos_{G}        share of live units with e_n . O_n > 0
+  offset_null_sd_{G}          sd of the unit mean of v_n . O_n over independent random unit v_n orthogonal to e_n:
+                              sqrt(sum_n |O_n - (e_n . O_n) e_n|^2 / (d - 1)) / U. perp is one such draw (its sign is
+                              random per unit, so its offset is about 0 whatever the readout); this is its null
+The head's weight geometry (weights only; none for a last block without skip): c_k = -W_head[k] pulled back along the
+head's path with every 1 / sigma left out and the downsample convs averaged over their four 2x2 phases: c = N_f(-W[k]),
+then for each later stage t from the last, c <- N_t(c K_t), K_t the conv weight averaged over the phases (out, in),
+N(c) = gain * c minus its channel mean. Under fixed sigma, L_true's head term at a position is the same pull-back at
+that position's phases over sigma_f sigma_D2 sigma_D1 times the last stage's positions (each phase pair equally often).
+q[k, n] = e_n . c_k (q > 0: more e lowers z_k):
+  static_head_offset          per unit, mean of q over top20 minus over rest, over q's SD over all classes; mean over
+                              live units (static_head_pos: share of live units with the difference > 0)
+  spearman_static_{G}         (per loss) Spearman correlation over live units of the unit's static difference (top20
+                              minus rest, unscaled) with its role_offset_r_{G} (the groups and total)
+  head_offset_at_static_0     (per loss) intercept of the least-squares line of the units' head offsets on their static
+                              differences: the head offset left for a unit whose classifier rows do not favour its top
+                              classes along e
+The offset, kpos, r0 and bin keys are linear in r with weights shared by all R, so the readers add up to the total and
+the groups to the same: sum_err_{loss} is the largest |sum over the readers - total| over them, relative to the largest
+|value| (asserted < 1e-3; X1 and X2 of the step are written before X4 runs). Also: units, positions, edges_weight,
+readers, groups, single, single_groups. Raw (raw['x4'][block]): bin_w (3, U, N_BINS) the |kappa| mass per role, unit
+and s_out bin; bin_rw_{loss} {R: (3, U, N_BINS)} the |kappa| r_R sums (roles in ROLES order), bin_rwp_{loss} their
+kappa > 0 part; bin_rv_{loss} {G: (3, U, N_BINS, d)} the |kappa| term_G sums; unit_offset_{loss} {R: (U,)} the
+per-unit role offsets; static_q (C, U), static_offset (U,); edges_sout, e_perp, live, top, pa_v, pa_g, P.
+Readings: the groups' signed offsets add up to the total and can cancel (one group above the total, others negative),
+so the reading is the signed contributions, not the largest one. A head-dominated offset with a high
+spearman_static_head and head_offset_at_static_0 near 0 describes the classifier's weight geometry (its top-class rows,
+pulled back along the skips, point against e), not a readout that depends on the stream state. A block group whose
+single path (G>head) carries most of its offset, with a spearman_static_G of the opposite sign, rewrites e into
+something the head reads (it partly cancels e's head image); the rest of its offset goes through later blocks. true
 against ce: whether more e lowers the true-class logit or raises the competitors' (ce - true); ce_fixed: whether the
-normalisers' scale carries it; perp: an offset of similar per-unit size along a direction the unit does not write
-(role_offset_abs_r_perp_by_sout against _total) means the class-specific readout is not specific to e.
+normalisers' scale carries it. Specific to e: role_offset_r_total_by_sout well above offset_null_sd_total and
+offset_vec_cos_e_total well above its random spread; offset_vec_norm_total far above the offset along e: most of the
+class difference of the stream gradient lies outside e.
 
 X1 and X2 start from each block's input, X4 from the stage's input, computed once for all probe images (as
 convnext_unit_roles.py does). Raw arrays (X1 class-level and role-level accumulators, bin edges, regression

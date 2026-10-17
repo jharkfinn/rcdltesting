@@ -1,7 +1,8 @@
 """experiments.convnext_stage1_mech: the stream decomposition adds up, the X1 push is convnext_bias_paths' pole push and
 its bins, quadrants and readout r add up to it, every X2 config reduces to the baseline at scale 1 and matches an
-independent computation otherwise, and X4's readers add up to the readout r, each matches a finite difference that only
-it sees, and X4's total is X1's readout."""
+independent computation otherwise, and X4's readers add up to the readout r, each reader and each single path matches a
+finite difference that only it sees, X4's total is X1's readout, its bins match a per-position accumulation, and the
+static head term is the fixed-sigma head term with the 1 / sigma factors taken out."""
 
 import json
 import sys
@@ -510,8 +511,8 @@ def test_x4_block_matches_x1():
       for R in s4['readers'] + s4['single'] + list(s4['groups']) + list(s4['single_groups']) + ['total', 'perp']:
         np.testing.assert_allclose(d[f'role_offset_r_{R}_by_sout_kpos'] + d[f'role_offset_r_{R}_by_sout_kneg'],
                                    d[f'role_offset_r_{R}_by_sout'], rtol=1e-6, atol=1e-8)
-      np.testing.assert_allclose(d['role_offset_r_stage3.block1>head_by_sout'], d['role_offset_r_stage3.block1_by_sout'],
-                                 rtol=1e-6, atol=1e-8)                           # the last block: one path
+      last = 'role_offset_r_stage3.block1{}_by_sout'
+      np.testing.assert_allclose(d[last.format('>head')], d[last.format('')], rtol=1e-6, atol=1e-8)   # one path
       for key in ('role_offset_r_perp_by_sout', 'r0_head_top20', 'r0_stage2_rest', 'offset_null_sd_total',
                   'offset_vec_cos_e_head', 'spearman_static_head', 'head_offset_at_static_0'):
         assert np.isfinite(d[key]), (k, key)
