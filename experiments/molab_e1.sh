@@ -13,6 +13,10 @@ REPO=joshhf/rcdl-molab-results            # private results dataset (the uploade
 export HF_TOKEN_PATH=$W/.hf_token
 cd $W/repo
 mkdir -p $W/results/$RUN $W/data/imagenet
+if [ "$(python3 -c "import sys; from experiments.hf_sync import sync_status; print(sync_status(sys.argv[1]))" \
+      $W/results/$RUN/resume.pt 2>/dev/null)" = ignored ]; then       # e.g. the sync of experiments/molab_medium.sh
+  echo "WARNING: the running hf_sync leaves $W/results/$RUN/resume.pt out: this run cannot resume on another sandbox"
+fi
 
 python3 - <<EOF
 import os

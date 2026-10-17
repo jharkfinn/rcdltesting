@@ -14,12 +14,15 @@
 # (trainer exit 3) also prints GATE_FAILED. Relaunch every run at a lower rate under new names:
 #   EXTRA="--lr 1e-3" SUFFIX=_lr1e3 bash experiments/medium_queue.sh
 # Any other failure of M10-s0 stops the queue (rerun it: finished runs are skipped, unfinished ones resume from their
-# local resume.pt); a failure of a later run is reported and the queue goes on with the next.
-# Ends with MEDIUM_QUEUE_DONE, or MEDIUM_QUEUE_FAILED <runs>.
+# local resume.pt); a failure of a later run is reported and the queue goes on with the next. A failed microscope
+# (molab_medium.sh exit 4: the run is trained) is reported and never stops the queue.
+# Each run gets its own process group; stopping the queue (TERM, INT, HUP) stops the current run with it, and
+# molab_medium.sh refuses a second instance on a run directory (exit 5), e.g. one left by a queue killed with KILL.
+# Ends with MEDIUM_QUEUE_DONE, or MEDIUM_QUEUE_FAILED <runs> (<run>:microscope for a failed microscope only).
 # Usage (on the sandbox): nohup bash experiments/medium_queue.sh > /marimo/work/medium_queue.log 2>&1 &
 # env: W (/marimo/work), SUFFIX (run-name suffix), EXTRA (trainer args appended to every run), and those of
-#      molab_medium.sh (HF_SYNC_RESTART, TRAIN, BLOCK)
-set -uo pipefail
+#      molab_medium.sh (HF_SYNC_RESTART, RESTART_SAME_NAME, MICROSCOPE, TRAIN, BLOCK)
+set -uo pipefail +m                       # (no job control: setsid in launch then execs, so PID is the group)
 W=${W:-/marimo/work}
 SUFFIX=${SUFFIX:-}
 EXTRA=${EXTRA:-}
@@ -31,6 +34,18 @@ COMMON="--seed 0 --opt adamw --lr 2e-3 --wd 0.05 --warmup 1250 --steps 25020 --b
 ATTR="--attr_steps 2500,10000,17500,25020"
 cd $W/repo
 echo "$(date +%T) medium queue on $(git log --oneline -1 2>/dev/null)"
+
+PID=
+trap '[ -n "$PID" ] && kill -TERM -- -$PID 2>/dev/null; echo "$(date +%T) queue stopped"; exit 143' TERM INT HUP
+
+# launch <run> <args...>: molab_medium.sh in its own process group (PID = its group), in the background so that a
+# signal to the queue is handled at once (wait returns)
+launch() {
+  local run=$1; shift
+  echo "$(date +%T) start $run (log: $W/$run.log)"
+  setsid bash experiments/molab_medium.sh $run "$@" > $W/$run.log 2>&1 &
+  PID=$!
+}
 
 # gate <run>: 'pass', 'fail <top-1>' or 'pending' (no record at GATE_STEP yet) from the run's log.json
 gate() {
@@ -46,31 +61,32 @@ EOF
 }
 
 # ---------------------------------------------------------------------------------- M10-s0, with the gate
+FAILED=()
 M10=m10_medium_s0$SUFFIX
-echo "$(date +%T) start $M10 (log: $W/$M10.log)"
-setsid bash experiments/molab_medium.sh $M10 $COMMON --size medium $ATTR $EXTRA > $W/$M10.log 2>&1 &
-PID=$!
-G=pending
+launch $M10 $COMMON --size medium $ATTR $EXTRA
 while kill -0 $PID 2>/dev/null; do
   G=$(gate $M10)
   if [[ $G == fail* ]]; then
     kill -TERM -- -$PID 2>/dev/null || kill -TERM $PID
     pkill -TERM -f "convnext_train --out $W/results/$M10 " 2>/dev/null
-    wait $PID
+    wait $PID; PID=
     echo "$(date +%T) GATE_FAILED $M10: top-1 ${G#fail } at step $GATE_STEP is below $GATE_MIN; stopped. Relaunch" \
          "every run with EXTRA=\"--lr 1e-3\" SUFFIX=_lr1e3"
     exit 1
   fi
-  sleep $GATE_POLL
+  sleep $GATE_POLL & wait $!
 done
 wait $PID
-RC=$?
+RC=$?; PID=
 if [ $RC -eq 3 ]; then
   echo "$(date +%T) GATE_FAILED $M10: non-finite loss (see $W/$M10.log). Relaunch every run with" \
        "EXTRA=\"--lr 1e-3\" SUFFIX=_lr1e3"
   exit 1
+elif [ $RC -eq 4 ]; then
+  echo "$(date +%T) $M10 trained; its microscope failed (see $W/$M10.log)"
+  FAILED+=($M10:microscope)
 elif [ $RC -ne 0 ]; then
-  echo "$(date +%T) $M10 failed (exit $RC, see $W/$M10.log): queue stopped; rerun it to resume"
+  echo "$(date +%T) $M10 failed (exit $RC: $(tail -1 $W/$M10.log)): queue stopped; rerun it to resume"
   exit 1
 fi
 G=$(gate $M10)
@@ -81,15 +97,18 @@ fi
 echo "$(date +%T) $(tail -1 $W/$M10.log)"
 
 # ------------------------------------------------------------------------------------- the other runs
-FAILED=()
 one() {          # one <run> <trainer args...>
-  local run=$1 rc=0; shift
-  echo "$(date +%T) start $run (log: $W/$run.log)"
-  bash experiments/molab_medium.sh $run $COMMON "$@" $EXTRA > $W/$run.log 2>&1 || rc=$?
+  local run=$1 rc; shift
+  launch $run $COMMON "$@" $EXTRA
+  wait $PID
+  rc=$?; PID=
   if [ $rc -eq 0 ]; then
     echo "$(date +%T) $(tail -1 $W/$run.log)"
+  elif [ $rc -eq 4 ]; then
+    echo "$(date +%T) $run trained; its microscope failed (see $W/$run.log)"
+    FAILED+=($run:microscope)
   else
-    echo "$(date +%T) $run failed (exit $rc$([ $rc = 3 ] && echo ', non-finite loss'), see $W/$run.log)"
+    echo "$(date +%T) $run failed (exit $rc$([ $rc = 3 ] && echo ', non-finite loss'): $(tail -1 $W/$run.log))"
     FAILED+=($run)
   fi
 }
