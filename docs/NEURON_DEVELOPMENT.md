@@ -926,6 +926,13 @@ same set). Data in `docs/data/audit_tiny/`.
 - Limits: Haiku raters (lenient on InceptionV1 in the pilot); "one job" here includes coherent visual properties, which
   is why random directions can score high: the rating measures coherence, and the comparison against random directions
   measures whether the basis is privileged; the essay's models allow only the first.
+- Rater check (Sonnet, one rating and one description test per item, 20 random items of each set, same panels;
+  `docs/data/audit_tiny/ratings_tiny_sonnet.json`): one job for 19 of 20 essay tiny units, 15 of 20 E1 units (4 called
+  several unrelated) and 19 of 20 E1 random directions (Haiku on the same items: 36 of 40, 21 of 40, 37 of 40); held-out
+  crops found 7.05, 5.30 and 5.80 of 8 (Haiku: 6.83, 5.08, 5.88). Sonnet is more lenient on E1's units than Haiku, so the
+  gap in the category call shrinks (0.75 against 0.95, not significant on 20 items), while the description test, which
+  does not depend on the rater's leniency, gives the same order with both raters: essay tiny units, then E1's random
+  directions, then E1's units.
 
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
