@@ -52,6 +52,10 @@ for _name, _layer in (('medium_s2b4', 'stage2_block4'), ('medium_s1b1', 'stage1_
   MICRO[_name] = dict(MICRO['medium'], layer=_layer)                                           # microscopes
 for _name, _layer in (('iv1_4c', 'mixed4c'), ('iv1_4e', 'mixed4e')):
   MICRO[_name] = dict(MICRO['iv1'], layer=_layer)
+# InceptionV1 sheets show (nearly) whole images, while the ConvNeXt microscope crops a stage's focus window around the
+# strongest position (stage 2: 144 of 224 px). '_zoom' crops each positive cell to the same relative window, centred on
+# the argmax of the microscope's own heat map for that crop (24 x 24, one per positive cell, in sheet order).
+MICRO['iv1_4c_zoom'] = dict(MICRO['iv1_4c'], zoom=144 / 224, heat='heat/{layer}/{channel}.bin')
 LOCAL = dict(layer='stage3_block2', sheet='examples/{layer}/{channel:04d}.jpg', data='data_{layer}.json', cell=96)
 CELL = 128                                   # common cell size (px)
 COLS = 8
@@ -90,7 +94,9 @@ def neuron_cells(fmt, n):
 def source(name, local):
   """Microscope config of a source: one of MICRO, or a local directory given as --local name=DIR."""
   if name in local:
-    return dict(LOCAL, local=local[name], fmt='convnext')
+    found = sorted(f for f in os.listdir(local[name]) if f.startswith('data_') and f.endswith('.json'))
+    layer = found[0][5:-5] if len(found) == 1 else LOCAL['layer']  # one data file names the layer
+    return dict(LOCAL, layer=layer, local=local[name], fmt='convnext')
   return dict(MICRO[name], fmt=MICRO[name].get('fmt', 'convnext'))
 
 
@@ -119,6 +125,8 @@ def fetch(a):
           shutil.copy(os.path.join(m['local'], m['sheet'].format(layer=m['layer'], channel=c)), dst)
       else:
         curl(f"{m['base']}/{m['sheet'].format(layer=m['layer'], channel=c)}", dst)
+        if 'heat' in m:
+          curl(f"{m['base']}/{m['heat'].format(layer=m['layer'], channel=c)}", os.path.join(raw, 'heat', f'{c:04d}.bin'))
     if 'local' in m and not os.path.exists(os.path.join(raw, f"{m['layer']}.json")):
       shutil.copy(os.path.join(m['local'], m['data'].format(layer=m['layer'])), os.path.join(raw, f"{m['layer']}.json"))
     sets.append({'key': name_kind, 'source': name, 'channels': chans})
@@ -129,6 +137,19 @@ def fetch(a):
 def cut(sheet, cell, rc):
   r, c = rc
   return sheet.crop((c * cell, r * cell, (c + 1) * cell, (r + 1) * cell)).resize((CELL, CELL))
+
+
+def zoom_cut(sheet, cell, rc, heat, zoom):
+  """A positive cell (sheet rows 0-1; heat map index row * 16 + col) cropped to the window zoom * cell, centred on the
+  heat map's argmax and moved inside the cell."""
+  r, c = rc
+  h = heat[r * 16 + c]
+  hy, hx = np.unravel_index(int(h.argmax()), h.shape)
+  side = zoom * cell
+  cy, cx = (hy + 0.5) * cell / h.shape[0], (hx + 0.5) * cell / h.shape[1]
+  top, left = min(max(cy - side / 2, 0), cell - side), min(max(cx - side / 2, 0), cell - side)
+  box = (c * cell + left, r * cell + top, c * cell + left + side, r * cell + top + side)
+  return sheet.crop(tuple(int(round(v)) for v in box)).resize((CELL, CELL))
 
 
 def numbered(img, k, font):
@@ -157,7 +178,12 @@ def compose(a):
     for c in st['channels']:
       cells = neuron_cells(m['fmt'], data['neurons'][c])
       sheet = Image.open(os.path.join(a.out, 'raw', name, 'sheets', f'{c:04d}.jpg')).convert('RGB')
-      imgs = {k: [cut(sheet, m['cell'], rc) for _, _, rc in v] for k, v in cells.items()}
+      if m.get('zoom'):
+        heat = np.fromfile(os.path.join(a.out, 'raw', name, 'heat', f'{c:04d}.bin'), dtype=np.uint8).reshape(-1, 24, 24)
+        imgs = {k: [zoom_cut(sheet, m['cell'], rc, heat, m['zoom']) if k != 'neg' else cut(sheet, m['cell'], rc)
+                    for _, _, rc in v] for k, v in cells.items()}
+      else:
+        imgs = {k: [cut(sheet, m['cell'], rc) for _, _, rc in v] for k, v in cells.items()}
       recs[model, c] = (cells, imgs)
       strong.setdefault(model, []).extend((c, im) for im in imgs['top'] + imgs['p999'])
   ids = rng.permutation(len(recs))

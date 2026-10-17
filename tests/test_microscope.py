@@ -82,3 +82,36 @@ def test_write_sheet_and_data(tmp_path):
   assert c0['rank'] == 1 and c0['datasetLabel'] == names[int(S['labels'][c0['imageIndex']])]
   from PIL import Image
   assert Image.open(tmp_path / 'examples' / 'stage3_block0' / '0002.jpg').size == (1536, 288)
+
+
+def test_inception_collect_units_and_directions():
+  from experiments import inception_microscope as im
+  from rcdl.third_party.lucent_inceptionv1 import InceptionV1
+  torch.manual_seed(0)
+  m = InceptionV1(pretrained=False, redirected_ReLU=False).eval()
+  g = torch.Generator().manual_seed(1)
+  x = torch.randn(3, 3, 224, 224, generator=g) * 50
+  units = [5, 300, 1000]
+  dirs = cm.random_dirs(1024, 2, seed=2)
+  S = im.collect(m, 'mixed5b', [(x[:2], [0, 1]), (x[2:], [2])], units, dirs)
+  cur, hs = im.hook_layer(m, 'mixed5b')
+  with torch.no_grad():
+    m(x)
+  for h in hs:
+    h.remove()
+  a = torch.cat([cur[b] for b in im.BRANCHES], 1).flatten(2)
+  d = torch.as_tensor(dirs, dtype=torch.float32)
+  ref = torch.cat([a[:, units], torch.einsum('dc,bcp->bdp', d, a), torch.einsum('dc,bcp->bdp', d, a.clamp(min=0))], 1)
+  assert S['grid'] == (7, 7) and S['maxv'].shape == (3, 7)
+  np.testing.assert_allclose(S['maxv'], ref.max(-1).values.numpy(), rtol=1e-4, atol=1e-4)
+  np.testing.assert_allclose(S['minv'], ref.min(-1).values.numpy(), rtol=1e-4, atol=1e-4)
+  assert (S['pmax'] == ref.argmax(-1).numpy()).mean() > 0.95
+
+
+def test_inception_crop_box():
+  from experiments import inception_microscope as im
+  assert im.crop_box(0, (7, 7), 224) == (0, 0, 224)
+  assert im.crop_box(0, (14, 14), 144) == (0, 0, 144)
+  top, left, side = im.crop_box(14 * 7 + 7, (14, 14), 144)                  # row 7, col 7: centre 120 -> 48
+  assert (top, left, side) == (48, 48, 144)
+  assert im.crop_box(14 * 14 - 1, (14, 14), 144) == (80, 80, 144)
