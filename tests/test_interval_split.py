@@ -596,7 +596,7 @@ def test_s2_permutation_null_keeps_exits_that_share_t_out():
              for j in cap for h in (0, 1)}}
   ex = [dict(b=b, n=0, c=c, pk=1, out=3, anchored=True, rep=True, C1=[]) for c in (0, 1)]
   ctx = SimpleNamespace(run=SimpleNamespace(g16=g, blocks=[b], U={b: 2}), sd=lambda s, bb: np.ones((2, 2)),
-                        events={'directions': {d: {'exits': ex} for d in X.DIRS}},
+                        floor=lambda s, h: 1e-3, events={'directions': {d: {'exits': ex} for d in X.DIRS}},
                         prm=dict(carriers=1, n_boot=20, seed=0))
   res = X.x3_s2(ctx, own)
   for d in X.DIRS:                                                 # unit 0's share halves in the t_out interval

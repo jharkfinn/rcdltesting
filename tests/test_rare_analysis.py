@@ -402,6 +402,9 @@ def test_measure_pipeline_on_toy(toy):
     assert key in r, key
   if r['K']:
     assert np.isfinite(r['F']) and 'PI' in r and -1 <= r['PI'] <= 1
+    nl = out['_nulls'][0]                                  # saved per-unit knockouts (amendment 1, C3)
+    Fj = np.median(nl['rand_both'] - np.median(nl['rand_both'], 1, keepdims=True), 0)
+    assert nl['rand_both'].shape == (len(r['K']), 50) and r['F_pct'] == pytest.approx(cr.pct_rank(r['F'], Fj))
   assert len(r['P2']['X_stage']) == 2 and r['P3']['check']['X'] and np.isfinite(r['P3']['sum_w'])
   E, X = np.array(r['P3']['check']['E']), np.array(r['P3']['check']['X'])   # full removal: first order is approximate
   assert np.isfinite(E).all() and np.isfinite(X).all()
@@ -478,15 +481,15 @@ def test_compare_on_synthetic_runs(tmp_path):
   import json
   rng = np.random.default_rng(0)
 
-  def rec(c, cond, kind='selected', level=10, pi=0.3, l3=0.7, df=0.0):
+  def rec(c, cond, kind='selected', level=10, pi=0.3, l3=0.7, df=0.0, top1=0.3):
     return {'cls': c, 'kind': kind, 'stratum': 'dense', 'level': level, 'condition': cond, 'set': 'A',
             'PI': pi + 0.1 * rng.normal(), 'defined': True, 'F': 0.5, 'O': 0.1, 'O_whole': 2.0, 'auroc_far': 0.7,
-            'top1': 0.3, 'own_share': 0.1, 'signature': False, 'pseudo_signature': False,
+            'top1': top1, 'own_share': 0.1, 'signature': False, 'pseudo_signature': False,
             'P2': {'lambda3': l3, 'defined': True}, 'P2_whole': {'lambda3': 0.5},
             'P3': {'defined': True, 'Delta_flow': df + 0.01 * rng.normal(), 'R_own': 0.3, 'R_mis': 0.1,
                    'R_flow': 0.3}}
   rare = {'run': 'A0', 'run_set': 'A', 'classes': [rec(c, 'rare') for c in range(30)]
-          + [rec(100 + c, 'rare', 'noise', None, pi=-0.5) for c in range(4)]}
+          + [rec(100 + c, 'rare', 'noise', None, pi=-0.5, top1=0.8) for c in range(4)]}
   c0 = {'run': 'C0', 'run_set': 'C', 'classes': [rec(c, 'common', l3=0.4) for c in range(30)]}
   other = {'run': 'B0', 'run_set': 'B', 'classes': [rec(c, 'common', l3=0.45) for c in range(30)]}
   files = {}
@@ -502,6 +505,8 @@ def test_compare_on_synthetic_runs(tmp_path):
   assert s0['P1']['n'] == 30 and s0['P1']['median'] > 0 and s0['P1']['p_two_sided'] < 0.01
   assert s0['P2']['median'] == pytest.approx(0.2) and set(res['holm_seed0']) == {'P1', 'P2', 'P3'}
   assert s0['noise_control']['passes'] and res['decision']['against_essay'] == []
+  assert s0['noise_control']['state'] == 'pass' and s0['relabel_control']['state'] == 'uninformative'
+  assert res['decision']['controls_state'] == {'seed0': 'uninformative'}       # no relabel control in this toy
 
 
 # ---------------------------------------------------------------------------------------- review fixes (adversarial)
@@ -737,3 +742,87 @@ def test_zeta_accepts_numpy_classes_and_fold_check_flags():
   assert chk['max_rel'] == 0.0 and chk['ok']
   cls['Cb'] = torch.tensor([[2.0, 2.0], [1.5, 1.0]]).half()
   assert not gg.fold_check({'m': rec}, {'m': cls}, np.array([0, 0, 1]), 2)['ok']
+
+
+# ------------------------------------------------------------------------------------- protocol amendment 1 (compare)
+
+def test_amendment_helpers():
+  m = cr.mcnemar_exact([True] * 18 + [False] * 94, [False] * 18 + [True] + [False] * 93)
+  assert (m['x_only'], m['y_only'], m['both']) == (18, 1, 0) and m['p_one_sided'] == pytest.approx(20 / 2 ** 19)
+  assert cr.mcnemar_exact([True, None], [False, True])['n'] == 1
+  wil = lambda z: {'p': 1e-4, 'z': z}
+  assert cr.floor_agrees({'median': -0.1, 'floor_wilcoxon': wil(-3.0)})
+  assert not cr.floor_agrees({'median': -0.1, 'floor_wilcoxon': wil(3.6)})      # the floor points the other way
+  assert not cr.floor_agrees({'median': -0.1, 'floor_wilcoxon': {'p': 0.2, 'z': -1.0}})
+  assert not cr.floor_agrees({'median': -0.1, 'floor_wilcoxon': None})
+  assert cr.noise_state([1, 0, 0, 0], [-0.9], [0.5]) == 'uninformative'          # fit check fails: not a failure
+  assert cr.noise_state([1, 1, 0.5], [], [0.5]) == 'uninformative'
+  assert cr.noise_state([1, 1, 0.5], [-0.9], [0.5]) == 'pass'
+  assert cr.noise_state([1, 1, 0.5], [0.9], [0.5]) == 'fail'
+  assert cr.controls_state('uninformative', 'pass') == 'uninformative'
+  assert cr.controls_state('uninformative', 'fail') == 'fail' and cr.controls_state('pass', 'pass') == 'pass'
+  assert cr.controls_state('pass', 'uninformative') == 'uninformative'
+
+
+def test_compare_amendment_1(tmp_path):
+  import argparse
+  import json
+  rng = np.random.default_rng(1)
+  ids = range(40)
+
+  def rec(c, cond, l3, pi=-0.99, defined=None, sig=False, fo=0.5, top1=0.0, kind='selected', level=10):
+    defined = c % 2 == 0 if defined is None else defined
+    return {'cls': c, 'kind': kind, 'stratum': 'dense', 'level': level, 'condition': cond, 'set': 'A',
+            'PI': pi + 0.001 * rng.normal() if defined else 0.9, 'defined': defined, 'F_pct': 0.01 if defined else 0.6,
+            'F': -20.0 if defined else 1.0, 'O': 0.01, 'O_whole': 2.0, 'def_threshold': 15.0, 'auroc_far': 0.7,
+            'top1': top1, 'signature': sig, 'pseudo_signature': False,
+            'S1': {'RBpx_K': 0.6, 'RPp_K': 0.5, 'RBpx_w': 0.45 + 0.01 * rng.normal(), 'RPp_w': 0.5},
+            'S2': {'sigma_stage0': 1.0 + 0.1 * rng.normal()},
+            'P2': {'lambda3': l3 + 0.01 * rng.normal(), 'defined': True}, 'P2_whole': {'lambda3': 0.5},
+            'P2_whole_fo': {'lambda3': fo}}
+
+  def write(name, recs):
+    path = str(tmp_path / f'{name}.json')
+    json.dump({'run': name, 'classes': recs}, open(path, 'w'))
+    return path
+  noise = [rec(200 + k, 'rare', 0.4, top1=float(k == 0), kind='noise', level=None) for k in range(4)]
+  rare = write('rare', [rec(c, 'rare', 0.4, sig=c < 10) for c in ids] + noise)
+  c0 = write('c0', [rec(c, 'common', 0.5, sig=c < 3) for c in ids])
+  shallow = write('shallow', [rec(c, 'common', 0.3) for c in ids])            # D0 below D: the floor points up
+  deep = write('deep', [rec(c, 'common', 0.5) for c in ids])
+  out = str(tmp_path / 'cmp.json')
+  args = dict(c0=[c0], rare1=[], c1=[], e1=[], e1r=[], out=out)
+  cr.cmd_compare(argparse.Namespace(rare=[rare, shallow], **args))
+  res = json.load(open(out))
+  s0, dec = res['seed0'], res['decision']
+  # P1: primary on the defined classes; secondaries over all 40 and with 'no route' as 0
+  assert s0['P1']['n'] == 20 and s0['P1_secondary']['raw_all']['n'] == 40
+  assert s0['P1_secondary']['no_route_as_zero']['n'] == 40 and s0['P1_secondary']['F_pct_tails']['le_0.05'] == 20
+  assert s0['P1_secondary']['symmetric_gate_2.5_97.5']['n'] == 20
+  # P2: a negative median whose floor points the other way is not a count; the references are all reported
+  assert s0['P2']['median'] < 0 and s0['P2']['floor_wilcoxon']['z'] > 0
+  p2 = [i for i in dec['against_candidates'] if i['claim'] == 'median lambda_3 difference < 0'][0]
+  assert p2['floor_ok'] is False and 'median lambda_3 difference < 0' not in dec['against_pending_seed1']
+  assert {'P2_ref_first_order', 'P2_ref_own_m'} <= set(s0)
+  # P1 and the signature excess also hold in C0: flagged, still pending
+  assert dec['against_pending_seed1'] == ['median PI < 0', 'excess of packing signatures']
+  assert any('median PI < 0' in f and 'common run' in f for f in dec['secondary_flags'])
+  u = s0['universality']
+  assert u['mcnemar_vs_pseudo']['x_only'] == 10 and u['mcnemar_vs_pseudo']['p_one_sided'] == pytest.approx(0.5 ** 10)
+  assert u['common']['signatures'] == 3 and u['mcnemar_rare_vs_common']['x_only'] == 7
+  # noise control: fit check fails -> uninformative, not failed
+  assert s0['noise_control']['state'] == 'uninformative' and dec['controls_state']['seed0'] == 'uninformative'
+  assert dec['note'].startswith('noise control uninformative') and dec['note'] != cr.CONTROL_NOTES['fail']
+  # S1 weighted version and S2 with its floor
+  assert s0['S1_RBpx_w_at_RPp_w_half']['n'] == 40 and s0['S2_rare_minus_C0']['sigma_stage0']['floor_wilcoxon']
+  # the floor agrees, but the first-order reference is positive: pending with a secondary flag
+  fo = write('rare_fo', [rec(c, 'rare', 0.4, fo=0.3) for c in ids])
+  c0fo = write('c0_fo', [rec(c, 'common', 0.5, fo=0.3) for c in ids])
+  cr.cmd_compare(argparse.Namespace(rare=[fo, deep], **{**args, 'c0': [c0fo]}))
+  res = json.load(open(out))
+  assert res['seed0']['P2_ref_first_order']['median'] > 0
+  assert 'median lambda_3 difference < 0' in res['decision']['against_pending_seed1']
+  assert any('references are not all negative' in f for f in res['decision']['secondary_flags'])
+  # the result does not depend on the order of the files
+  cr.cmd_compare(argparse.Namespace(rare=[deep, fo], **{**args, 'c0': [c0fo]}))
+  assert json.load(open(out))['seed0'] == res['seed0']

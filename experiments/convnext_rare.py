@@ -87,6 +87,13 @@ one-sided binomial test at the pseudo rate (k + 1) / (n + 2). The P2 primary D(c
 lambda_3^ref(C0, whole class) has the floor D0(c) = lambda_3(other-set run, Own_m) - lambda_3^ref(C0). Decision rules
 (section 7): a count against the essay needs Holm significance, the floor (P2) and seed-1 replication; without
 seed-1 runs it is listed as pending.
+Amendment 1 (docs/data/rare/protocol_amendment_1.md): classes sorted by id before every bootstrap; PI, lambda_3 and
+R_own enter every statistic only where defined (PI: 'defined', lambda_3: P2.defined, R_own: P3.defined); a floor
+passes only when its Wilcoxon z has the sign of the contrast's median; the noise control has three states (pass,
+fail, uninformative); secondary reports: P1 over all classes, with 'no route' as 0 and with symmetric F_pct gates;
+the protocol's other P1 versions; P2 with the first-order and Own_m references; McNemar tests for universality
+(against the pseudo-own, and rare against common); S1 RBpx_w; S2 and the relabel control with their floors; and
+flags when a count against the essay also holds in the common run (C0, C1) or when the P2 references disagree.
 
 Subcommands:
   measure  --run R --step S [--flow flow.npz] [--train /dev/shm/imagenet256] -> rare_measure_{S}.json (+ .npz arrays)
@@ -747,7 +754,7 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
   up_c = unit_map_parts(parts_c, device, dtype)
   up_o = unit_map_parts(parts_f, device, dtype) if fine else up_c
   q_units = unit_quietness(snap, model) if snap is not None else None
-  recs, pos = [], 0
+  recs, pos, nulls = [], 0, {}
   for ci, c in enumerate(classes):
     row = sel.rows[c]
     x = normalize(xs[c], device).to(dtype)
@@ -785,6 +792,9 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
                               unit_parts(up_o, b, n, d['h'][:, n]), near, draws, own_of(c) if has_own else None,
                               [own_of(k) for k in nown], c, sg, sv))
     rec.update(summarize_p1(per_unit, c, nown))
+    if per_unit:                                     # per-unit knockouts and their nulls (saved, amendment 1 C3)
+      nulls[c] = {k: np.array([u[k] for u in per_unit]) for k in ('near_both', 'rand_both', 'own_both', 'nown_both')
+                  if k in per_unit[0]}
     # P2: stage excision of Own_m and N_own (and of the whole classes), exact and first order
     if p2 and has_own and nown:
       X = stage_excision(model, mods, own_split, [own_of(c)] + [own_of(k) for k in nown], x, c)
@@ -828,7 +838,8 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
     recs.append(rec)
     if ci % 10 == 0:
       log(f'class {ci + 1}/{len(classes)} {time.time() - t0:.0f}s')
-  return {'classes': recs, 'sigma': sigma.tolist(), 'units': [list(u) for u in units], '_DeltaQ': DeltaQ}
+  return {'classes': recs, 'sigma': sigma.tolist(), 'units': [list(u) for u in units], '_DeltaQ': DeltaQ,
+          '_nulls': nulls}
 
 
 @torch.no_grad()
@@ -1246,6 +1257,49 @@ def binom_sf(k: int, n: int, p: float) -> float:
   return float(sum(math.comb(n, i) * p ** i * (1 - p) ** (n - i) for i in range(k, n + 1)))
 
 
+def mcnemar_exact(x, y) -> dict:
+  """Exact McNemar test of paired booleans (the same classes; pairs with a None dropped): b = x and not y, c = y and
+  not x; p_one_sided = P(B >= b) for B ~ Binomial(b + c, 1/2) (x true more often than y)."""
+  pairs = [(bool(u), bool(v)) for u, v in zip(x, y) if u is not None and v is not None]
+  b = sum(u and not v for u, v in pairs)
+  c = sum(v and not u for u, v in pairs)
+  n = b + c
+  p_ge = binom_sf(b, n, 0.5) if n else 1.0
+  p_le = 1.0 - binom_sf(b + 1, n, 0.5) if n else 1.0
+  return {'n': len(pairs), 'x_only': b, 'y_only': c, 'both': sum(u and v for u, v in pairs),
+          'p_one_sided': p_ge, 'p_two_sided': min(1.0, 2 * min(p_ge, p_le))}
+
+
+def floor_agrees(res: dict) -> bool:
+  """The same-seed floor (Sec. 6, amendment 1 A2): the Wilcoxon test of D - D0 has p < 0.05 and its z has the sign of
+  the contrast's median, so D exceeds D0 in the direction of the effect."""
+  w, m = res.get('floor_wilcoxon'), res.get('median')
+  return bool(w and w.get('p') is not None and w['p'] < 0.05 and m is not None and m != 0
+              and np.sign(w['z']) == np.sign(m))
+
+
+def noise_state(fit, noise_pi, real_pi, min_fit: float = 0.5) -> str:
+  """The noise control (Sec. 4.3 and 7, amendment 1 A1/B1): 'uninformative' when the fit check fails (median top-1
+  on T below min_fit) or no noise or real PI is defined; otherwise 'pass' when the median noise PI is below the median
+  real PI (defined PIs), else 'fail'."""
+  if not len(fit) or np.median(fit) < min_fit or not len(noise_pi) or not len(real_pi):
+    return 'uninformative'
+  return 'pass' if np.median(noise_pi) < np.median(real_pi) else 'fail'
+
+
+def controls_state(noise: str, relabel: str) -> str:
+  """'fail' if either positive control fails, else 'uninformative' if either is (no relabel control: uninformative),
+  else 'pass'."""
+  if 'fail' in (noise, relabel):
+    return 'fail'
+  return 'uninformative' if 'uninformative' in (noise, relabel) else 'pass'
+
+
+CONTROL_NOTES = {'pass': None, 'fail': 'positive controls failed: primaries are unvalidated',
+                 'uninformative': 'noise control uninformative (fit check failed or no defined noise PI), or no '
+                                  'relabel control: the primaries are not validated by it'}
+
+
 def get(rec: dict, path: str):
   """rec['a']['b'] for path 'a.b' (None if missing)."""
   for p in path.split('.'):
@@ -1256,149 +1310,232 @@ def get(rec: dict, path: str):
 
 
 def cmd_compare(a):
-  """Pairing over runs, floors, bootstrap, Holm, the seed rule, universality, controls and the decision rules."""
+  """Pairing over runs, floors, bootstrap, Holm, the seed rule, universality, controls and the decision rules
+  (protocol v2 with amendment 1)."""
   load = lambda fs: [json.load(open(f)) for f in (fs or [])]
   rare, c0, rare1, c1 = load(a.rare), load(a.c0), load(a.rare1), load(a.c1)
   e1, e1r = load(a.e1), load(a.e1r)
 
-  def by_cls(run, cond=None):
-    return {r['cls']: r for r in run['classes'] if cond is None or r['condition'] == cond}
+  def by_cls(run, cond=None):                      # sorted by class id: results do not depend on the file order
+    return {r['cls']: r for r in sorted(run['classes'], key=lambda r: r['cls'])
+            if cond is None or r['condition'] == cond}
 
   def rare_recs(runs):
     out = {}
     for o in runs:
       out.update(by_cls(o, 'rare'))
-    return out
+    return dict(sorted(out.items()))
+
+  def common_recs(runs):
+    out = {}
+    for o in runs:
+      out.update(by_cls(o, 'common'))
+    return dict(sorted(out.items()))
+
+  # values that exist only where their definedness gate holds (amendment 1, A5)
+  pi_d = lambda r: r.get('PI') if r.get('defined') else None
+  l3_d = lambda r: get(r, 'P2.lambda3') if get(r, 'P2.defined') else None
+  rown_d = lambda r: get(r, 'P3.R_own') if get(r, 'P3.defined') else None
+  med = lambda v: float(np.median(v)) if len(v) else None
 
   def stats(rr, cc, other):
-    prim = [c for c, r in rr.items() if r['kind'] == 'selected' and r['level'] in (10, 100)]
+    prim = sorted(c for c, r in rr.items() if r['kind'] == 'selected' and r['level'] in (10, 100))
     res = {}
+    # P1 (primary): median PI over the primary classes where PI is defined; 'no route' classes are counted
     pi = [rr[c]['PI'] for c in prim if rr[c].get('defined')]
     res['P1'] = bootstrap_median(pi)
     res['P1']['n_no_route'] = len(prim) - len(pi)
-    d2, f2 = [], []
-    for c in prim:
-      l3, ref = get(rr[c], 'P2.lambda3'), get(cc.get(c, {}), 'P2_whole.lambda3')
-      if get(rr[c], 'P2.defined') and l3 is not None and ref is not None:
-        d2.append(l3 - ref)
-        o = get(other.get(c, {}), 'P2.lambda3')         # floor D0: the same contrast where c is common (other set)
-        if o is not None:
-          f2.append((l3 - ref) - (o - ref))
-    res['P2'] = bootstrap_median(d2)
-    res['P2']['floor_wilcoxon'] = wilcoxon(f2) if f2 else None
-    l3r = [get(rr[c], 'P2.lambda3') for c in prim if get(rr[c], 'P2.defined') and get(rr[c], 'P2.lambda3') is not None]
-    res['P2']['median_lambda3_rare'] = float(np.median(l3r)) if l3r else None
+    # P1 secondaries (amendment 1, A4/B2/B7): all classes, 'no route' as 0, symmetric F_pct gates, tail counts, and
+    # the protocol's other versions (gate-only, value-only, linear, gate opening, absent classes)
+    fpct = [rr[c].get('F_pct') for c in prim if rr[c].get('F_pct') is not None]
+    lo, hi = sum(v <= 0.05 for v in fpct), sum(v >= 0.95 for v in fpct)
+    sym = [rr[c]['PI'] for c in prim if rr[c].get('PI') is not None and rr[c].get('F_pct') is not None
+           and (rr[c]['F_pct'] <= 0.025 or rr[c]['F_pct'] >= 0.975)]
+    res['P1_secondary'] = {
+      'raw_all': bootstrap_median([rr[c].get('PI') for c in prim]),
+      'no_route_as_zero': bootstrap_median([rr[c]['PI'] if rr[c].get('defined') else 0.0 for c in prim]),
+      'symmetric_gate_2.5_97.5': bootstrap_median(sym),
+      'F_pct_tails': {'n': len(fpct), 'le_0.05': lo, 'ge_0.95': hi,
+                      'p_low': binom_sf(lo, len(fpct), 0.05) if fpct else None,
+                      'p_high': binom_sf(hi, len(fpct), 0.05) if fpct else None}}
+    versions = (('F_gate', lambda r: r.get('F_gate')), ('F_value', lambda r: r.get('F_value')),
+                ('F_lin_pct_minus_half', lambda r: r['F_lin_pct'] - 0.5 if r.get('F_lin_pct') is not None else None),
+                ('O_lin_pct_minus_half', lambda r: r['O_lin_pct'] - 0.5 if r.get('O_lin_pct') is not None else None),
+                ('F_gate_minus_O_gate', lambda r: r['F_gate'] - r['O_gate'] if r.get('F_gate') is not None
+                 and r.get('O_gate') is not None else None))
+    res['P1_versions'] = {k: {'all': bootstrap_median([fn(rr[c]) for c in prim]),
+                              'defined': bootstrap_median([fn(rr[c]) for c in prim if rr[c].get('defined')])}
+                          for k, fn in versions}
+    absent = [c for c, r in rr.items() if r['kind'] == 'selected' and r['level'] == 0]
+    res['P1_versions']['F_absent'] = bootstrap_median([rr[c].get('F') for c in absent])
+
+    # P2 (primary: the exact whole-class reference in C0) and the first-order and Own_m references (secondary, A3)
+    def p2(ref_of):
+      d2, f2 = [], []
+      for c in prim:
+        l3, ref = l3_d(rr[c]), ref_of(cc.get(c, {}))
+        if l3 is not None and ref is not None:
+          d2.append(l3 - ref)
+          o = l3_d(other.get(c, {}))                  # floor D0: the same contrast where c is common (other set)
+          if o is not None:
+            f2.append((l3 - ref) - (o - ref))
+      r = bootstrap_median(d2)
+      r['floor_wilcoxon'] = wilcoxon(f2) if f2 else None
+      return r
+    res['P2'] = p2(lambda r: get(r, 'P2_whole.lambda3'))
+    res['P2_ref_first_order'] = p2(lambda r: get(r, 'P2_whole_fo.lambda3'))
+    res['P2_ref_own_m'] = p2(l3_d)
+    l3r = [l3_d(rr[c]) for c in prim if l3_d(rr[c]) is not None]
+    res['P2']['median_lambda3_rare'] = med(l3r)
     res['P2']['frac_lambda3_gt_half'] = float(np.mean([v > 0.5 for v in l3r])) if l3r else None
-    df = [get(rr[c], 'P3.Delta_flow') for c in prim if get(rr[c], 'P3.defined')]
-    df = [v for v in df if v is not None]                # None: no flow weights for the class
-    res['P3'] = bootstrap_median(df)
-    gap = [get(rr[c], 'P3.R_flow') - get(rr[c], 'P3.R_mis') for c in prim
-           if get(rr[c], 'P3.R_flow') is not None and get(rr[c], 'P3.R_mis') is not None]
-    res['P3']['delta'] = 0.2 * float(np.median(gap)) if gap else None
-    res['P3']['n_excluded'] = len(prim) - len(df)
-    om = [get(rr[c], 'P3.R_own') - get(rr[c], 'P3.R_mis') for c in prim
-          if get(rr[c], 'P3.R_own') is not None and get(rr[c], 'P3.R_mis') is not None]
+
+    # P3 (primary), and the same in the common run
+    def p3(recs):
+      df = [get(recs.get(c, {}), 'P3.Delta_flow') for c in prim if get(recs.get(c, {}), 'P3.defined')]
+      df = [v for v in df if v is not None]            # None: no flow weights for the class
+      r = bootstrap_median(df)
+      gap = [get(recs[c], 'P3.R_flow') - get(recs[c], 'P3.R_mis') for c in prim if c in recs
+             and get(recs[c], 'P3.R_flow') is not None and get(recs[c], 'P3.R_mis') is not None]
+      r['delta'] = 0.2 * float(np.median(gap)) if gap else None
+      r['n_excluded'] = len(prim) - len(df)
+      return r
+    res['P3'] = p3(rr)
+    om = [rown_d(rr[c]) - get(rr[c], 'P3.R_mis') for c in prim
+          if rown_d(rr[c]) is not None and get(rr[c], 'P3.R_mis') is not None]
     res['P3_own_minus_mis'] = bootstrap_median(om)
+    # the common run (C0, or C1 at seed 1): P1 and P3 by the same statistics (secondary, A10)
+    res['common'] = {'P1': bootstrap_median([pi_d(cc[c]) for c in prim if c in cc]), 'P3': p3(cc)}
     # rare - C0 contrasts, with the same-seed floor D0 = other-set run - C0
-    for name, path in (('PI', 'PI'), ('F', 'F'), ('O', 'O'), ('lambda3', 'P2.lambda3'), ('R_own', 'P3.R_own'),
-                       ('auroc_far', 'auroc_far'), ('own_share', 'own_share')):
+    for name, fn in (('PI', pi_d), ('F', lambda r: r.get('F')), ('O', lambda r: r.get('O')), ('lambda3', l3_d),
+                     ('R_own', rown_d), ('auroc_far', lambda r: r.get('auroc_far')),
+                     ('auroc_near', lambda r: r.get('auroc_near')), ('own_share', lambda r: r.get('own_share')),
+                     ('fit_T', lambda r: r.get('fit_T'))):
       D, D0 = [], []
       for c in prim:
-        r, q = get(rr[c], path), get(cc.get(c, {}), path)
-        o = get(other.get(c, {}), path)
+        r, q, o = fn(rr[c]), fn(cc.get(c, {})), fn(other.get(c, {}))
         if r is not None and q is not None:
           D.append(r - q)
           D0.append((o - q) if o is not None else None)
+      if not D:
+        continue
       pairs = [(x, y) for x, y in zip(D, D0) if y is not None]
       res[f'rare_minus_C0_{name}'] = bootstrap_median(D)
       res[f'rare_minus_C0_{name}']['floor_wilcoxon'] = wilcoxon([x - y for x, y in pairs]) if pairs else None
     # S5 crossover: rare run against the other set's run (where c is common)
-    for name, path in (('PI', 'PI'), ('F', 'F'), ('lambda3', 'P2.lambda3'), ('auroc_far', 'auroc_far')):
-      d = [get(rr[c], path) - get(other[c], path) for c in prim if c in other and get(rr[c], path) is not None
-           and get(other[c], path) is not None]
+    for name, fn in (('PI', pi_d), ('F', lambda r: r.get('F')), ('lambda3', l3_d),
+                     ('auroc_far', lambda r: r.get('auroc_far'))):
+      d = [fn(rr[c]) - fn(other[c]) for c in prim if c in other and fn(rr[c]) is not None
+           and fn(other[c]) is not None]
       res[f'S5_rare_minus_other_{name}'] = bootstrap_median(d)
-    # S1: builders beyond pole membership, intercept of RBp^x on (RPp - 0.5) over classes, bootstrap interval
-    pts = [(get(rr[c], 'S1.RPp_K'), get(rr[c], 'S1.RBpx_K')) for c in prim]
-    pts = np.array([p for p in pts if None not in p], np.float64).reshape(-1, 2)
-    if len(pts) > 3:
+
+    # S1: builders beyond pole membership, intercept of RBp^x on (RPp - 0.5) over classes, bootstrap interval; on K(c)
+    # and weighted by own effect (RBpx_w on RPp_w, A8)
+    def s1(xk, yk):
+      pts = [(get(rr[c], f'S1.{xk}'), get(rr[c], f'S1.{yk}')) for c in prim]
+      pts = np.array([p for p in pts if None not in p], np.float64).reshape(-1, 2)
+      if len(pts) <= 3:
+        return None
       def icept(P):
         A = np.stack([np.ones(len(P)), P[:, 0] - 0.5], 1)
         return float(np.linalg.lstsq(A, P[:, 1], rcond=None)[0][0])
       rng = np.random.default_rng(0)
       boot = [icept(pts[rng.integers(len(pts), size=len(pts))]) for _ in range(2000)]
-      res['S1_RBpx_at_RPp_half'] = {'n': len(pts), 'intercept': icept(pts),
-                                    'ci95': np.percentile(boot, [2.5, 97.5]).tolist(),
-                                    'median_RBpx': float(np.median(pts[:, 1])),
-                                    'median_RPp': float(np.median(pts[:, 0]))}
-    # S2: per-image memorization, rare - C0 on the same images, per stage and head
-    s2 = {}
+      return {'n': len(pts), 'intercept': icept(pts), 'ci95': np.percentile(boot, [2.5, 97.5]).tolist(),
+              f'median_{yk}': float(np.median(pts[:, 1])), f'median_{xk}': float(np.median(pts[:, 0])),
+              f'median_{yk}_C0': med([get(cc[c], f'S1.{yk}') for c in prim if c in cc
+                                      and get(cc[c], f'S1.{yk}') is not None])}
+    for key, xk, yk in (('S1_RBpx_at_RPp_half', 'RPp_K', 'RBpx_K'), ('S1_RBpx_w_at_RPp_w_half', 'RPp_w', 'RBpx_w')):
+      r = s1(xk, yk)
+      if r is not None:
+        res[key] = r
+    # S2: per-image memorization, rare - C0 on the same images, per stage and head, with the floor (A7)
+    s2, s2f = {}, {}
     for c in prim:
-      a_, b_ = get(rr[c], 'S2'), get(cc.get(c, {}), 'S2')
+      a_, b_, o_ = get(rr[c], 'S2'), get(cc.get(c, {}), 'S2'), get(other.get(c, {}), 'S2')
       if a_ and b_:
         for k in a_:
-          if k.startswith('sigma') and b_.get(k) is not None:
+          if k.startswith('sigma') and a_[k] is not None and b_.get(k) is not None:
             s2.setdefault(k, []).append(a_[k] - b_[k])
-    res['S2_rare_minus_C0'] = {k: bootstrap_median(v) for k, v in s2.items()}
-    # universality
-    sig = [rr[c].get('signature') for c in prim if rr[c].get('signature') is not None]
-    ps = [rr[c].get('pseudo_signature') for c in prim if rr[c].get('pseudo_signature') is not None]
-    k, n, kp = int(sum(sig)), len(sig), int(sum(ps))
-    res['universality'] = {'n': n, 'signatures': k, 'pseudo_signatures': kp,
-                           'p_excess': binom_sf(k, n, (kp + 1) / (n + 2)) if n else None}
-    # cells (descriptive)
+            if o_ and o_.get(k) is not None:
+              s2f.setdefault(k, []).append(a_[k] - o_[k])     # D - D0 = (rare - C0) - (other - C0)
+    res['S2_rare_minus_C0'] = {k: {**bootstrap_median(v), 'floor_wilcoxon': wilcoxon(s2f[k]) if s2f.get(k) else None}
+                               for k, v in s2.items()}
+
+    # universality (primary test: binomial at the pseudo rate) and the McNemar tests (secondary, A6/A10)
+    def univ(recs):
+      sig = [recs[c].get('signature') for c in prim if c in recs and recs[c].get('signature') is not None]
+      ps = [recs[c].get('pseudo_signature') for c in prim if c in recs and recs[c].get('pseudo_signature') is not None]
+      k, n, kp = int(sum(sig)), len(sig), int(sum(ps))
+      return {'n': n, 'signatures': k, 'pseudo_signatures': kp,
+              'p_excess': binom_sf(k, n, (kp + 1) / (n + 2)) if n else None}
+    res['universality'] = univ(rr)
+    sig_r = [rr[c].get('signature') for c in prim]
+    res['universality']['mcnemar_vs_pseudo'] = mcnemar_exact(sig_r, [rr[c].get('pseudo_signature') for c in prim])
+    res['universality']['common'] = univ(cc)
+    res['universality']['mcnemar_rare_vs_common'] = mcnemar_exact(sig_r, [cc.get(c, {}).get('signature')
+                                                                          for c in prim])
+    # cells (descriptive; PI where defined)
     cells = {}
     for c in rr:
       r = rr[c]
       key = f"{r['kind']}/{r['stratum']}/{r['level']}"
       cells.setdefault(key, []).append(r)
-    res['cells'] = {k: {'n': len(v), 'median_PI': float(np.median([x['PI'] for x in v if x.get('PI') is not None]))
-                        if any(x.get('PI') is not None for x in v) else None,
-                        'median_F': float(np.median([x['F'] for x in v if x.get('F') is not None]))
-                        if any(x.get('F') is not None for x in v) else None}
+    res['cells'] = {k: {'n': len(v), 'n_defined': sum(bool(x.get('defined')) for x in v),
+                        'median_PI': med([pi_d(x) for x in v if pi_d(x) is not None]),
+                        'median_F': med([x['F'] for x in v if x.get('F') is not None])}
                     for k, v in sorted(cells.items())}
+
     # controls
     noise = [r for r in rr.values() if r['kind'] == 'noise']
-    real = [rr[c]['PI'] for c in prim if rr[c].get('PI') is not None]
-    npi = [r['PI'] for r in noise if r.get('PI') is not None]
+    real = [pi_d(rr[c]) for c in prim if pi_d(rr[c]) is not None]
+    npi = [pi_d(r) for r in noise if pi_d(r) is not None]
     fit = [r['top1'] for r in noise if r.get('top1') is not None]          # noise probes are its training images
+    nF = [r['F'] for r in noise if r.get('F') is not None]
+    state = noise_state(fit, npi, real)
     res['noise_control'] = {'n': len(noise), 'fit_T': fit, 'informative': bool(fit and np.median(fit) >= 0.5),
-                            'median_PI': float(np.median(npi)) if npi else None,
-                            'median_PI_real': float(np.median(real)) if real else None,
+                            'n_defined': len(npi), 'median_PI': med(npi), 'median_PI_real': med(real),
+                            'median_PI_raw': med([r['PI'] for r in noise if r.get('PI') is not None]),
+                            'median_PI_real_raw': med([rr[c]['PI'] for c in prim if rr[c].get('PI') is not None]),
                             'auroc_noise_below_real': auroc(real, npi) if npi and real else None,
-                            'median_F': float(np.median([r['F'] for r in noise if r.get('F') is not None]))
-                            if noise else None,
+                            'median_F': med(nF), 'n_F_negative': sum(v < 0 for v in nF),
                             'R_own_minus_mis': [get(r, 'P3.R_own') - get(r, 'P3.R_mis') for r in noise
                                                 if get(r, 'P3.R_own') is not None and get(r, 'P3.R_mis') is not None],
-                            'passes': bool(npi and real and np.median(npi) < np.median(real))}
-    rel = [r for r in rr.values() if r['kind'] == 'relabel']
-    srcF = [(r.get('F_src'), r.get('F')) for r in rel if r.get('F_src') is not None and r.get('F') is not None]
-    res['relabel_control'] = {'n': len(srcF), 'F_src_minus_F_label': [x - y for x, y in srcF],
-                              'passes': bool(srcF and np.median([x - y for x, y in srcF]) > 0)}
+                            'state': state, 'passes': state == 'pass'}
+    stat = lambda r: r['F_src'] - r['F'] if r.get('F_src') is not None and r.get('F') is not None else None
+    rel = [c for c, r in rr.items() if r['kind'] == 'relabel' and stat(r) is not None]
+    diff = [stat(rr[c]) for c in rel]
+    D = [(stat(rr[c]) - stat(cc[c]), stat(other[c]) - stat(cc[c]) if c in other and stat(other[c]) is not None
+          else None) for c in rel if c in cc and stat(cc[c]) is not None]
+    res['relabel_control'] = {'n': len(diff), 'F_src_minus_F_label': diff,
+                              'passes': bool(diff and np.median(diff) > 0),
+                              'state': ('pass' if np.median(diff) > 0 else 'fail') if diff else 'uninformative',
+                              'sign_test_p': binom_sf(sum(v > 0 for v in diff), sum(v != 0 for v in diff), 0.5)
+                              if diff else None,
+                              'rare_minus_C0': [x for x, _ in D],
+                              'floor_wilcoxon': wilcoxon([x - y for x, y in D if y is not None]) if D else None}
     cal = [get(cc.get(c, {}), 'O_whole') for c in prim]
     cal = [v for v in cal if v is not None]
+    thr = [(get(cc[c], 'O_whole'), get(cc[c], 'def_threshold')) for c in prim if c in cc]
+    thr = [(o, t) for o, t in thr if o is not None and t is not None]
     orare = [rr[c]['O'] for c in prim if rr[c].get('O') is not None]
-    res['C0_calibration'] = {'median_O_whole_C0': float(np.median(cal)) if cal else None,
-                             'median_O_rare': float(np.median(orare)) if orare else None}
+    res['C0_calibration'] = {'median_O_whole_C0': med(cal), 'median_O_rare': med(orare),
+                             'frac_O_whole_above_C0_threshold': float(np.mean([abs(o) > t for o, t in thr]))
+                             if thr else None}
     return res
 
   out = {}
   rr0 = rare_recs(rare)
   cc0 = by_cls(c0[0]) if c0 else {}
-  other0 = {}
-  for o in rare:
-    other0.update(by_cls(o, 'common'))
-  out['seed0'] = s0 = stats(rr0, cc0, other0)
+  out['seed0'] = s0 = stats(rr0, cc0, common_recs(rare))
   pv = {k: s0[k].get('p_two_sided') for k in ('P1', 'P2', 'P3')}
   out['holm_seed0'] = holm(pv)
+  s1 = None
   if rare1:
     rr1 = rare_recs(rare1)
     # without C1 the protocol uses E1r for class-split measures (the P2 reference P2_whole, the C0 calibration)
     cc1 = by_cls(c1[0]) if c1 else (by_cls(e1r[0]) if e1r else {})
     out['seed1_reference'] = 'C1' if c1 else ('E1r' if e1r else None)
-    other1 = {}
-    for o in rare1:
-      other1.update(by_cls(o, 'common'))
-    out['seed1'] = s1 = stats(rr1, cc1, other1)
+    out['seed1'] = s1 = stats(rr1, cc1, common_recs(rare1))
     rep = {}
     for k in ('P1', 'P2', 'P3'):
       m0, m1 = s0[k].get('median'), s1[k].get('median')
@@ -1424,45 +1561,89 @@ def cmd_compare(a):
   out['floor_seed_E1r_minus_E1'] = floor(e1r, e1)
   out['floor_seed_C1_minus_C0'] = floor(c1, c0, ('auroc_far', 'top1', 'F', 'O', 'PI', 'O_whole', 'P2_whole.lambda3'))
   # decision rules (section 7): a count against the essay needs Holm significance (P1, P2), the same-seed floor (P2,
-  # the only rare - C0 primary contrast) and seed-1 replication; without seed-1 runs it is only 'pending'
+  # the only rare - C0 primary contrast, in the effect's direction) and seed-1 replication; without seed-1 runs it is
+  # only 'pending'. The flags below are secondary (amendment 1) and change no count.
   hp = out['holm_seed0']
   sig = lambda k: hp.get(k) is not None and hp[k] < 0.05
   rep = out.get('replication', {})
-  s1 = out.get('seed1')
   replicated = lambda k: (rep.get(k) or {}).get('replicated') if rep else None
-  floor_ok = lambda r: bool(r.get('floor_wilcoxon') and r['floor_wilcoxon'].get('p') is not None
-                            and r['floor_wilcoxon']['p'] < 0.05)
   d = s0['P3'].get('delta')
   below = lambda r, dd: bool(r.get('n') and dd is not None and r['ci95'][1] < -dd)
+
+  def in_common(s, claim, sign=-1):
+    """The claim holds in that seed's common run by the same statistic (P1, P3) or test (universality)."""
+    if s is None:
+      return None
+    cm = s['common']
+    if claim == 'P1':
+      return bool(cm['P1'].get('n') and np.sign(cm['P1']['median']) == sign and cm['P1']['p_two_sided'] < 0.05)
+    if claim == 'P3':
+      return below(cm['P3'], cm['P3'].get('delta'))
+    pe = s['universality']['common'].get('p_excess')
+    return bool(pe is not None and pe < 0.05)
+
+  def refs(s, sign):
+    """P2 medians with the three references, and whether all have the given sign."""
+    if s is None:
+      return None
+    m = {k: s[key].get('median') for k, key in (('exact', 'P2'), ('first_order', 'P2_ref_first_order'),
+                                                ('own_m', 'P2_ref_own_m'))}
+    return {**m, 'all_same_sign': all(v is not None and np.sign(v) == sign for v in m.values())}
   items = []
   if sig('P1') and s0['P1']['median'] < 0:
-    items.append({'claim': 'median PI < 0', 'replicated': replicated('P1'), 'floor_ok': True})
+    items.append({'claim': 'median PI < 0', 'replicated': replicated('P1'), 'floor_ok': True,
+                  'also_in_common': {'seed0': in_common(s0, 'P1'), 'seed1': in_common(s1, 'P1')}})
   if sig('P2') and s0['P2']['median'] < 0:
     items.append({'claim': 'median lambda_3 difference < 0', 'replicated': replicated('P2'),
-                  'floor_ok': floor_ok(s0['P2'])})
+                  'floor_ok': floor_agrees(s0['P2']), 'references': {'seed0': refs(s0, -1), 'seed1': refs(s1, -1)}})
   if below(s0['P3'], d):
     items.append({'claim': 'Delta_flow interval below -delta', 'floor_ok': True,
-                  'replicated': below(s1['P3'], s1['P3'].get('delta')) if s1 else None})
+                  'replicated': below(s1['P3'], s1['P3'].get('delta')) if s1 else None,
+                  'also_in_common': {'seed0': in_common(s0, 'P3'), 'seed1': in_common(s1, 'P3')}})
   u = s0['universality']
   if u.get('p_excess') is not None and u['p_excess'] < 0.05:
     items.append({'claim': 'excess of packing signatures', 'floor_ok': True,
                   'replicated': bool(s1['universality'].get('p_excess') is not None
-                                     and s1['universality']['p_excess'] < 0.05) if s1 else None})
+                                     and s1['universality']['p_excess'] < 0.05) if s1 else None,
+                  'also_in_common': {'seed0': in_common(s0, 'U'), 'seed1': in_common(s1, 'U')},
+                  'mcnemar_vs_pseudo_p': {'seed0': u['mcnemar_vs_pseudo']['p_one_sided'],
+                                          'seed1': s1['universality']['mcnemar_vs_pseudo']['p_one_sided']
+                                          if s1 else None}})
   counts = [i['claim'] for i in items if i['floor_ok'] and i['replicated']]
   pending = [i['claim'] for i in items if i['floor_ok'] and i['replicated'] is None]
+  flags = []
+  for i in items:
+    if i['claim'] not in counts + pending:
+      continue
+    for seed, v in (i.get('also_in_common') or {}).items():
+      if v:
+        flags.append(f"'{i['claim']}' also holds in the common run ({seed})")
+    for seed, v in (i.get('references') or {}).items():
+      if v and not v['all_same_sign']:
+        flags.append(f"'{i['claim']}': the P2 references are not all negative ({seed})")
   ok_p3 = s0['P3'].get('n') and d is not None and s0['P3']['ci95'][0] >= -d and \
     (s0['P3_own_minus_mis'].get('median') or -1) > 0
   support = []
-  if sig('P1') and s0['P1']['median'] > 0 and sig('P2') and s0['P2']['median'] > 0 and floor_ok(s0['P2']) and \
+  if sig('P1') and s0['P1']['median'] > 0 and sig('P2') and s0['P2']['median'] > 0 and floor_agrees(s0['P2']) and \
      (s0['P2'].get('median_lambda3_rare') or 0) > 0.5 and ok_p3:
     support.append('all of P1 > 0, P2 > 0 (beyond the floor) with lambda_3 > 0.5, P3 within -delta with R_own > R_mis')
-  controls_ok = s0['noise_control']['passes'] and s0['relabel_control']['passes']
+    for seed, s in (('seed0', s0), ('seed1', s1)):
+      if in_common(s, 'P1', 1):
+        flags.append(f"'P1 > 0' also holds in the common run ({seed})")
+      r = refs(s, 1)
+      if r and not r['all_same_sign']:
+        flags.append(f"'P2 > 0': the P2 references are not all positive ({seed})")
+  states = {'seed0': controls_state(s0['noise_control']['state'], s0['relabel_control']['state'])}
+  if s1:
+    states['seed1'] = controls_state(s1['noise_control']['state'], s1['relabel_control']['state'])
   out['decision'] = {'against_essay': counts, 'against_pending_seed1': pending, 'against_candidates': items,
-                     'support_for_essay': support, 'controls_pass': controls_ok,
+                     'support_for_essay': support, 'secondary_flags': flags,
+                     'controls_pass': states['seed0'] == 'pass', 'controls_state': states,
                      'replicated': {k: replicated(k) for k in ('P1', 'P2', 'P3')} if rep else 'no seed-1 runs',
-                     'rule': 'a count against the essay needs Holm significance, the same-seed floor (P2) and '
-                             'seed-1 replication',
-                     'note': None if controls_ok else 'positive controls failed: primaries are unvalidated'}
+                     'rule': 'a count against the essay needs Holm significance, the same-seed floor (P2, in the '
+                             "effect's direction) and seed-1 replication",
+                     'note': CONTROL_NOTES[states['seed0']],
+                     'note_seed1': CONTROL_NOTES[states['seed1']] if s1 else None}
   json.dump(clean_json(out), open(a.out, 'w'), indent=1)
   print(json.dumps(clean_json(out['decision']), indent=1))
 
@@ -1525,13 +1706,21 @@ def cmd_measure(a):
                 atlas=atlas, flow=load_flow(a.flow), train_x=train_x, noise_x=noise_x, counts=counts,
                 classes=[int(c) for c in a.only.split(',')] if a.only else None, n_draws=a.n_draws, seed=a.seed,
                 log=log)
-  DeltaQ = out.pop('_DeltaQ')
+  DeltaQ, nulls = out.pop('_DeltaQ'), out.pop('_nulls')
   out.update({'run': a.run, 'step': a.step, 'run_set': run_set, 'own': 'Own_m (fine split)' if parts_f is not None
               else 'whole class (class split)', 'pole_step': pole_step, 'atlas': atlas is not None,
               'snapshot': snap is not None, 'snapshot_step': snap_step, 'flow': bool(a.flow)})
   for rec in out['classes']:                       # relabel controls: F with the source class's Near10
     if rec['kind'] == 'relabel' and rec.get('K'):
       rec['F_src'] = relabel_source_F(model, sel, rec, parts_c, V, Vpos, counts, dev, out['sigma'], a.n_draws, a.seed)
+  if a.train and spec is not None and os.path.exists(os.path.join(a.train, 'data.bin')):
+    from experiments.rare_common import train_center_u8
+    for rec in out['classes']:                     # S6: train fit on T_c (center crops of the own training images)
+      idx = np.flatnonzero(np.isin(spec['group'], own_groups(spec, rec['cls'])))
+      if len(idx):
+        xt = train_center_u8(a.train, idx, spec.get('noise', ()))
+        hit = logits_of(model, xt, dev).argmax(1) == torch.as_tensor(spec['labels'][idx])
+        rec['fit_T'], rec['n_T'] = float(hit.float().mean()), int(len(idx))
   if a.phase0:
     mods = tracked_modules(model, list(parts_c))
     m4cls = sorted(int(c) for c in np.random.default_rng(7).choice(sel.selected, a.m4, replace=False))
@@ -1539,7 +1728,8 @@ def cmd_measure(a):
     out['S7'] = s7_consolidation(DeltaQ, unit_list(model), sel, atlas)
   os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
   json.dump(clean_json(out), open(a.out, 'w'), indent=1)
-  np.savez_compressed(a.out.replace('.json', '') + '_arrays.npz', DeltaQ=DeltaQ.numpy(), sigma=np.array(out['sigma']))
+  np.savez_compressed(a.out.replace('.json', '') + '_arrays.npz', DeltaQ=DeltaQ.numpy(), sigma=np.array(out['sigma']),
+                      **{f'{k}_{c}': v for c, d in nulls.items() for k, v in d.items()})
   log(f'wrote {a.out}')
 
 

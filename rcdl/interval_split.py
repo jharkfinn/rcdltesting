@@ -50,7 +50,10 @@ hu(c) = half_ulp(C_fp16) / C_scale elementwise (fp32 snapshots: half an fp32 ulp
 at most
   |dT_k(c)| <= sum_M (hu(c_t2) + rho hu(c_t1)) . |Hbar_M(c)| + (hu(cb_t2) + rhob hu(cb_t1)) |qbar_M(c)|,
   |dF_k(c)| <= sum_M |rho - 1| hu(c_t1) . |Hbar_M(c)| + |rhob - 1| hu(cb_t1) |qbar_M(c)|,
-and a set's term by the sum of its members' bounds. The stored split itself is exact: R absorbs the rounding.
+and a set's term by the sum of its members' bounds. The stored split itself is exact: R absorbs the rounding. So a
+change of the stored parts (C' = C + delta, R recomputed from W) moves F_0 by minus the sum of the groups' F moves and E
+by minus the sum of their T moves: sum_k F_k + F_0 and sum_k T_k + E are fixed, and the bound of a sum of other
+groups' decay plus F_0 is the bound of the remaining group's decay, not the sum of the others' bounds.
 """
 
 import math
@@ -360,6 +363,21 @@ def own_terms(inc: Dict[str, Increments], cm: dict) -> torch.Tensor:
     C = cm[f'Hbar_{M}'].shape[1]
     H = cm[f'Hbar_{M}'].to(I.nu.dtype)
     out = out + torch.einsum('cnd,ncd->nc', I.nu[:C], H) + I.nub[:C].T * cm[f'qbar_{M}'].to(I.nu.dtype)
+  return out
+
+
+def own_bounds(inc: Dict[str, Increments], cm: dict) -> torch.Tensor:
+  """Storage bound of T_c(c) for every unit and class (U, C), when the groups are the classes (K = C) and the
+  increments carry bounds: sum_M nu_bound_c . |Hbar_M(c)| + nub_bound_c |qbar_M(c)| (the diagonal of column_terms'
+  T_bound). cm: unit-major class means."""
+  out = 0
+  for M in MAPS:
+    I = inc[M]
+    if I.nu_bound is None:
+      raise ValueError('own_bounds: increments without storage bounds (load_parts(..., bounds=True))')
+    C = cm[f'Hbar_{M}'].shape[1]
+    H = cm[f'Hbar_{M}'].to(I.nu_bound.dtype).abs()
+    out = out + torch.einsum('cnd,ncd->nc', I.nu_bound[:C], H) + I.nub_bound[:C].T * cm[f'qbar_{M}'].to(H.dtype).abs()
   return out
 
 

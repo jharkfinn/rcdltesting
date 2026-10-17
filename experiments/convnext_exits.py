@@ -14,7 +14,10 @@ R_c(t) = mean_{x in c} u_t(x, p*_t(x)), with u in fp64 from the model's weights;
 value pre-activations at p*; Abar, Bbar the class means of A = SiLU'(g) v and B = SiLU(g) at p*; Hs(c) the class mean
 of the input h at p* (stockh). sd_n(t) = std over classes of R_c(t); z_n,c(t) = (R_c(t) - mean_c' R_c'(t)) / sd_n(t);
 rank_c(t) = mid-rank of R_c(t), decreasing (1 = strongest); Top_n(t) = {c: rank_c(t) <= P}. Units with sd_n below
-`sd_floor` (1e-3) times the network median are skipped.
+`sd_floor` (1e-3) times the network median (per grid point and half) are skipped: at event selection on the selection
+half (exits at t_pk, entries at t_first; counted in events.json as low_sd_exits, low_sd_entries), in X1-X3 by the
+selection half at the event's checkpoint, and in X3 S2, X4 and X5 per interval start on both halves (cells set to 0 or
+left out).
 
 Intervals (xhw_{t1}_{t2}.pt; per interval, half and block): the class means of rcdl.interval_split with the reference
 p*_t1 (Hbar_M, qbar_M, Phi, Pi, dR, R1, R2, cross) and, for the event pairs (unit, class) listed in events.json,
@@ -22,12 +25,19 @@ Hcross_M and the p*_t2-reference means (Hbar2_M, qbar2_M, Phi2, Pi2). With the p
 (attrR_{t}.pt for the random split) every term T_k(c), F_k(c), F_0(c), E(c) of every group on every class is a
 (K x d)(d x C) product (rcdl.interval_split.column_terms), and sum_k T_k + sum_k F_k + F_0 + E + Phi + Pi = dR is
 checked per block and interval. R_t = W_t - a_t W0 - sum_k C_t^(k) is computed in fp64 at every grid point. fp16
-storage bounds are propagated into every term and carried as intervals; nothing is excluded.
+storage bounds (rcdl.interval_split) are propagated into the terms of the G16 and G+ intervals; nothing is excluded.
+Since R absorbs the rounding, a change of the stored parts keeps F_own + F_rest and sum_k T_k + E fixed (F_rest's
+bound is F_own's; E's is the writes' total, reported only). X1: every classification is recomputed at four corners of
+the bounds that keep both invariants (so the total excess fall is unchanged). X2: entries within the bound are counted
+and the own excess-rise difference is recomputed at the same corners. X3: the pushes carry the half-ulp bounds of the
+two bias parts; S1 labels that change at push +- bound are counted. X4, X5: own capture cells within the bound are
+counted; F1 is recomputed with O_L at +- its bound. Snapshot intervals use fp32 full states (no bound computed).
 
 Gradient state (gstate_{t}.pt, per half, unit and class): theta = [gate row, gate bias, value row, value bias] of the
 unit; j* = du/dtheta at p*; G = sum_p du(p)/dtheta; Ebar = the per-image gradient of -log softmax_y (clean image) with
 respect to theta; D = the AdamW preconditioner 1 / (sqrt(v / (1 - 0.999^t)) + 1e-8) of the nearest usable snapshot
-within 1,500 steps (approximate; 1 before step 1,000 or without a snapshot; Muon weights 1). kappa = <mean_c j*, D
+within 1,500 steps (approximate; 1 before step 1,000 or without a snapshot; Muon: 1 for the weights and the biases,
+so that kappa and beta are not carried by the two AdamW-preconditioned bias coordinates alone). kappa = <mean_c j*, D
 mean_c G> / sd_n (gating); beta = -<mean_c j*, D mean_c Ebar> / sd_n (first-order allocation with error and readers); at
 snapshot steps mu = -(lr_t / (1 - 0.9^t)) <mean_c j*, D_t m_t^(c)> / sd_n with lr_t the learning rate of update t
 (the exact AdamW write of that update, to first order in u; pooled only).
@@ -37,7 +47,8 @@ Events (events.json, frozen with the code hash before any decomposition; G16 and
     checkpoint T > 40. t_pk = checkpoint of the best rank (latest on ties); t_last = last checkpoint in Top_n; t_out =
     first checkpoint after t_last with rank > 40; window W = (t_pk, t_out]. Phase by the step of t_pk: < 2,500;
     2,500-10,000; >= 10,000.
-  replicated: also an exit on the measurement half (secondary, 'rep_relaxed': best rank <= 15, final rank > 30 there).
+  replicated: also an exit on the measurement half (secondary, 'rep_relaxed': best rank <= 15, final rank > 30 there);
+    it selects on the half every term is measured on, so it defines only the validity gate and sensitivity analyses.
     anchored: >= 2 of Core_n (the 5 strongest classes at T) are in Top_n(t_pk); otherwise turnover.
   peak company P = Top_n(t_pk) minus c (the margin reference); entrants Ent = Top_n(t_out) minus Top_n(t_pk)
     (outcome-defined, labelled so).
@@ -47,7 +58,8 @@ Events (events.json, frozen with the code hash before any decomposition; G16 and
   entries, of exit classes ('dropped') and of every final Top_n class ('persistent'): t_first = first checkpoint of the
     run of Top_n membership that contains t_pk (T); t_pre = last earlier checkpoint with rank > 40 (else step 0);
     W_in = (t_pre, t_first]; controls: c' != c with |rank_c'(t_pre) - rank_c(t_pre)| <= 3 (unconditional); P_pre =
-    Top_n(t_pre) minus c.
+    Top_n(t_pre) minus c. Entries whose Top_n run starts at the first checkpoint (step 0) are left-censored (W_in is
+    empty): excluded and counted per direction and block (events.json 'entries_from_step0').
 
 X1 (exits; exploratory). Margin M = R_c - mean_{s in P} R_s. Over the G16 intervals of W, on the measurement half,
 divided by sd_n(t_pk), the change of M splits exactly into 20 components: for each write category X in own = {c}, P,
@@ -66,46 +78,67 @@ band_min = 3 C1 members, else 'few_controls'], F_own + P-self-raise shares >= 0.
 share >= 0.4, own term below the band's 5th percentile);
 peak-company interference (share of P_c >= 0.4 and P_c below the 5th percentile of its size-matched sets on c);
 drift-carried (Phi share >= 0.5); else unclassified. Flips are counted under the fp16 interval (four corners of the
-bounds), the path order (cross term wholly to the weights or the input), the position reference p*_t2, the half swap
-and the G+ refinement. Primary population: replicated anchored exits in stages 2-3. Validity gate: fewer than 50% of
-anchored exits replicate -> noise-dominated.
+bounds that keep the split exact: writes and F_own at their bounds, E and F_rest moved by the opposite, the exit and its
+controls in opposite directions), the path order (cross term wholly to the weights or the input), the position
+reference p*_t2, the half swap and the G+ refinement. A size-matched null that cannot be formed (fewer than 20 sets or
+3 distinct classes, or no spread) is recorded per exit ('null_missing') and counted; 'most negative' is taken only over
+exits with every applicable null. Primary population: anchored exits in stages 2-3, selected on the selection half
+only; replicated anchored exits (and replicated turnover) are a sensitivity analysis. Validity gate: fewer than 50% of
+anchored exits (above the sd floor) replicate -> noise-dominated.
 X2 (entries). Categories fixed at t_pre (own, P_pre, rel, oth); components of the rise of R_c over W_in (normalized by
 sd_n(t_first)); Delta against the rank-matched controls at t_pre; primary: own excess-rise share of dropped entries
-minus that of persistent entries.
+minus that of persistent entries (reported next to the left-censored entries left out of each arm).
 X3 (starvation). Bias parts: dCb^(k)[n] = Cb_t2 - rhob Cb_t1 per G16 interval, oriented per class at t1 on the selection
 half (value by the sign of Bbar, gate by the sign of Abar), divided by the median |dCb| over classes in that unit and
 interval; push = mean of the two maps, summed over the last 3 G16 intervals up to t_out. S1 (primary, anchored late
-exits): withdrawn (inside the random band 5-95%, pushes of random groups scaled by n_c / n_r; without a random split the
-C1 pushes' 25-75%), reversed (below), maintained (above); against the same for C1 (difference of the withdrawn
-proportions). S2: n's share of c's own-write capture in its stage; timing of its halving after t_pk (before / same
-interval / after t_out) against a within-unit permutation of t_out and against C1 classes. S3 (windows with >= 2
-snapshots): log change of c's write rate in n split into the learning rate, the second moment (crowding), c's momentum
-and the bias correction (bias exact; weights with the median D and the projection on Hs).
+exits with m >= 3 C1 members, in every run): withdrawn (inside the C1 band), reversed (below), maintained (above); the
+exit and each C1 member i are labelled against the same band, the 25-75% of the other m - 1 C1 members' pushes, and the
+exit's label is the fraction over the m leave-one-out bands (the 25-75% of fewer values covers less, so a full-m band
+for the exit alone would favour 'withdrawn'); primary: the exits' withdrawn fraction minus that of C1 (0 in
+expectation when the exit and its C1 classes are exchangeable). With a random split, also an extra result against the
+random band 5-95% (pushes of random groups scaled by n_c / n_r). S2: n's share of c's own-write capture in its stage;
+timing of its halving after t_pk (before / same interval / after t_out) against a within-unit permutation of t_out
+and against C1 classes. S3 (windows with >= 2 snapshots): log change of c's write rate in n split into the learning
+rate, the second moment (crowding), c's momentum and the bias correction (bias exact; weights with the median D and
+the projection on Hs).
 X4 (first in line, per G16 interval and stage). Leader L_k = argmax_n z_n,k(t1) (selection half); capture O_n,k =
 T_k(k) / sd_n(t1) (measurement half). F1: percentile of O_L among the stage's units (F1_bias: with the probe-free
 capture, the oriented normalized bias push of X3). F2 (primary): within (k, interval), rank regression across the
 stage's units of O on z, z^2 and the provenance of the on-ness at t1 (relatives', own, others' and init parts of the
 class-mean gate and value pre-activations, in response units Abar g_S + Bbar v_S, centred by the unit's mean over
-classes); the coefficient on the relatives' part. F3: psi^beta = log(pi^O_L + 1e-4) - log(pi^beta_L + 1e-4),
-pi^X = X+ / sum over the scope. Ladder (uniform; kappa; P = mean over unrelated classes j of |T_j(k)| / sd_n; beta; mu)
+classes); the coefficient on the relatives' part. F2 is undefined at t1 = 0, where no class has written yet (the
+provenance columns are 0), so the first G16 interval is excluded (a coefficient on a column without spread across the
+scope's units is missing, not 0). F3: psi^beta = log(pi^O_L + 1e-4) - log(pi^beta_L + 1e-4), pi^X = X+ / sum over
+the scope. Ladder (uniform; kappa; P = mean over unrelated classes j of |T_j(k)| / sd_n; beta; mu)
 reported as a decomposition.
 X5 (loop). Chains of consecutive equal-length intervals (G16 2,500-step; snapshot 2,000-step): rank regression (ranks
 within each interval) of the own gain O in I_{j+1} on O in I_j, the other-derived gain (sum_{k != c} T_k(c) / sd) and
 z(t_j); null: each (unit, class) row's own-gain series permuted across its chain. Cumulative concentration
 H_k(t) = sum_n pi_n^2 of cumulative O+ next to that of kappa.
 Uncertainty: two-way cluster bootstrap over unit and class (2,000 draws) for X1-X3, class-cluster bootstrap for X4,
-permutation for X5; Holm over the five primaries of the H1 -> H2 direction.
+permutation for X5; Holm over the five primaries of the H1 -> H2 direction. Bootstrap p-values are 2 min(#(draws <= 0)
++ 1, #(draws >= 0) + 1) / (B + 1) over the B non-empty draws (floor 2 / (B + 1), B stored with each result); X5's
+permutation p is (count + 1) / (n_perm + 1) (floor 1 / (n_perm + 1)).
 
-Stages (subcommands; each output file is one resumable unit):
+Inputs are never dropped silently: every G16 checkpoint (model_ and attr_ files) must exist; a run with a random split
+(config rand_groups, or any attrR file) needs attrR at every G16 step (--no_random to run without it); history
+snapshots need their full_{t}.pt (--no_full to drop them); class counts come from --class_counts, <run>/rand_groups.npy
+or /dev/shm/imagenet256/labels.npy, else an error (equal counts only with --params '{"equal_counts": true}', toy
+tests). The sources are written into the outputs (has_random, band_source, class_counts).
+
+Stages (subcommands; each output file is one resumable unit, written to a temporary name and renamed):
   probe      the probe set (all validation images per class) as a uint8 .npy memmap
-  integrity  I1 (logs), I2 (shared checkpoint and snapshot steps bitwise), I3 (remainders) -> integrity.json
+  integrity  I1 (logs), I2 (shared checkpoint and snapshot steps bitwise), I3 (remainders) -> integrity.json (always
+             written, also without usable snapshots)
   stock      per grid point -> stock_{t}.pt, stockh_{t}.pt
   events     -> events.json (frozen; --force to overwrite)
   intervals  per interval (--family g16 | gplus | snap | all) -> xhw_{t1}_{t2}.pt
   gradstate  per grid point: kappa, beta (D from the nearest snapshot within 1,500 steps), mu at snapshots
   tests      X1-X5 -> exits_tests.json, with the checks, the momentum carry-over estimate at snapshot starts, rho per
              interval, the G+ path-dependence table and the 50 units with the most anchored exits
-  compare    replication of the primaries (--other, E1r) against a reference run (--ref, E1)
+  compare    replication of the primaries (--other, E1r) against a reference run (--ref, E1) -> --out_json (default
+             exits_compare.json in --out or next to --other); no verdict when the runs differ in the G16 steps, the X3
+             band or the class counts (--allow_mismatch)
 
   python3 -m experiments.convnext_exits <stage> --run <run dir> --out <dir> [--history <snap dir>] [--full <full dir>]
 """
@@ -124,12 +157,13 @@ import torch
 import torch.nn.functional as F
 
 from experiments.convnext_atlas import block_inputs
-from experiments.convnext_train import CKPT_STEPS
+from experiments.convnext_train import CKPT_STEPS, parse_steps
 from rcdl.attribution import to_fp16_scaled
 from rcdl.convnext import build_convnext
 from rcdl.imagenet import MEAN, STD
-from rcdl.interval_split import (MAPS, ClassSums, column_terms, dsilu, group_total, image_split, increments,
-                                 load_parts, lr_schedule, momentum_carryover, own_terms, split_completeness)
+from rcdl.interval_split import (MAPS, ClassSums, column_terms, dsilu, group_total, half_ulp, image_split, increments,
+                                 load_parts, lr_schedule, momentum_carryover, own_bounds, own_terms,
+                                 split_completeness)
 
 PHASES = ((0, 2500), (2500, 10000), (10000, 10 ** 9))
 WRITE = ('own', 'P', 'Ent', 'rel', 'oth')
@@ -139,6 +173,8 @@ NWRITE = 2 * len(WRITE)                          # the write components come fir
 LABELS = ('withdrawn', 'active', 'interference', 'drift', 'unclassified', 'no_excess_fall', 'no_control',
           'few_controls')
 UNLABELLED = ('no_control', 'no_excess_fall', 'few_controls')     # left out of the label proportions
+S1 = ('withdrawn', 'reversed', 'maintained')
+CORNERS = ('all+', 'all-', 'own+', 'own-')
 DIRS = {'s0m1': (0, 1), 's1m0': (1, 0)}
 
 
@@ -146,7 +182,7 @@ def defaults():
   return dict(P=20, est_step=1000, best=10, gone=40, anchor_k=5, anchor_min=2, match=3, nodes=32, sd_floor=1e-3,
               n_rand=1000, n_boot=2000, n_perm=1000, count_tol=0.05, visual_near=10, wordnet_near=4, unrel_wn=10,
               unrel_vis=100, d_window=1500, d_min_step=1000, x5_min_len=1000, log_offset=1e-4, carriers=3, seed=0,
-              rep_best=15, rep_gone=30, relatives='visual', band_min=3)
+              rep_best=15, rep_gone=30, relatives='visual', band_min=3, equal_counts=False)
 
 
 # --------------------------------------------------------------------------------------------- small statistics
@@ -185,6 +221,19 @@ def holm(p: dict) -> dict:
   return out
 
 
+def boot_p0(draws: np.ndarray, axis: int = 0):
+  """Two-sided bootstrap p-value of 0 over the non-nan draws (an empty two-way draw gives nan and is not counted on
+  either side): min(1, 2 min(#(<= 0) + 1, #(>= 0) + 1) / (B + 1)), never 0 (floor 2 / (B + 1)); nan where no draw is
+  finite. Returns (p, B), B the number of non-nan draws."""
+  draws = np.asarray(draws, float)
+  ok = ~np.isnan(draws)
+  B = ok.sum(axis)
+  le = ((draws <= 0) & ok).sum(axis)
+  ge = ((draws >= 0) & ok).sum(axis)
+  p = np.minimum(1.0, 2 * np.minimum(le + 1, ge + 1) / (B + 1))
+  return np.where(B > 0, p, np.nan), B
+
+
 def twoway_weights(units: np.ndarray, classes: np.ndarray, n_boot: int, rng, chunk: int = 250):
   """Two-way (pigeonhole) cluster bootstrap: per draw, units and classes are resampled with replacement and each
   event gets the product of its unit's and its class's counts. Yields weight matrices (b, E) in chunks."""
@@ -201,7 +250,7 @@ def twoway_weights(units: np.ndarray, classes: np.ndarray, n_boot: int, rng, chu
 
 def boot_ratio(num: np.ndarray, den: np.ndarray, units, classes, n_boot, rng) -> dict:
   """Ratio of sums sum_e num[e] / sum_e den[e] (num may be (E, k)) with a two-way cluster bootstrap: estimate, 95% CI,
-  and the two-sided bootstrap p-value of 0."""
+  the two-sided bootstrap p-value of 0 (boot_p0) and B, the fewest non-empty draws of any column."""
   num = np.asarray(num, float)
   num2 = num if num.ndim == 2 else num[:, None]
   if not len(den) or np.sum(den) == 0:
@@ -214,9 +263,9 @@ def boot_ratio(num: np.ndarray, den: np.ndarray, units, classes, n_boot, rng) ->
       draws.append((W @ num2) / d[:, None])
   draws = np.concatenate(draws)
   lo, hi = np.nanpercentile(draws, [2.5, 97.5], axis=0)
-  p = 2 * np.minimum(np.nanmean(draws <= 0, 0), np.nanmean(draws >= 0, 0))
+  p, B = boot_p0(draws)
   sq = lambda v: v.tolist() if num.ndim == 2 else float(v[0])
-  return {'est': sq(est), 'ci': [sq(lo), sq(hi)], 'p0': sq(np.minimum(p, 1.0)), 'n': int(len(den))}
+  return {'est': sq(est), 'ci': [sq(lo), sq(hi)], 'p0': sq(p), 'B': int(B.min()), 'n': int(len(den))}
 
 
 def boot_mean(x: np.ndarray, units, classes, n_boot, rng) -> dict:
@@ -247,8 +296,8 @@ def boot_median(x: np.ndarray, clusters: np.ndarray, n_boot: int, rng) -> dict:
     idx = (cw < cw[:, -1:] / 2).sum(1)
     draws.append(xs[np.minimum(idx, len(xs) - 1)])
   draws = np.concatenate(draws)
-  p = 2 * min(float((draws <= 0).mean()), float((draws >= 0).mean()))
-  return {'est': float(np.median(x)), 'ci': np.percentile(draws, [2.5, 97.5]).tolist(), 'p0': min(p, 1.0),
+  p, B = boot_p0(draws)
+  return {'est': float(np.median(x)), 'ci': np.percentile(draws, [2.5, 97.5]).tolist(), 'p0': float(p), 'B': int(B),
           'n': int(len(x))}
 
 
@@ -320,30 +369,71 @@ def jsonable(x):
   return x
 
 
+def save_atomic(obj, path: str):
+  """torch.save to a temporary name, then a rename: a kill during the write (sandboxes end without notice) never leaves
+  a truncated file under the final name, which a resumed stage would skip as done."""
+  torch.save(obj, path + '.tmp')
+  os.replace(path + '.tmp', path)
+
+
+def dump_json(obj, path: str, **kw):
+  """json.dump through a temporary file and a rename (as save_atomic)."""
+  with open(path + '.tmp', 'w') as f:
+    json.dump(obj, f, **kw)
+  os.replace(path + '.tmp', path)
+
+
+def array_sha(v: np.ndarray) -> str:
+  return hashlib.sha256(np.ascontiguousarray(v, np.float64).tobytes()).hexdigest()
+
+
 # ------------------------------------------------------------------------------------------------------ run data
+
+def expected_grid(cfg: dict) -> list:
+  """The G16 grid a run's config promises: the trainer's fixed checkpoints (CKPT_STEPS) up to its last step, and that
+  step, limited to its --attr_steps when it wrote attribution files only there. Extra checkpoints (--extra_ckpts, also
+  in cfg['ckpt_steps']) are not G16."""
+  last = int(cfg.get('steps', CKPT_STEPS[-1]))
+  steps = {s for s in CKPT_STEPS if s <= last} | {last}
+  if cfg.get('attr_steps'):
+    steps &= parse_steps(cfg['attr_steps'])
+  return sorted(steps)
+
 
 class Run:
   """A run's files: model_{s}.pt, attr_{s}.pt, attrR_{s}.pt (random split), attr_init.pt, config.json, log.json, and
   optionally its history: snap_{s}.pt (model) in `history` and full_{s}.pt (fp32 parts and moments) in `full`.
-  The class split at a checkpoint is read from the compact file, elsewhere from the full state."""
+  The class split at a checkpoint is read from the compact file, elsewhere from the full state. Nothing is dropped
+  silently: a G16 step (`grid`, else expected_grid) without its model_ or attr_ file, and, when the run has a random
+  split (config rand_groups or any attrR file; no_random turns it off on purpose), a G16 step without attrR, raise
+  SystemExit. snaps_no_full: history steps without a full state (main refuses them unless --no_full)."""
 
-  def __init__(self, run: str, history: str = None, full: str = None, grid=None, snaps=None, device='cpu'):
+  def __init__(self, run: str, history: str = None, full: str = None, grid=None, snaps=None, device='cpu',
+               no_random: bool = False):
     self.dir, self.history, self.full_dir, self.dev = run, history, full, torch.device(device)
     self.cfg = json.load(open(os.path.join(run, 'config.json')))
-    steps = list(grid) if grid else sorted(set(CKPT_STEPS) | {int(self.cfg.get('steps', CKPT_STEPS[-1]))})
+    steps = sorted(set(grid)) if grid else expected_grid(self.cfg)
     ex = lambda p: os.path.exists(os.path.join(run, p))
-    self.g16 = [s for s in steps if ex(f'model_{s:05d}.pt') and ex(f'attr_{s:05d}.pt')]
-    avail = []
-    if history and full:
-      for f in glob.glob(os.path.join(history, 'snap_[0-9]*.pt')):
-        s = int(os.path.basename(f)[5:10])
-        if os.path.exists(os.path.join(full, f'full_{s:05d}.pt')):
-          avail.append(s)
-    self.snaps = sorted(avail if snaps is None else [s for s in snaps if s in avail])
+    miss = [f for s in steps for f in (f'model_{s:05d}.pt', f'attr_{s:05d}.pt') if not ex(f)]
+    if miss:
+      raise SystemExit(f'{run}: G16 checkpoint files missing (the grid is never shrunk silently; --grid chooses the '
+                       f'steps): {miss}')
+    self.g16 = steps
+    hist = sorted(int(os.path.basename(f)[5:10]) for f in glob.glob(os.path.join(history, 'snap_[0-9]*.pt'))) \
+        if history else []
+    self.snaps_no_full = [s for s in hist if not (full and os.path.exists(os.path.join(full, f'full_{s:05d}.pt')))]
+    self.snaps_avail = [s for s in hist if s not in self.snaps_no_full]
+    self.snaps = sorted(self.snaps_avail if snaps is None else [s for s in snaps if s in self.snaps_avail])
     self.gplus = sorted(set(self.g16) | set(self.snaps))
     self.init = torch.load(os.path.join(run, 'attr_init.pt'), map_location='cpu', weights_only=False)
     self.blocks = sorted({k.rsplit('.', 1)[0] for k in self.init if k.endswith('.pw_gate')}, key=block_sort_key)
-    self.has_random = bool(self.g16) and all(ex(f'attrR_{s:05d}.pt') for s in self.g16)
+    want = not no_random and (bool(self.cfg.get('rand_groups')) or bool(glob.glob(os.path.join(run, 'attrR_*.pt'))))
+    if want:
+      missR = [f'attrR_{s:05d}.pt' for s in self.g16 if not ex(f'attrR_{s:05d}.pt')]
+      if missR:
+        raise SystemExit(f'{run}: the run has a random split (config rand_groups or attrR files) but attrR files are '
+                         f'missing: {missR} (pass --no_random to run without the random-group nulls)')
+    self.has_random = want and bool(self.g16)
     self._c = {}
     sd = self.model_sd(self.g16[-1])
     self.n_classes = int(sd['head.weight'].shape[0])
@@ -493,11 +583,13 @@ def cmd_integrity(a, run: Run):
   """I1: each snapshot's training log equals log.json on all shared steps (val_acc and sec). I2: at steps that are both
   a checkpoint and a snapshot, the model weights are identical, to_fp16_scaled of the fp32 C and Cb equals the stored
   fp16 tensors bitwise (same scale), and a, ab, t are equal. I3: the remainder max |W - a W0 - sum_k C_k| / max |W| of
-  every snapshot (recorded; it is never assumed to be 0). Snapshots failing I1 or I2 are not usable."""
+  every snapshot (recorded; it is never assumed to be 0). Snapshots failing I1 or I2 are not usable. integrity.json is
+  always written (also without snapshots), with the snapshots checked and those dropped for want of a full state."""
   log = {r['step']: r for r in json.load(open(os.path.join(run.dir, 'log.json')))}
-  out = {'snapshots': {}, 'usable': []}
-  hist = os.path.join(run.history, 'history.json')
-  index = {r['step']: r for r in json.load(open(hist))} if os.path.exists(hist) else {}
+  out = {'snapshots': {}, 'usable': [], 'checked': list(run.snaps), 'dropped_no_full': list(run.snaps_no_full),
+         'history': run.history, 'full': run.full_dir}
+  hist = os.path.join(run.history, 'history.json') if run.history else ''
+  index = {r['step']: r for r in json.load(open(hist))} if hist and os.path.exists(hist) else {}
   for s in run.snaps:
     snap = torch.load(os.path.join(run.history, f'snap_{s:05d}.pt'), map_location='cpu', weights_only=False)
     full = torch.load(os.path.join(run.full_dir, f'full_{s:05d}.pt'), map_location='cpu', weights_only=False, mmap=True)
@@ -533,17 +625,38 @@ def cmd_integrity(a, run: Run):
       out['usable'].append(s)
     out['snapshots'][s] = rec
     print(json.dumps({'step': s, 'I1': rec['I1']['ok'], 'I2': rec.get('I2'), 'I3': worst}), flush=True)
-  json.dump(jsonable(out), open(os.path.join(a.out, 'integrity.json'), 'w'), indent=1)
+  dump_json(jsonable(out), os.path.join(a.out, 'integrity.json'), indent=1)
 
 
-def usable_snaps(a, run_dir, history, full):
-  """Snapshot steps that passed integrity.json (all available ones with --skip_integrity)."""
+def usable_snaps(a, run_dir, history, full, avail=None):
+  """Snapshot steps that passed integrity.json (all available ones with --skip_integrity). avail: the snapshot steps
+  with a full state found now; an integrity.json that did not check all of them is refused."""
   p = os.path.join(a.out, 'integrity.json')
   if os.path.exists(p):
-    return json.load(open(p))['usable']
+    d = json.load(open(p))
+    new = sorted(set(avail or []) - set(d.get('checked', avail or [])))
+    if new:
+      raise SystemExit(f'integrity.json did not check the snapshots {new}: rerun the integrity stage')
+    return d['usable']
   if history and full and not a.skip_integrity:
-    raise SystemExit('integrity.json missing: run the integrity stage first (or pass --skip_integrity)')
+    found = 'unknown' if avail is None else len(avail)
+    raise SystemExit(f'integrity.json missing ({found} snapshot / full-state pairs found in {history} and {full}): run '
+                     'the integrity stage first (or pass --skip_integrity)')
   return None
+
+
+def require_full(a, run: Run):
+  """History snapshots need their full_{t}.pt: without it G+ (sub intervals, the G+ flips, path dependence), the
+  snapshot intervals and X5's snapshot chains, mu, S3, the carry-over and the preconditioner D (kappa and beta would go
+  unpreconditioned) are lost. A snapshot without one is an error unless --no_full (then the dropped steps are
+  printed and recorded)."""
+  if not run.snaps_no_full:
+    return
+  names = [f'full_{s:05d}.pt' for s in run.snaps_no_full]
+  if not getattr(a, 'no_full', False):
+    raise SystemExit(f'history snapshots without a full state in --full ({run.full_dir}): {names} (pass --full <dir>, '
+                     'or --no_full to drop these snapshots)')
+  print(f'WARNING: --no_full: history snapshots dropped (no full state): {run.snaps_no_full}', flush=True)
 
 
 # ---------------------------------------------------------------------------------------------------------- stock
@@ -597,8 +710,8 @@ def cmd_stock(a, run: Run, probe: Probe):
       continue
     t0 = time.time()
     rec, hs = stock_point(run, s, probe, a.batch)
-    torch.save(hs, os.path.join(a.out, f'stockh_{s:05d}.pt'))
-    torch.save(rec, path)
+    save_atomic(hs, os.path.join(a.out, f'stockh_{s:05d}.pt'))     # stockh first: a stock file means both are complete
+    save_atomic(rec, path)
     print(json.dumps({'step': s, 'zcheck': max(r['zcheck'] for r in rec['blocks'].values()),
                       'sec': round(time.time() - t0, 1)}), flush=True)
 
@@ -614,9 +727,20 @@ def load_stockh(out: str, s: int) -> dict:
 
 # --------------------------------------------------------------------------------------------------------- events
 
-def find_events(Rs: np.ndarray, Rm: np.ndarray, steps, prm: dict):
+def low_sd(R: dict, sd_floor: float) -> dict:
+  """{block: bool (T, ..., U)}: units whose sd over classes (R[b] (T, ..., U, C)) is below sd_floor times the median
+  over every block's units, per grid point (and half), as Ctx.floor."""
+  sd = {b: v.std(-1) for b, v in R.items()}
+  med = np.median(np.concatenate(list(sd.values()), -1), -1)
+  return {b: v < sd_floor * med[..., None] for b, v in sd.items()}
+
+
+def find_events(Rs: np.ndarray, Rm: np.ndarray, steps, prm: dict, low: np.ndarray = None):
   """Events of one block on one selection half. Rs, Rm: (T, U, C) class responses on the selection and measurement
-  halves at the G16 checkpoints `steps`. Returns (exits, persistent entries); indices are positions in `steps`."""
+  halves at the G16 checkpoints `steps`; low (T, U): units below the sd floor on the selection half (low_sd), whose
+  exits (at t_pk) and entries (at t_first) are dropped. Returns (exits, persistent entries, counts of the dropped:
+  low_sd_exits, low_sd_entries and entries_from_step0, the last two per arm); indices are positions in `steps`. An
+  exit whose own entry is dropped keeps 'entry': None."""
   T, U, C = Rs.shape
   P, gone, match = prm['P'], prm['gone'], prm['match']
   steps = np.asarray(steps)
@@ -633,11 +757,18 @@ def find_events(Rs: np.ndarray, Rm: np.ndarray, steps, prm: dict):
   okm = exit_mask(Rm, prm['best'], gone)[2]
   okm_relaxed = exit_mask(Rm, prm['rep_best'], prm['rep_gone'])[2]
 
-  def entry(n, c, t_in):
+  info = {'low_sd_exits': 0, 'low_sd_entries': {'dropped': 0, 'persistent': 0},
+          'entries_from_step0': {'dropped': 0, 'persistent': 0}}
+
+  def entry(n, c, t_in, arm):
     t_first = t_in
     while t_first > 0 and top[t_first - 1, n, c]:
       t_first -= 1
-    if t_first == 0:
+    if t_first == 0:                                 # left-censored: in Top_n from the first checkpoint on, no W_in
+      info['entries_from_step0'][arm] += 1
+      return None
+    if low is not None and low[t_first, n]:
+      info['low_sd_entries'][arm] += 1
       return None
     pre = [t for t in range(t_first) if rank[t, n, c] > gone]
     t_pre = pre[-1] if pre else 0
@@ -652,6 +783,9 @@ def find_events(Rs: np.ndarray, Rm: np.ndarray, steps, prm: dict):
       r = rank[:, n, c]
       minr = r[est].min()
       pk = int(max(t for t in range(T) if est[t] and r[t] == minr))
+      if low is not None and low[pk, n]:              # a near-constant unit: its ranks are noise
+        info['low_sd_exits'] += 1
+        continue
       last = int(max(t for t in range(T) if top[t, n, c]))
       out = int(min(t for t in range(last + 1, T) if r[t] > gone))
       Ppk = set(np.flatnonzero(top[pk, n]).tolist())
@@ -671,12 +805,19 @@ def find_events(Rs: np.ndarray, Rm: np.ndarray, steps, prm: dict):
         'P': P_, 'Ent': Ent, 'C1': C1, 'C2': [k for k in C1 if fin[k] <= P],
         'C3': [k for k in C1 if P < fin[k] <= gone],
         'C4': [k for k in C1 if fin[k] <= P and (rank[pk + 1:out + 1, n, k] > P).any()],
-        'entry': entry(n, int(c), pk)})
+        'entry': entry(n, int(c), pk, 'dropped')})
     for c in np.flatnonzero(top[-1, n]):
-      e = entry(n, int(c), T - 1)
+      e = entry(n, int(c), T - 1, 'persistent')
       if e is not None:
         persistent.append({'n': int(n), 'c': int(c), **e})
-  return exits, persistent
+  return exits, persistent, info
+
+
+def sum_info(infos: list) -> dict:
+  """Sum of find_events' dropped-event counts."""
+  return {'low_sd_exits': sum(i.get('low_sd_exits', 0) for i in infos),
+          **{k: {arm: sum(i.get(k, {}).get(arm, 0) for i in infos) for arm in ('dropped', 'persistent')}
+             for k in ('low_sd_entries', 'entries_from_step0')}}
 
 
 def cmd_events(a, run: Run):
@@ -685,15 +826,19 @@ def cmd_events(a, run: Run):
     raise SystemExit('events.json exists and is frozen (pass --force to rebuild before any decomposition)')
   prm = a.prm
   stocks = {s: load_stock(a.out, s) for s in run.g16}
-  res = {'version': 2, 'code_hash': code_hash(), 'created': time.strftime('%Y-%m-%d %H:%M:%S'), 'run': run.dir,
+  res = {'version': 3, 'code_hash': code_hash(), 'created': time.strftime('%Y-%m-%d %H:%M:%S'), 'run': run.dir,
          'steps': run.g16, 'params': prm, 'halves': {'H1': 'images 1..per/2 of each class', 'H2': 'the rest'},
+         'has_random': run.has_random,
          'directions': {d: {'sel': s, 'meas': m, 'exits': [], 'persistent': []} for d, (s, m) in DIRS.items()},
-         'pairs': {}, 'counts': {}}
+         'pairs': {}, 'counts': {}, 'block_counts': {}}
+  Rb = {b: np.stack([stocks[s][b]['R'].numpy() for s in run.g16]) for b in run.blocks}     # (T, 2, U, C)
+  low = low_sd(Rb, prm['sd_floor'])                                                          # (T, 2, U)
   for b in run.blocks:
-    R = np.stack([stocks[s][b]['R'].numpy() for s in run.g16])            # (T, 2, U, C)
+    R = Rb[b]
     pairs = {}
     for d, (s, m) in DIRS.items():
-      ex, pe = find_events(R[:, s], R[:, m], run.g16, prm)
+      ex, pe, info = find_events(R[:, s], R[:, m], run.g16, prm, low[b][:, s])
+      res['block_counts'].setdefault(b, {})[d] = info
       for e in ex:
         e['b'] = b
         pairs.setdefault(e['n'], set()).update([e['c']] + e['P'] + e['C1'])
@@ -708,18 +853,20 @@ def cmd_events(a, run: Run):
                         'replicated': sum(e['rep'] for e in ex),
                         'anchored_replicated': sum(e['anchored'] and e['rep'] for e in ex),
                         'with_C1': sum(bool(e['C1']) for e in ex), 'with_C2': sum(bool(e['C2']) for e in ex),
-                        'persistent_entries': len(rec['persistent'])}
+                        'persistent_entries': len(rec['persistent']),
+                        **sum_info([res['block_counts'][b][d] for b in run.blocks])}
   atl = [os.path.join(run.dir, f'atlas_{s:05d}.pt') for s in run.g16]
   if all(os.path.exists(f) for f in atl):                    # context: exits on the old 8-image atlas probe
     A = [torch.load(f, map_location='cpu', weights_only=False) for f in atl]
+    R8 = {b: np.stack([at[b]['R'].numpy() for at in A]) for b in run.blocks}
+    low8 = low_sd(R8, prm['sd_floor'])
     n8 = an8 = 0
     for b in run.blocks:
-      R8 = np.stack([at[b]['R'].numpy() for at in A])
-      ex, _ = find_events(R8, R8, run.g16, prm)
+      ex, _, _ = find_events(R8[b], R8[b], run.g16, prm, low8[b])
       n8 += len(ex)
       an8 += sum(e['anchored'] for e in ex)
     res['counts']['atlas8'] = {'exits': n8, 'anchored': an8}
-  json.dump(jsonable(res), open(path, 'w'))
+  dump_json(jsonable(res), path)
   print(json.dumps(res['counts']), flush=True)
 
 
@@ -885,8 +1032,10 @@ def cmd_intervals(a, run: Run, probe: Probe):
 
 def precond(run: Run, s: int, b: str, prm: dict):
   """(U, 2d + 2) diagonal preconditioner [gate row, gate bias, value row, value bias] of the update at step s, from the
-  nearest usable snapshot within d_window steps (AdamW: 1 / (sqrt(v / (1 - b2^t)) + eps); Muon weights: 1), and
-  that snapshot's step; ones and None before d_min_step or without a snapshot nearby."""
+  nearest usable snapshot within d_window steps (AdamW: 1 / (sqrt(v / (1 - b2^t)) + eps) for weights and biases;
+  Muon: 1 for the weights and the biases, since the biases' AdamW factor, about 1e5 to 1e6, against the weights' 1
+  would make kappa and beta bias-only quantities), and that snapshot's step; ones and None before d_min_step or
+  without a snapshot nearby (D_RULE names the rule)."""
   near = [x for x in run.snaps if abs(x - s) <= prm['d_window']]
   U, d = run.U[b], run.d[b]
   if s < prm['d_min_step'] or not near:
@@ -899,9 +1048,13 @@ def precond(run: Run, s: int, b: str, prm: dict):
     r = A[f'{b}.pw_{M}']
     c2 = 1 - 0.999 ** int(r['t'])
     Dw = torch.ones(U, d, dtype=torch.float64) if muon else 1 / ((r['v'].double() / c2).sqrt() + 1e-8)
-    Db = 1 / ((r['vb'].double() / c2).sqrt() + 1e-8)
+    Db = torch.ones(U, dtype=torch.float64) if muon else 1 / ((r['vb'].double() / c2).sqrt() + 1e-8)
     parts += [Dw, Db[:, None]]
   return torch.cat(parts, 1).to(run.dev), x
+
+
+D_RULE = {'adamw': '1 / (sqrt(v / (1 - 0.999^t)) + 1e-8), weights and biases, nearest usable snapshot',
+          'muon': '1 for weights and biases (no preconditioner)'}
 
 
 def gradstate_point(run: Run, s: int, probe: Probe, batch: int, prm: dict, stock: dict) -> dict:
@@ -946,7 +1099,7 @@ def gradstate_point(run: Run, s: int, probe: Probe, batch: int, prm: dict, stock
           acc[b][k].index_add_(0, gb, v.double())
   for hk in hooks:
     hk.remove()
-  out = {'step': s, 'blocks': {}, 'D_source': None}
+  out = {'step': s, 'blocks': {}, 'D_source': None, 'D_rule': D_RULE.get(run.cfg.get('opt', 'adamw'))}
   snap_here = s in run.snaps and run.cfg.get('opt', 'adamw') == 'adamw'
   for b in run.blocks:
     m = {k: to_half_major(v / cnt.view(-1, 1, 1), probe.C) for k, v in acc[b].items()}     # (2, U, C, 2d + 2)
@@ -982,7 +1135,7 @@ def cmd_gradstate(a, run: Run, probe: Probe):
       continue
     t0 = time.time()
     rec = gradstate_point(run, s, probe, a.batch, a.prm, load_stock(a.out, s))
-    torch.save(rec, path)
+    save_atomic(rec, path)
     print(json.dumps({'step': s, 'D_source': rec['D_source'], 'sec': round(time.time() - t0, 1)}), flush=True)
 
 
@@ -1005,7 +1158,9 @@ def batch_components(view: dict, xs, Qp, Qm, cat, bounds: bool = False) -> torch
   companies (padded; mask Qm), an empty company meaning no margin (the target's own response); cat (N, K) int8 write
   categories. For each write category X: X_c = sum_{k in X} T_k(x) and X_P = -mean_{s in Q} sum_{k in X} T_k(s); the
   same two parts of F_own, F_rest (+ F_0), Phi, Pi and E. view: T, F (K, S), F0, E, Phi, Pi, dR (S,), pos (C,) column of
-  each class; with bounds the matching storage bounds from T_bound, F_bound (all positive)."""
+  each class; with bounds the matching storage bounds from T_bound, F_bound (all positive): R absorbs the rounding, so
+  F_rest moves by exactly minus F_own's move (its bound is F_own's) and E by minus the writes' total move (its bound,
+  the sum of every group's T bound, is for reporting; `corner` never shifts by it); Phi and Pi have none."""
   pos = view['pos']
   Tm, Fm = (view['T_bound'], view['F_bound']) if bounds else (view['T'], view['F'])
   px, pQ = pos[xs], pos[Qp]
@@ -1026,8 +1181,10 @@ def batch_components(view: dict, xs, Qp, Qm, cat, bounds: bool = False) -> torch
   out[:, NWRITE] = Fx
   out[:, NWRITE + 1] = sg * mean_q(FQx)
   if bounds:
-    out[:, NWRITE + 2] = Fm[:, px].sum(0) - Fx
-    out[:, NWRITE + 3] = mean_q(Fm[:, pQ].sum(0) - FQx)
+    out[:, NWRITE + 2] = Fx
+    out[:, NWRITE + 3] = mean_q(FQx)
+    out[:, NWRITE + 8] = Tm[:, px].sum(0)
+    out[:, NWRITE + 9] = mean_q(Tm[:, pQ].sum(0))
   else:
     out[:, NWRITE + 2] = Fm[:, px].sum(0) - Fx + view['F0'][px]
     out[:, NWRITE + 3] = -mean_q(Fm[:, pQ].sum(0) - FQx + view['F0'][pQ])
@@ -1047,6 +1204,31 @@ def batch_margin(view: dict, xs, Qp, Qm) -> torch.Tensor:
 def xlevel(comp: np.ndarray) -> np.ndarray:
   """(..., 20) components -> (..., 10) categories (part on the target plus part on the company)."""
   return comp[..., 0::2] + comp[..., 1::2]
+
+
+def corner_sign(pat: str) -> np.ndarray:
+  """(20,) directions of a corner pattern: 'all+' / 'all-' every component up / down, 'own+' / 'own-' the own write up /
+  down and every other component the opposite way."""
+  sg = np.ones(len(COMP)) if pat in ('all+', 'own+') else -np.ones(len(COMP))
+  if pat in ('own+', 'own-'):
+    sg[2:] *= -1
+  return sg
+
+
+def corner(x: np.ndarray, bb: np.ndarray, sg: np.ndarray) -> np.ndarray:
+  """Components x (..., 20) moved to a corner of their storage bounds bb (..., 20) in the directions sg (20,) of +-1,
+  as a change of the stored fp16 parts would move them with R recomputed from W: every write component by sg bb and
+  E by minus their sum (on c and on the company separately: sum_k T_k + E is fixed), F_own by sg bb and F_rest by the
+  opposite (F_own + F_rest is fixed); Phi and Pi do not move. The sum of the components is unchanged."""
+  s = sg * np.asarray(bb, float)
+  y = np.array(x, float, copy=True)
+  y[..., :NWRITE] += s[..., :NWRITE]
+  iE, iFo, iFr = COMP.index('E_c'), COMP.index('Fown_c'), COMP.index('Frest_c')
+  for o in (0, 1):
+    y[..., iE + o] -= s[..., o:NWRITE:2].sum(-1)
+    y[..., iFo + o] += s[..., iFo + o]
+    y[..., iFr + o] -= s[..., iFo + o]
+  return y
 
 
 def classify(ex: np.ndarray, ctrl: np.ndarray, thr: dict) -> str:
@@ -1171,6 +1353,8 @@ class Ctx:
     self.dev = run.dev
     self.events = json.load(open(os.path.join(a.out, 'events.json')))
     assert self.events['steps'] == run.g16, 'events.json was built on another checkpoint grid'
+    assert self.events.get('version', 0) >= 3, ('events.json of an older version (no sd floor at selection): rebuild '
+                                                'it with events --force, then its interval files')
     self.C = self.K = run.n_classes
     self.stock = {s: load_stock(a.out, s) for s in run.gplus
                   if os.path.exists(os.path.join(a.out, f'stock_{s:05d}.pt'))}
@@ -1182,7 +1366,7 @@ class Ctx:
     rel_wn = (wn <= self.prm['wordnet_near']) & ~eye
     self.rel = rel_wn if self.prm['relatives'] == 'wordnet' else rel_vis       # primary visual, secondary WordNet
     self.unrel = (wn >= self.prm['unrel_wn']) & (vis > self.prm['unrel_vis']) & ~eye
-    self.n_c, self.n_r = class_counts(a, run, self.C)
+    self.n_c, self.n_r, self.n_c_info = class_counts(a, run, self.C)
     self.rng = np.random.default_rng(self.prm['seed'])
     files = {}
     for f in glob.glob(os.path.join(a.out, 'xhw_[0-9]*_[0-9]*.pt')):
@@ -1229,18 +1413,43 @@ class Ctx:
 
 
 def class_counts(a, run: Run, C: int):
-  """(n_c, n_r): training images per class and per random group (n_r None without a random split)."""
+  """(n_c, n_r, info): training images per class and per random group (n_r None without a random split), and where
+  n_c came from (source, kind, file sha256, n_c_sha of the counts themselves, min, max, sum, zero_classes). Source:
+  --class_counts, else <run>/rand_groups.npy, else /dev/shm/imagenet256/labels.npy. A file of exactly C entries is
+  per-class counts (any dtype; a label file has one entry per training image), any other length per-example labels
+  (all in 0..C-1). No source is an error: equal counts would silently turn every count-matched null into a
+  size-matched one; only --params '{"equal_counts": true}' (toy tests) allows them."""
   rg = os.path.join(run.dir, 'rand_groups.npy')
   n_r = np.bincount(np.load(rg).astype(np.int64), minlength=C).astype(float) if os.path.exists(rg) else None
   src = a.class_counts or (rg if os.path.exists(rg) else '/dev/shm/imagenet256/labels.npy')
   if src and os.path.exists(src):
-    v = np.load(src)
-    per_class = len(v) == C and v.dtype.kind == 'f'
-    n_c = v.astype(float) if per_class else np.bincount(v.astype(np.int64), minlength=C).astype(float)
-  else:
-    print('WARNING: no class counts found (--class_counts): equal counts assumed', flush=True)
+    v = np.asarray(np.load(src)).ravel()
+    per_class = len(v) == C
+    if per_class:
+      if not (v >= 0).all():
+        raise SystemExit(f'class counts {src}: negative counts')
+      n_c = v.astype(float)
+    else:
+      if not (v.min() >= 0 and v.max() < C):
+        raise SystemExit(f'class counts {src}: {len(v)} entries with labels outside 0..{C - 1} (a per-class counts '
+                         f'file must have exactly {C} entries)')
+      n_c = np.bincount(v.astype(np.int64), minlength=C).astype(float)
+    assert len(n_c) == C, f'class counts from {src}: {len(n_c)} entries, expected {C}'
+    info = {'source': src, 'kind': 'per_class' if per_class else 'labels', 'sha256': file_sha(src)}
+  elif a.prm.get('equal_counts'):
+    print('WARNING: equal class counts (equal_counts): the count-matched nulls are matched on size only', flush=True)
     n_c = np.ones(C)
-  return n_c, n_r
+    info = {'source': 'equal (equal_counts)', 'kind': 'equal', 'sha256': ''}
+  else:
+    raise SystemExit(f'no class counts: {src or "--class_counts"} not found and no {rg}; pass --class_counts '
+                     f'(per-example labels, or a {C}-entry per-class counts file), or --params '
+                     '\'{"equal_counts": true}\' (toy tests)')
+  zero = int((n_c == 0).sum())
+  if zero:
+    print(f'WARNING: {zero} classes have a training count of 0 in {info["source"]}', flush=True)
+  info |= {'n_c_sha': array_sha(n_c), 'min': float(n_c.min()), 'max': float(n_c.max()), 'sum': float(n_c.sum()),
+           'zero_classes': zero, 'equal': bool((n_c == n_c[0]).all())}
+  return n_c, n_r, info
 
 
 def plasticity(inc: dict, cm: dict, unrel: torch.Tensor, chunk: int = 8) -> torch.Tensor:
@@ -1301,7 +1510,8 @@ def analyze_block(ctx: Ctx, b: str) -> dict:
   KR = K if run.has_random else 0
   rel_t = torch.from_numpy(ctx.rel).to(dev)
   unrel_t = torch.from_numpy(ctx.unrel).to(dev)
-  rec = {'complete': {}, 'own': {}, 'oth': {}, 'plast': {}, 'prov': {}, 'prov_check': 0.0, 'view_check': 0.0}
+  rec = {'complete': {}, 'own': {}, 'own_bound': {}, 'oth': {}, 'plast': {}, 'prov': {}, 'prov_check': 0.0,
+         'view_check': 0.0}
   # event accumulators
   accs = []
   for d, (s_, m_) in DIRS.items():
@@ -1336,6 +1546,8 @@ def analyze_block(ctx: Ctx, b: str) -> dict:
       rec['complete'][(s1, s2, h)] = split_completeness(inc, cm)['rel']
       own = own_terms(inc, cm)
       rec['own'][(s1, s2, h)] = own.float().cpu()
+      if role in ('g16', 'sub'):                                  # fp16 storage bound of T_c(c) (compact parts)
+        rec['own_bound'][(s1, s2, h)] = own_bounds(inc, cm).float().cpu()
       rec['oth'][(s1, s2, h)] = (total_writes(inc, cm) - own).float().cpu()
       if role == 'g16':
         rec['plast'][(j, h)] = plasticity(inc, cm, unrel_t).cpu()
@@ -1421,7 +1633,8 @@ def entry_acc(ctx: Ctx, d: str, en: dict, K: int, dev) -> EventAcc:
 
 def exit_summary(ctx: Ctx, ac: EventAcc) -> dict:
   """Per-exit record: components (normalized by sd_n(t_pk) on the measurement half), C1 / C2 means, standardized
-  categories, bands, the classification and its flips."""
+  categories (and the nulls that could not be formed), bands, the classification and its flips. The sd floor is
+  decided on the selection half (as at event selection); the measurement half's sd only normalizes."""
   prm, run, e = ctx.prm, ctx.run, ac.e
   s_, m_ = DIRS[ac.d]
   t_pk = run.g16[e['pk']]
@@ -1429,8 +1642,11 @@ def exit_summary(ctx: Ctx, ac: EventAcc) -> dict:
   r = {'d': ac.d, 'b': e['b'], 'n': e['n'], 'c': e['c'], 'pk': e['pk'], 'out': e['out'], 'anchored': e['anchored'],
        'rep': e['rep'], 'rep_relaxed': e.get('rep_relaxed', False), 'phase': phase_of(t_pk),
        'late': not e['b'].startswith(('stage0', 'stage1')), 'nC1': len(e['C1']), 'nC2': len(e['C2']), 'check': ac.check}
-  if sd < ctx.floor(t_pk, m_):
+  if float(ctx.sd(t_pk, e['b'])[s_][e['n']]) < ctx.floor(t_pk, s_):
     r['skip'] = 'low_sd'
+    return r
+  if not sd > 0:
+    r['skip'] = 'zero_sd'
     return r
   comp = {k: v.cpu().numpy() / sd for k, v in ac.comp.items()}
   bnd = ac.bound.cpu().numpy() / sd
@@ -1451,25 +1667,29 @@ def exit_summary(ctx: Ctx, ac: EventAcc) -> dict:
   excl = {c} | set(e['P']) | set(e['Ent']) | rel
   pool = np.array([k for k in range(ctx.K) if k not in excl], np.int64)
   sets = {'own': [c], 'P': e['P'], 'Ent': e['Ent'], 'rel': sorted(rel - set(e['P']) - set(e['Ent']) - {c})}
-  z, pct = {}, {}
+  z, pct, miss, ncls = {}, {}, {}, {}
   P_q05 = None
   for name, S in sets.items():
     if not S:
       continue
     S = np.asarray(S)
     rs = matched_sets(ctx.rng, pool, ctx.n_c, len(S), ctx.n_c[S].sum(), prm['n_rand'], prm['count_tol'])
-    if len(rs) < 20 or len(np.unique(rs)) < 3:
+    nu = len(np.unique(rs))
+    if len(rs) < 20 or nu < 3:                        # recorded, not skipped silently (e.g. 'own' of a rare class)
+      miss[name] = 'few_sets' if len(rs) < 20 else 'few_classes'
       continue
     null = mm[rs].sum(1)
     if null.std() <= 1e-12 * np.abs(null).max():
+      miss[name] = 'no_spread'
       continue
+    ncls[name] = int(nu)
     val = mm[S].sum()
     z[name] = float((val - null.mean()) / max(null.std(), 1e-30))
     pct[name] = pct_of(val, null)
     if name == 'P':
       P_q05 = float(np.percentile(mc[rs].sum(1), 5))
-  r['z'], r['pct'] = z, pct
-  if z:
+  r['z'], r['pct'], r['null_missing'], r['null_classes'] = z, pct, miss, ncls
+  if z and not miss:                                  # 'most negative' only among exits with every applicable null
     r['most_negative'] = min(z, key=z.get)
   thr = {'P_q05': P_q05, 'rand_band': None, 'rand_q05': None, 'band_min': prm['band_min']}
   if ac.mRc is not None and ctx.n_r is not None:
@@ -1492,16 +1712,12 @@ def exit_summary(ctx: Ctx, ac: EventAcc) -> dict:
   for var in ('wf', 'if', 'p2', 'gplus'):
     if var in comp:
       flips[var] = classify(comp[var][0], comp[var][1:], thr) != r['label']
-  ws = np.zeros(len(COMP))
-  ws[:NWRITE] = 1
-  ws[NWRITE:NWRITE + 4] = 1
   corners = []
-  for pat in ('all+', 'all-', 'own+', 'own-'):
-    sg = np.ones(len(COMP)) if pat in ('all+', 'own+') else -np.ones(len(COMP))
-    if pat in ('own+', 'own-'):
-      sg[2:] *= -1
-    exc = ex + sg * ws * bnd[0]
-    ctc = ctrl - sg * ws * bnd[1:] if len(ctrl) else ctrl
+  for pat in CORNERS:                                 # the exit one way, its controls the other (each its own bound)
+    sg = corner_sign(pat)
+    exc = corner(ex, bnd[0], sg)
+    ctc = corner(ctrl, bnd[1:], -sg) if len(ctrl) else ctrl
+    assert abs(exc.sum() - ex.sum()) <= 1e-9 * (np.abs(ex).sum() + bnd[0].sum()) + 1e-300, 'corner moved the total'
     corners.append(classify(exc, ctc, thr))
   flips['fp16'] = any(cl != r['label'] for cl in corners)
   r['flips'] = flips
@@ -1509,18 +1725,27 @@ def exit_summary(ctx: Ctx, ac: EventAcc) -> dict:
 
 
 def entry_summary(ctx: Ctx, ac: EventAcc) -> dict:
+  """Per-entry record: components of the rise (normalized by sd_n(t_first) on the measurement half), the control mean,
+  their storage bounds, and whether the own term is within its bound. sd floor on the selection half."""
   e = ac.e
   s_, m_ = DIRS[ac.d]
   t = ctx.run.g16[e['first']]
   sd = float(ctx.sd(t, e['b'])[m_][e['n']])
   r = {'d': ac.d, 'b': e['b'], 'n': e['n'], 'c': e['c'], 'dropped': e['dropped'], 'nctrl': len(e['ctrl']),
        'late': not e['b'].startswith(('stage0', 'stage1')), 'phase': phase_of(t), 'check': ac.check}
-  if sd < ctx.floor(t, m_):
+  if float(ctx.sd(t, e['b'])[s_][e['n']]) < ctx.floor(t, s_):
     r['skip'] = 'low_sd'
     return r
+  if not sd > 0:
+    r['skip'] = 'zero_sd'
+    return r
   comp = ac.comp['nom'].cpu().numpy() / sd
+  bnd = ac.bound.cpu().numpy() / sd
   r['comp'] = comp[0]
+  r['bound'] = bnd[0]
+  r['zero_within_bound'] = int(abs(comp[0, 0]) <= bnd[0, 0])
   r['ctrl_mean'] = comp[1:].mean(0) if len(comp) > 1 else None
+  r['bound_ctrl_mean'] = bnd[1:].mean(0) if len(comp) > 1 else None   # corner is linear: corner of the means
   return r
 
 
@@ -1567,6 +1792,13 @@ def x1_population(ctx: Ctx, recs: list) -> dict:
   out['abs_fall'] = share_table(ok, 'abs_fall', ctx)
   lab = [r['label'] for r in ok]
   out['labels'] = {k: lab.count(k) for k in LABELS}
+  cats = ('own', 'P', 'Ent', 'rel')
+  out['labels_P_null_missing'] = sum('P' in r.get('null_missing', {}) for r in ok)   # 'interference' untestable
+  out['null_missing'] = {k: sum(k in r.get('null_missing', {}) for r in ok) for k in cats}
+  out['null_missing_reasons'] = {why: sum(why in r.get('null_missing', {}).values() for r in ok)
+                                 for why in ('few_sets', 'few_classes', 'no_spread')}
+  out['n_with_z'] = {k: sum(k in r.get('z', {}) for r in ok) for k in cats}
+  out['null_few_classes'] = {k: sum(r.get('null_classes', {}).get(k, 10) < 10 for r in ok) for k in cats}
   cls = [r for r in ok if r['label'] not in UNLABELLED]
   if cls:
     units = np.array([uid(r['b'], r['n']) for r in cls])
@@ -1578,6 +1810,7 @@ def x1_population(ctx: Ctx, recs: list) -> dict:
     out['flips_n'] = {v: int(sum(v in r['flips'] for r in cls)) for v in ('fp16', 'wf', 'if', 'p2', 'gplus')}
   mn = [r.get('most_negative') for r in ok if r.get('most_negative')]
   out['most_negative_standardized'] = {k: mn.count(k) for k in ('own', 'P', 'Ent', 'rel')}
+  out['most_negative_excluded'] = sum(bool(r.get('null_missing')) for r in ok)          # a null missing: not ranked
   for k in ('own', 'P', 'Ent', 'rel'):
     zs = [r['z'][k] for r in ok if k in r.get('z', {})]
     if zs:
@@ -1591,14 +1824,18 @@ def x1_population(ctx: Ctx, recs: list) -> dict:
 
 
 def x2_population(ctx: Ctx, recs: list) -> dict:
-  """Own excess-rise share of dropped and persistent entries and their difference (two-way bootstrap, joint draws)."""
+  """Own excess-rise share of dropped and persistent entries and their difference (two-way bootstrap, joint draws), the
+  entries whose own term is within its fp16 bound, and the difference at the four corners of the bounds (corner)."""
   ok = [r for r in recs if 'comp' in r and r.get('ctrl_mean') is not None]
-  out = {'n': len(recs), 'n_with_controls': len(ok)}
+  out = {'n': len(recs), 'n_with_controls': len(ok),
+         'n_low_sd': sum(r.get('skip') in ('low_sd', 'zero_sd') for r in recs)}
   if not ok:
     return out
   D = xlevel(np.stack([r['comp'] - r['ctrl_mean'] for r in ok]))
   den = D.sum(1)
   drop = np.array([r['dropped'] for r in ok])
+  out['zero_within_bound_own'] = {'dropped': int(sum(r.get('zero_within_bound', 0) for r in ok if r['dropped'])),
+                                  'persistent': int(sum(r.get('zero_within_bound', 0) for r in ok if not r['dropped']))}
   units = np.array([uid(r['b'], r['n']) for r in ok])
   classes = np.array([r['c'] for r in ok])
   est = {}
@@ -1615,9 +1852,19 @@ def x2_population(ctx: Ctx, recs: list) -> dict:
         b_ = (W[:, ~drop] @ D[~drop, 0]) / (W[:, ~drop] @ den[~drop])
       draws.append(a_ - b_)
     draws = np.concatenate(draws)
+    dfin = draws[~np.isnan(draws)]
     diff = est['dropped']['own'] - est['persistent']['own']
-    out['own_diff'] = {'est': diff, 'ci': np.nanpercentile(draws, [2.5, 97.5]).tolist(),
-                       'p0': float(min(1.0, 2 * min(np.nanmean(draws <= 0), np.nanmean(draws >= 0))))}
+    p, B = boot_p0(dfin)
+    out['own_diff'] = {'est': diff, 'ci': np.percentile(dfin, [2.5, 97.5]).tolist() if len(dfin) else None,
+                       'p0': float(p), 'B': int(B)}
+    if all(r.get('bound') is not None and r.get('bound_ctrl_mean') is not None for r in ok):
+      cor = {}
+      for pat in CORNERS:                     # the sum of the components (den) is fixed at every corner
+        sg = corner_sign(pat)
+        Dc = xlevel(np.stack([corner(r['comp'], r['bound'], sg) - corner(r['ctrl_mean'], r['bound_ctrl_mean'], -sg)
+                              for r in ok]))
+        cor[pat] = float(Dc[drop, 0].sum() / den[drop].sum() - Dc[~drop, 0].sum() / den[~drop].sum())
+      out['own_diff']['fp16_corners'] = cor
   return out
 
 
@@ -1628,37 +1875,73 @@ def bias_pushes(ctx: Ctx, b: str) -> dict:
   Cb_t2 - rhob Cb_t1 (pushR for the random split), med[(j, M)] (U,) the median |push| over classes in each unit, and
   sign[j][M] (2, U, C) the orientation at t1 per half (value: sign of Bbar, gate: sign of Abar); 'oriented'[(j, h)]
   (U, C): the oriented, normalized push of every class in every unit, the mean of the two maps (the probe-free capture
-  of X4)."""
+  of X4). pushb[(j, M)] (pushRb): the fp16 storage bound of each push, half_ulp(Cb_t2) / scale_t2 + |rhob|
+  half_ulp(Cb_t1) / scale_t1 (the stored fp16 parts and their per-tensor scales)."""
   run, g = ctx.run, ctx.run.g16
   def cb(s, split):
     A = run.attr(s, split)
-    return {M: (A[f'{b}.pw_{M}']['Cb'].double() / float(A[f'{b}.pw_{M}'].get('Cb_scale', 1.0)),
-                float(A[f'{b}.pw_{M}']['ab'])) for M in MAPS}
+    out = {}
+    for M in MAPS:
+      r = A[f'{b}.pw_{M}']
+      sc = float(r.get('Cb_scale', 1.0))
+      out[M] = (r['Cb'].double() / sc, float(r['ab']), half_ulp(r['Cb']) / sc)
+    return out
   CB = {s: cb(s, 'class') for s in g}
   CBR = {s: cb(s, 'random') for s in g} if run.has_random else None
-  out = {'push': {}, 'pushR': {} if CBR is not None else None, 'med': {}, 'sign': {}, 'oriented': {}}
+  out = {'push': {}, 'pushR': {} if CBR is not None else None, 'pushb': {}, 'pushRb': {} if CBR is not None else None,
+         'med': {}, 'sign': {}, 'oriented': {}}
   for j in range(1, len(g)):
     st = ctx.stock[g[j - 1]][b]
     out['sign'][j] = {'gate': np.where(st['Abar'].numpy() >= 0, 1.0, -1.0),
                       'value': np.where(st['Bbar'].numpy() >= 0, 1.0, -1.0)}
     for M in MAPS:
-      (c1, ab1), (c2, ab2) = CB[g[j - 1]][M], CB[g[j]][M]
+      (c1, ab1, u1), (c2, ab2, u2) = CB[g[j - 1]][M], CB[g[j]][M]
       out['push'][(j, M)] = (c2 - (ab2 / ab1) * c1).numpy()
+      out['pushb'][(j, M)] = (u2 + abs(ab2 / ab1) * u1).numpy()
       out['med'][(j, M)] = np.maximum(np.median(np.abs(out['push'][(j, M)]), 0), 1e-30)
       if CBR is not None:
-        (r1, rb1), (r2, rb2) = CBR[g[j - 1]][M], CBR[g[j]][M]
+        (r1, rb1, v1), (r2, rb2, v2) = CBR[g[j - 1]][M], CBR[g[j]][M]
         out['pushR'][(j, M)] = (r2 - (rb2 / rb1) * r1).numpy()
+        out['pushRb'][(j, M)] = (v2 + abs(rb2 / rb1) * v1).numpy()
     for h in (0, 1):
       out['oriented'][(j, h)] = sum(0.5 * out['push'][(j, M)][:ctx.C].T * out['sign'][j][M][h]
                                     / out['med'][(j, M)][:, None] for M in MAPS)
   return out
 
 
+def s1_label(v: float, lo: float, hi: float) -> str:
+  return 'withdrawn' if lo <= v <= hi else ('reversed' if v < lo else 'maintained')
+
+
+def s1_c1_band(pe: float, pc: list, band_min: int = 3, be: float = 0.0, bc: list = None):
+  """S1 against the C1 band. C1 member i and the exit are both labelled against band_i, the 25-75% of the other m - 1
+  C1 pushes, so that the pair (exit, member i) faces the same band and, when the exit and its C1 classes are
+  exchangeable, the exit's label fractions over the m bands and the C1 labels have the same expectation for any
+  distribution and any m (the 25-75% of all m values would cover more for the exit than the members' bands of m - 1).
+  None for m < max(3, band_min). be, bc: fp16 bounds of the pushes; flip_fp16 = some label changes at push +- bound
+  (the bands held fixed)."""
+  m = len(pc)
+  if m < max(3, band_min):
+    return None
+  pc = np.asarray(pc, float)
+  loo = [np.percentile(np.delete(pc, i), [25, 75]) for i in range(m)]
+  lab_e = [s1_label(pe, *bd) for bd in loo]
+  lab_c = [s1_label(v, *bd) for v, bd in zip(pc, loo)]
+  bc = np.zeros(m) if bc is None else np.asarray(bc, float)
+  flip = any([s1_label(pe + s * be, *bd) for bd in loo] != lab_e for s in (-1, 1)) or \
+      any([s1_label(v + s * bv, *bd) for v, bv, bd in zip(pc, bc, loo)] != lab_c for s in (-1, 1))
+  return {'labels_exit': lab_e, 'labels_C1': lab_c, 'label_frac': {k: float(np.mean([x == k for x in lab_e]))
+                                                                    for k in S1}, 'flip_fp16': bool(flip)}
+
+
 def x3_block(ctx: Ctx, b: str, bp: dict) -> list:
   """S1 and S3 per exit of one block (both directions): oriented, normalized bias pushes over the last 3 G16 intervals
-  up to t_out with their bands, and the crowding split at snapshots. bp: bias_pushes(ctx, b)."""
+  up to t_out with their fp16 bounds, the S1 labels against the C1 band (s1_c1_band; every run) and, with a random
+  split, against the random band (label_rand, an extra result), and the crowding split at snapshots. Exits of units
+  below the sd floor on the selection half at t_pk are recorded with skip. bp: bias_pushes(ctx, b)."""
   run, g = ctx.run, ctx.run.g16
   push, pushR, med, sign = bp['push'], bp['pushR'], bp['med'], bp['sign']
+  pushb = bp['pushb']
   snaps = run.snaps
   out = []
   for d, (s_, m_) in DIRS.items():
@@ -1666,30 +1949,35 @@ def x3_block(ctx: Ctx, b: str, bp: dict) -> list:
       if e['b'] != b:
         continue
       n, c = e['n'], e['c']
+      r = {'d': d, 'b': b, 'n': n, 'c': c, 'anchored': e['anchored'], 'rep': e['rep'],
+           'late': not b.startswith(('stage0', 'stage1')), 'nC1': len(e['C1'])}
+      t_pk = g[e['pk']]
+      if float(ctx.sd(t_pk, b)[s_][n]) < ctx.floor(t_pk, s_):
+        r['skip'] = 'low_sd'
+        out.append(r)
+        continue
       js = [j for j in (e['out'] - 2, e['out'] - 1, e['out']) if j >= 1]
       def p_of(x):
         return sum(0.5 * sum(push[(j, M)][x, n] * sign[j][M][s_, n, x] / med[(j, M)][n] for M in MAPS) for j in js)
+      def pb_of(x):                                   # |sign| = 1: the bounds add up over maps and intervals
+        return sum(0.5 * sum(pushb[(j, M)][x, n] / med[(j, M)][n] for M in MAPS) for j in js)
       def band_of(x):
-        if pushR is None:
-          return None
         v = sum(0.5 * sum(pushR[(j, M)][:, n] * sign[j][M][s_, n, x] / med[(j, M)][n] for M in MAPS) for j in js)
         return v * ctx.n_c[x] / ctx.n_r
-      def label(v, lo, hi):
-        return 'withdrawn' if lo <= v <= hi else ('reversed' if v < lo else 'maintained')
-      pe = p_of(c)
-      pc = [p_of(k) for k in e['C1']]
-      r = {'d': d, 'b': b, 'n': n, 'c': c, 'anchored': e['anchored'], 'rep': e['rep'],
-           'late': not b.startswith(('stage0', 'stage1')), 'push': pe, 'push_C1': pc}
-      if pushR is not None:
-        bd = band_of(c)
-        r['label'] = label(pe, *np.percentile(bd, [5, 95]))
-        r['labels_C1'] = [label(v, *np.percentile(band_of(k), [5, 95])) for k, v in zip(e['C1'], pc)]
-        r['band'] = 'random'
-      elif len(pc) >= 2:
-        r['label'] = label(pe, *np.percentile(pc, [25, 75]))
-        r['labels_C1'] = [label(v, *np.percentile([q for jj, q in enumerate(pc) if jj != i], [25, 75]))
-                          for i, v in enumerate(pc)] if len(pc) >= 3 else []
+      pe, be = p_of(c), pb_of(c)
+      pc, bc = [p_of(k) for k in e['C1']], [pb_of(k) for k in e['C1']]
+      r |= {'push': pe, 'push_C1': pc, 'push_bound': be, 'push_bound_C1': bc}
+      lb = s1_c1_band(pe, pc, ctx.prm['band_min'], be, bc)
+      if lb is not None:
+        r |= lb
+        r['label'] = s1_label(pe, *np.percentile(pc, [25, 75]))     # descriptive only: the tests use label_frac
         r['band'] = 'C1'
+      if pushR is not None:
+        bands = [np.percentile(band_of(x), [5, 95]) for x in [c] + e['C1']]
+        r['label_rand'] = s1_label(pe, *bands[0])
+        r['labels_C1_rand'] = [s1_label(v, *bd) for v, bd in zip(pc, bands[1:])]
+        r['flip_fp16_rand'] = any(s1_label(v + s * bv, *bd) != s1_label(v, *bd) for v, bv, bd in
+                                  zip([pe] + pc, [be] + bc, bands) for s in (-1, 1))
       # S3: crowding between the first and last snapshot inside [t_pk, t_out]
       inside = [s for s in snaps if g[e['pk']] <= s <= g[e['out']]]
       if len(inside) >= 2:
@@ -1747,18 +2035,29 @@ def crowding(ctx: Ctx, b: str, n: int, xs: list, sa: int, sb: int, h: int) -> di
 
 
 def x3_population(ctx: Ctx, recs: list) -> dict:
-  ok = [r for r in recs if 'label' in r and r.get('labels_C1')]
-  out = {'n': len(recs), 'n_labelled': len(ok)}
-  if not ok:
-    return out
-  units = np.array([uid(r['b'], r['n']) for r in ok])
-  classes = np.array([r['c'] for r in ok])
+  """S1 proportions of exits and C1 and their difference (two-way bootstrap): the C1 band in every run (the exit's
+  leave-one-out label fractions, s1_c1_band), and with a random split also against the random band ('<label>_randband',
+  an extra result); fp16 flips, the C1 size distribution and the exits skipped below the sd floor; S3 means."""
+  ok = [r for r in recs if r.get('label_frac') and r.get('labels_C1')]
+  okr = [r for r in recs if 'label_rand' in r and r.get('labels_C1_rand')]
+  m, cnt = np.unique([r['nC1'] for r in recs if 'skip' not in r], return_counts=True)
+  out = {'n': len(recs), 'n_labelled': len(ok), 'band': 'C1', 'n_low_sd': sum(r.get('skip') == 'low_sd' for r in recs),
+         'nC1': {int(a): int(b) for a, b in zip(m, cnt)}}
   rng = np.random.default_rng(ctx.prm['seed'] + 4)
-  for k in ('withdrawn', 'reversed', 'maintained'):
-    ex = np.array([r['label'] == k for r in ok], float)
-    c1 = np.array([np.mean([x == k for x in r['labels_C1']]) for r in ok])
-    out[k] = {'exits': float(ex.mean()), 'C1': float(c1.mean()),
-              'diff': boot_mean(ex - c1, units, classes, ctx.prm['n_boot'], rng)}
+  for rows, sfx, exf, c1f in ((ok, '', lambda r, k: r['label_frac'][k], 'labels_C1'),
+                              (okr, '_randband', lambda r, k: float(r['label_rand'] == k), 'labels_C1_rand')):
+    if not rows:
+      continue
+    units = np.array([uid(r['b'], r['n']) for r in rows])
+    classes = np.array([r['c'] for r in rows])
+    for k in S1:
+      ex = np.array([exf(r, k) for r in rows], float)
+      c1 = np.array([np.mean([x == k for x in r[c1f]]) for r in rows])
+      out[k + sfx] = {'exits': float(ex.mean()), 'C1': float(c1.mean()),
+                      'diff': boot_mean(ex - c1, units, classes, ctx.prm['n_boot'], rng)}
+    flip = 'flip_fp16' if not sfx else 'flip_fp16_rand'
+    out['flips' + sfx] = {'fp16': int(sum(r.get(flip, False) for r in rows)), 'n': len(rows)}
+  out['n_labelled_randband'] = len(okr)
   s3 = [r['S3'] for r in recs if 'S3' in r]
   if s3:
     agg = {}
@@ -1782,18 +2081,25 @@ def x3_population(ctx: Ctx, recs: list) -> dict:
 def x3_s2(ctx: Ctx, own: dict) -> dict:
   """S2: n's share s_n(j) = O+_n,c(j) / sum_{m in stage} O+_m,c(j) of c's own-write capture; j_x = first G16 interval
   after t_pk with s_n(j) <= s_n(pk) / 2; timing before / same / after t_out, against a within-unit permutation of t_out
-  and against C1 classes; carriers' share (the top-3 other units of each interval) at t_pk and t_out."""
+  and against C1 classes; carriers' share (the top-3 other units of each interval) at t_pk and t_out. Units below the
+  network-wide sd floor at t1 (either half) get O = 0 in that interval (they would dominate the stage total), a unit
+  below it at a later interval is missing there (not a halving), and exits of units below it on the selection half at
+  t_pk are skipped (n_low_sd)."""
   run, g = ctx.run, ctx.run.g16
   res = {}
   for d, (s_, m_) in DIRS.items():
-    rows = []
+    rows, n_low = [], 0
     for stage in sorted({b.split('.')[0] for b in run.blocks}):
       blocks = [b for b in run.blocks if b.startswith(stage + '.')]
       off = np.cumsum([0] + [run.U[b] for b in blocks])
-      O = {}
+      O, valid = {}, {}
       for j in range(1, len(g)):
-        sd = np.concatenate([ctx.sd(g[j - 1], b)[m_] for b in blocks])
-        v = np.concatenate([own[b][(g[j - 1], g[j], m_)].numpy() for b in blocks]) / np.maximum(sd, 1e-30)[:, None]
+        t1 = g[j - 1]
+        sd = np.concatenate([ctx.sd(t1, b)[m_] for b in blocks])
+        sds = np.concatenate([ctx.sd(t1, b)[s_] for b in blocks])
+        valid[j] = (sds >= ctx.floor(t1, s_)) & (sd >= ctx.floor(t1, m_))
+        v = np.concatenate([own[b][(t1, g[j], m_)].numpy() for b in blocks]) / np.maximum(sd, 1e-30)[:, None]
+        v[~valid[j]] = 0
         O[j] = np.maximum(v, 0)
       tot = {j: O[j].sum(0) for j in O}
       exits = [e for e in ctx.events['directions'][d]['exits'] if e['b'] in blocks]
@@ -1805,13 +2111,17 @@ def x3_s2(ctx: Ctx, own: dict) -> dict:
           return None
         base = O[pk][gi, c] / tot[pk][c]
         for j in range(pk + 1, len(g)):
-          if tot[j][c] > 0 and O[j][gi, c] / tot[j][c] <= base / 2:
+          if valid[j][gi] and tot[j][c] > 0 and O[j][gi, c] / tot[j][c] <= base / 2:
             return j
         return len(g)
       def when(x, out):
         return 'before' if x < out else ('same' if x == out else 'after')
       for i, e in enumerate(exits):
         gi = int(off[blocks.index(e['b'])] + e['n'])
+        t_pk = g[e['pk']]
+        if float(ctx.sd(t_pk, e['b'])[s_][e['n']]) < ctx.floor(t_pk, s_):
+          n_low += 1
+          continue
         x = jx(gi, e['c'], e['pk'])
         if x is None:
           continue
@@ -1829,7 +2139,7 @@ def x3_s2(ctx: Ctx, own: dict) -> dict:
                      'late': stage not in ('stage0', 'stage1'), 'when': when(x, e['out']), 'perm': perm, 'C1': ctl,
                      'carriers': carriers})
     pop = [r for r in rows if r['anchored'] and r['late']]
-    out = {'n_all': len(rows), 'n': len(pop)}
+    out = {'n_all': len(rows), 'n': len(pop), 'n_low_sd': n_low}
     if pop:
       units = np.array([uid(r['b'], r['n']) for r in pop])
       classes = np.array([r['c'] for r in pop])
@@ -1867,15 +2177,28 @@ def batched_ols(Y: np.ndarray, X: np.ndarray) -> np.ndarray:
   return sol[:, 1:]
 
 
-def x4(ctx: Ctx, own: dict, plast: dict, prov: dict, pbias: dict) -> dict:
+def rank_ols(Y: np.ndarray, X: np.ndarray) -> np.ndarray:
+  """Rank regression per batch: Y (B, n) on rank_cols(X) (B, n, p) (batched_ols). A coefficient on a column without
+  spread across the n units (e.g. the class parts' provenance at step 0, all 0) is not estimable: nan, not the
+  minimum-norm 0 that would enter a median as an estimate."""
+  Xr = rank_cols(X)
+  coef = batched_ols(Y, Xr)
+  coef[Xr.std(-2) < 0.5] = np.nan                      # ranked columns have sd 1, columns without spread sd 0
+  return coef
+
+
+def x4(ctx: Ctx, own: dict, plast: dict, prov: dict, pbias: dict, own_bound: dict = None) -> dict:
   """F1, F2, F3 and the ladder per direction, stage (and network) scope and phase (module docstring); F1_bias: F1
-  with the probe-free capture, the oriented normalized bias push of class k in each unit (bias_pushes)."""
+  with the probe-free capture, the oriented normalized bias push of class k in each unit (bias_pushes). With own_bound
+  (the fp16 bounds of O, analyze_block): the (unit, class) cells with |O| within the bound, and F1 recomputed with O_L
+  at minus and plus its bound (F1_lo, F1_hi; medians)."""
   run, g, prm = ctx.run, ctx.run.g16, ctx.prm
   off = prm['log_offset']
   res = {}
   stages = sorted({b.split('.')[0] for b in run.blocks})
   for d, (s_, m_) in DIRS.items():
     rows = {'stage': [], 'network': []}
+    within = {}
     for j in range(1, len(g)):
       t1 = g[j - 1]
       R = np.concatenate([ctx.R[t1][b][s_] for b in run.blocks])                       # (N, C)
@@ -1887,6 +2210,10 @@ def x4(ctx: Ctx, own: dict, plast: dict, prov: dict, pbias: dict) -> dict:
       Pl = np.concatenate([plast[b][(j, m_)].numpy() for b in run.blocks]) / np.maximum(sd_m, 1e-30)[:, None]
       pv = np.concatenate([prov[b][j][s_].numpy() for b in run.blocks])                 # (N, C, 6)
       Ob = np.concatenate([pbias[b][(j, s_)] for b in run.blocks])                      # (N, C)
+      Bo = None
+      if own_bound is not None and all((t1, g[j], m_) in own_bound[b] for b in run.blocks):
+        Bo = np.concatenate([own_bound[b][(t1, g[j], m_)].numpy() for b in run.blocks]) \
+            / np.maximum(sd_m, 1e-30)[:, None]
       gs = ctx.gstate.get(t1)
       base = {'kappa': None, 'beta': None, 'mu': None}
       if gs is not None:
@@ -1904,12 +2231,21 @@ def x4(ctx: Ctx, own: dict, plast: dict, prov: dict, pbias: dict) -> dict:
         cls = np.arange(ctx.C)
         F1 = (midrank(Os.T)[cls, L] - 0.5) / len(idx)
         F1b = (midrank(Ob[idx].T)[cls, L] - 0.5) / len(idx)
+        F1x = {}
+        if Bo is not None:
+          Bs = Bo[idx]
+          wb = within.setdefault(scope, {'cells': 0, 'within': 0})
+          wb['cells'] += int(Os.size)
+          wb['within'] += int((np.abs(Os) <= Bs).sum())
+          for nm, sgn in (('F1_lo', -1.0), ('F1_hi', 1.0)):
+            Oa = Os.copy()
+            Oa[L, cls] += sgn * Bs[L, cls]
+            F1x[nm] = (midrank(Oa.T)[cls, L] - 0.5) / len(idx)
         Xr = np.stack([zs, zs ** 2] + [pv[idx][:, :, i] for i in range(4)], -1)          # (n, C, 6)
-        Xr = rank_cols(np.moveaxis(Xr, 1, 0))                                            # (C, n, 6)
         Yr = rank_cols(Os.T[..., None])[..., 0]
-        coef = batched_ols(Yr, Xr)                                                       # (C, 6)
+        coef = rank_ols(Yr, np.moveaxis(Xr, 1, 0))                                       # (C, 6); nan at t1 = 0
         Xg = np.stack([zs, zs ** 2] + [pv[idx][:, :, i] for i in (4, 5, 1, 2, 3)], -1)
-        coef_gv = batched_ols(Yr, rank_cols(np.moveaxis(Xg, 1, 0)))
+        coef_gv = rank_ols(Yr, np.moveaxis(Xg, 1, 0))
         pos = np.maximum(Os, 0)
         tot = pos.sum(0)
         piO = np.where(tot > 0, pos[L, cls] / np.maximum(tot, 1e-300), np.nan)
@@ -1923,8 +2259,9 @@ def x4(ctx: Ctx, own: dict, plast: dict, prov: dict, pbias: dict) -> dict:
           psi[k] = np.log(piO + off) - np.log(pix + off)
         for c in range(ctx.C):
           rows[scope].append({'j': j, 'phase': phase_of(t1), 'stage': name, 'c': c, 'F1': F1[c], 'F1_bias': F1b[c],
-                              'F2': coef[c, 2],
+                              'F2': float(coef[c, 2]),
                               'F2_all': coef[c].tolist(), 'F2_gate_value': coef_gv[c, 2:4].tolist(),
+                              **{k: float(v[c]) for k, v in F1x.items()},
                               **{f'psi_{k}': float(v[c]) for k, v in psi.items()}})
     out = {}
     rng = np.random.default_rng(prm['seed'] + 6)
@@ -1942,6 +2279,8 @@ def x4(ctx: Ctx, own: dict, plast: dict, prov: dict, pbias: dict) -> dict:
           v = np.array([rr[i].get(stat, np.nan) for i in sel], float)
           if np.isfinite(v).any():
             rec[stat] = boot_median(v, cl[sel], prm['n_boot'], rng)
+        if 'F1_lo' in rr[sel[0]]:
+          rec['F1_fp16'] = {k: float(np.nanmedian([rr[i].get(k, np.nan) for i in sel])) for k in ('F1_lo', 'F1_hi')}
         if scope == 'stage':
           for st in stages:
             ss = [i for i in sel if rr[i]['stage'] == st]
@@ -1953,6 +2292,7 @@ def x4(ctx: Ctx, own: dict, plast: dict, prov: dict, pbias: dict) -> dict:
     if out.get('stage', {}).get('all', {}).get('F1'):
       ci = out['stage']['all']['F1']['ci']
       out['F1_counts_against'] = bool(ci[1] < 0.55)
+    out['own_within_bound'] = within
     res[d] = out
   return res
 
@@ -2014,7 +2354,11 @@ def loop_regression(Ys: list, Os: list, Zs: list, rng, n_perm: int) -> dict:
           'null_other_mean': float(null[:, 1].mean()), 'rows': int(sum(len(Y) for Y in Ys))}
 
 
-def x5(ctx: Ctx, own: dict, oth: dict) -> dict:
+def x5(ctx: Ctx, own: dict, oth: dict, own_bound: dict = None) -> dict:
+  """The loop regression over G16 and snapshot chains (rows: units above the sd floor on both halves at every t_j),
+  the cells whose own gain is within its fp16 bound (own_within_bound; snapshot intervals have no bound), and the
+  cumulative concentration of capture against kappa per stage (units below the floor at t1, or for kappa at t2, add
+  nothing in that interval)."""
   run, prm = ctx.run, ctx.prm
   have = {(s1, s2) for (s1, s2, h) in next(iter(own.values()))}
   g16iv = [(run.g16[j - 1], run.g16[j]) for j in range(1, len(run.g16))]
@@ -2025,9 +2369,10 @@ def x5(ctx: Ctx, own: dict, oth: dict) -> dict:
   rng = np.random.default_rng(prm['seed'] + 7)
   for d, (s_, m_) in DIRS.items():
     Ys, Os, Zs = [], [], []
+    wb = {'cells': 0, 'within': 0, 'no_bound': 0}
     for fam, chs in fams.items():
       for ch in chs:
-        cols_y, cols_o, cols_z, valid = [], [], [], None
+        cols_y, cols_o, cols_z, cols_b, valid = [], [], [], [], None
         for (t1, t2) in ch:
           if t1 not in ctx.R:
             break
@@ -2040,13 +2385,23 @@ def x5(ctx: Ctx, own: dict, oth: dict) -> dict:
           cols_y.append(np.concatenate([own[b][(t1, t2, m_)].numpy() for b in run.blocks]) / scale)
           cols_o.append(np.concatenate([oth[b][(t1, t2, m_)].numpy() for b in run.blocks]) / scale)
           cols_z.append((R - R.mean(1, keepdims=True)) / np.maximum(sd_s, 1e-30)[:, None])
+          have_b = own_bound is not None and all((t1, t2, m_) in own_bound[b] for b in run.blocks)
+          cols_b.append(np.concatenate([own_bound[b][(t1, t2, m_)].numpy() for b in run.blocks]) / scale
+                        if have_b else None)
         else:
           sel = np.flatnonzero(valid)
+          for Y, Bd in zip(cols_y, cols_b):
+            if Bd is None:
+              wb['no_bound'] += int(Y[sel].size)
+            else:
+              wb['cells'] += int(Y[sel].size)
+              wb['within'] += int((np.abs(Y[sel]) <= Bd[sel]).sum())
           Ys.append(np.stack([c[sel].ravel() for c in cols_y], 1))
           Os.append(np.stack([c[sel].ravel() for c in cols_o], 1))
           Zs.append(np.stack([c[sel].ravel() for c in cols_z], 1))
     if Ys:
       res[d] = loop_regression(Ys, Os, Zs, rng, prm['n_perm'])
+    res.setdefault('own_within_bound', {})[d] = wb
     # cumulative concentration of capture against kappa, per stage and G16 point
     traj = {}
     for stage in sorted({b.split('.')[0] for b in run.blocks}):
@@ -2055,7 +2410,9 @@ def x5(ctx: Ctx, own: dict, oth: dict) -> dict:
       for j in range(1, len(run.g16)):
         t1, t2 = run.g16[j - 1], run.g16[j]
         sd_m = np.concatenate([ctx.sd(t1, b)[m_] for b in blocks])
+        sd_s = np.concatenate([ctx.sd(t1, b)[s_] for b in blocks])
         O = np.concatenate([own[b][(t1, t2, m_)].numpy() for b in blocks]) / np.maximum(sd_m, 1e-30)[:, None]
+        O[(sd_m < ctx.floor(t1, m_)) | (sd_s < ctx.floor(t1, s_))] = 0
         cum = cum + np.maximum(O, 0)
         tot = cum.sum(0)
         H = np.where(tot > 0, ((cum / np.maximum(tot, 1e-300)) ** 2).sum(0), np.nan)
@@ -2063,6 +2420,10 @@ def x5(ctx: Ctx, own: dict, oth: dict) -> dict:
         gs = ctx.gstate.get(t2)
         if gs is not None:
           kp = np.maximum(np.concatenate([gs['blocks'][b]['kappa'][m_].numpy() for b in blocks]), 0)
+          if t2 in ctx.R:
+            k_m = np.concatenate([ctx.sd(t2, b)[m_] for b in blocks])
+            k_s = np.concatenate([ctx.sd(t2, b)[s_] for b in blocks])
+            kp[(k_m < ctx.floor(t2, m_)) | (k_s < ctx.floor(t2, s_))] = 0
           tk = kp.sum(0)
           row['H_kappa'] = float(np.nanmedian(np.where(tk > 0, ((kp / np.maximum(tk, 1e-300)) ** 2).sum(0), np.nan)))
         rows.append(row)
@@ -2167,13 +2528,14 @@ def cmd_tests(a, run: Run):
   ctx = Ctx(a, run)
   prm = ctx.prm
   t0 = time.time()
-  own, oth, plast, prov, pbias = {}, {}, {}, {}, {}
+  own, own_bound, oth, plast, prov, pbias = {}, {}, {}, {}, {}, {}
   exits, entries, x3 = [], [], []
   checks = {'complete_rel_max': 0.0, 'view_check': 0.0, 'prov_check': 0.0, 'event_check': 0.0}
   per_block = {}
   for b in run.blocks:
     rec = analyze_block(ctx, b)
     own[b], oth[b], plast[b], prov[b] = rec['own'], rec['oth'], rec['plast'], rec['prov']
+    own_bound[b] = rec['own_bound']
     checks['complete_rel_max'] = max(checks['complete_rel_max'], max(rec['complete'].values()))
     checks['view_check'] = max(checks['view_check'], rec['view_check'])
     checks['prov_check'] = max(checks['prov_check'], rec['prov_check'])
@@ -2189,9 +2551,13 @@ def cmd_tests(a, run: Run):
     per_block[b] = {'complete_rel_max': max(rec['complete'].values())}
     print(json.dumps({'block': b, 'exits': len(ex_b), 'entries': len(en_b),
                       'complete': per_block[b]['complete_rel_max'], 'sec': round(time.time() - t0)}), flush=True)
-  res = {'version': 1, 'run': run.dir, 'code_hash': code_hash(), 'events_hash': ctx.events['code_hash'],
-         'steps': run.g16, 'snapshots': run.snaps, 'params': prm, 'checks': checks,
-         'event_counts': ctx.events['counts'], 'pooled': {}, 'blocks': {}, 'primary': {}}
+  checks['n_c_equal'] = ctx.n_c_info['equal']
+  res = {'version': 2, 'run': run.dir, 'code_hash': code_hash(), 'events_hash': ctx.events['code_hash'],
+         'steps': run.g16, 'snapshots': run.snaps, 'snapshots_dropped_no_full': run.snaps_no_full, 'params': prm,
+         'has_random': run.has_random, 'class_counts': ctx.n_c_info,
+         'band_source': {'X1_own_band': 'random' if run.has_random else 'C1', 'X3_S1_primary': 'C1',
+                         'X3_S1_randband': run.has_random},
+         'checks': checks, 'event_counts': ctx.events['counts'], 'pooled': {}, 'blocks': {}, 'primary': {}}
   groups = {'all': run.blocks, 'early': [b for b in run.blocks if b.startswith(('stage0', 'stage1'))],
             'late': [b for b in run.blocks if not b.startswith(('stage0', 'stage1'))]}
   for gname, bl in groups.items():
@@ -2201,23 +2567,31 @@ def cmd_tests(a, run: Run):
     for d in DIRS:
       ed = [r for r in exits if r['d'] == d and r['b'] in bl]
       anch = [r for r in ed if r['anchored']]
-      rep_rate = float(np.mean([r['rep'] for r in anch])) if anch else None
+      turn = [r for r in ed if not r['anchored']]
+      gate = [r for r in anch if 'skip' not in r]                  # the validity gate: units above the sd floor
+      rep_rate = float(np.mean([r['rep'] for r in gate])) if gate else None
       x1 = {'replication_rate_anchored': rep_rate,
-            'replication_rate_anchored_relaxed': float(np.mean([r['rep_relaxed'] for r in anch])) if anch else None,
+            'replication_rate_anchored_relaxed': float(np.mean([r['rep_relaxed'] for r in gate])) if gate else None,
             'noise_dominated': bool(rep_rate is not None and rep_rate < 0.5),
-            'anchored_replicated': x1_population(ctx, [r for r in anch if r['rep']]),
-            # sensitivity: 'replicated' selects on the fall of the measurement half, the half every term is measured
-            # on (C1 is not so selected); all anchored exits, selected on the selection half only
+            # primary population: anchored exits selected on the selection half only
             'anchored_all': x1_population(ctx, anch),
-            'turnover_replicated': x1_population(ctx, [r for r in ed if not r['anchored'] and r['rep']]),
+            'turnover': x1_population(ctx, turn),
             'by_phase': {f'phase{ph}': {
-              'anchored': share_table([r for r in anch if r['rep'] and r['phase'] == ph], 'C1', ctx, fine=False),
-              'turnover': share_table([r for r in ed if not r['anchored'] and r['rep'] and r['phase'] == ph], 'C1',
-                                      ctx, fine=False)} for ph in range(3)}}
+              'anchored': share_table([r for r in anch if r['phase'] == ph], 'C1', ctx, fine=False),
+              'turnover': share_table([r for r in turn if r['phase'] == ph], 'C1', ctx, fine=False)}
+              for ph in range(3)},
+            # sensitivity: 'replicated' also selects on the fall of the measurement half, the half every term is
+            # measured on (C1 is not so selected)
+            'anchored_replicated': x1_population(ctx, [r for r in anch if r['rep']]),
+            'turnover_replicated': x1_population(ctx, [r for r in turn if r['rep']])}
       en = [r for r in entries if r['d'] == d and r['b'] in bl]
       xs3 = [r for r in x3 if r['d'] == d and r['b'] in bl]
-      pool[d] = {'X1': x1, 'X2': x2_population(ctx, en),
-                 'X3_S1': x3_population(ctx, [r for r in xs3 if r['anchored']])}
+      x2 = x2_population(ctx, en)
+      dropped_ev = sum_info([ctx.events.get('block_counts', {}).get(b, {}).get(d, {}) for b in bl])
+      x2['entries_from_step0'] = dropped_ev['entries_from_step0']      # left-censored, left out of each arm
+      x2['low_sd_entries'] = dropped_ev['low_sd_entries']
+      x1['low_sd_exits'] = dropped_ev['low_sd_exits']
+      pool[d] = {'X1': x1, 'X2': x2, 'X3_S1': x3_population(ctx, [r for r in xs3 if r['anchored']])}
     res['pooled'][gname] = pool
   # half swap: the same (unit, class) exit in both directions
   lab = {d: {(r['b'], r['n'], r['c']): r.get('label') for r in exits if r['d'] == d and 'label' in r} for d in DIRS}
@@ -2229,19 +2603,20 @@ def cmd_tests(a, run: Run):
     for d in DIRS:
       ed = [r for r in exits if r['d'] == d and r['b'] == b]
       res['blocks'][b][d] = {'exits': len(ed), 'anchored': sum(r['anchored'] for r in ed),
+                             'X1_anchored': share_table([r for r in ed if r['anchored']], 'C1', ctx, fine=False),
                              'X1_anchored_replicated': share_table([r for r in ed if r['anchored'] and r['rep']], 'C1',
-                                                                   ctx, fine=False),
+                                                                   ctx, fine=False),           # sensitivity
                              'labels': {k: sum(r.get('label') == k for r in ed) for k in LABELS}}
   res['X3_S2'] = x3_s2(ctx, own)
-  res['X4'] = x4(ctx, own, plast, prov, pbias)
-  res['X5'] = x5(ctx, own, oth)
+  res['X4'] = x4(ctx, own, plast, prov, pbias, own_bound)
+  res['X5'] = x5(ctx, own, oth, own_bound)
   res['path_dependence'] = path_table(ctx, own, oth)
   res['carryover'] = carryover_report(ctx)
   res['rho'] = rho_table(run)
   res['interval_checks'] = interval_checks(ctx)
   # the five primaries (H1 -> H2), Holm
   late = res['pooled'].get('late', res['pooled']['all'])['s0m1']
-  sh = late['X1']['anchored_replicated']['excess_vs_C1'].get('shares', {})
+  sh = late['X1']['anchored_all']['excess_vs_C1'].get('shares', {})
   pr = {'X1_own_excess_share': sh.get('own', {}).get('p0'),
         'X2_own_rise_dropped_minus_persistent': res['pooled']['all']['s0m1']['X2'].get('own_diff', {}).get('p0'),
         'X3_S1_withdrawn_minus_C1': late['X3_S1'].get('withdrawn', {}).get('diff', {}).get('p0'),
@@ -2271,12 +2646,12 @@ def cmd_tests(a, run: Run):
   top = sorted(cnt.items(), key=lambda kv: (-len(kv[1]), block_sort_key(kv[0][0]), kv[0][1]))[:50]
   res['units'] = []
   for (b, n), rr in top:
-    s3 = [r for r in x3 if r['d'] == 's0m1' and r['b'] == b and r['n'] == n and r['anchored'] and 'label' in r]
+    s3 = [r for r in x3 if r['d'] == 's0m1' and r['b'] == b and r['n'] == n and r['anchored'] and 'label_frac' in r]
     res['units'].append({'b': b, 'n': n, 'anchored_exits': len(rr), 'replicated': sum(r['rep'] for r in rr),
                          'shares': share_table(rr, 'C1', ctx, fine=False).get('shares'),
                          'labels': {k: sum(r.get('label') == k for r in rr) for k in LABELS},
-                         'S1': {k: sum(r['label'] == k for r in s3) for k in ('withdrawn', 'reversed', 'maintained')}})
-  json.dump(jsonable(res), open(a.out_json or os.path.join(a.out, 'exits_tests.json'), 'w'), indent=1)
+                         'S1': {k: float(sum(r['label_frac'][k] for r in s3)) for k in S1}})   # leave-one-out
+  dump_json(jsonable(res), a.out_json or os.path.join(a.out, 'exits_tests.json'), indent=1)
   print(json.dumps(jsonable(res['primary'])), flush=True)
   print('EXITS_TESTS_DONE', flush=True)
 
@@ -2284,9 +2659,23 @@ def cmd_tests(a, run: Run):
 def cmd_compare(a):
   """Replication of the primaries of one run (--other, e.g. E1r) against a reference run (--ref, E1): replicated when
   the estimate has the same direction relative to its null and lies within the reference's 95% CI (X5, which has a
-  permutation null and no CI: the same direction and a permutation p below 0.05)."""
+  permutation null and no CI: the same direction and a permutation p below 0.05). No verdict ('replicated': None,
+  'refused') when the two runs differ in the G16 steps, the X3 S1 band or the class counts (or a file predates these
+  records), unless --allow_mismatch."""
   ref, oth = json.load(open(a.ref)), json.load(open(a.other))
-  out = {'ref': a.ref, 'other': a.other, 'primaries': {}}
+  mism = []
+  if ref.get('steps') != oth.get('steps'):
+    mism.append('steps')
+  band = lambda r: (r.get('band_source') or {}).get('X3_S1_primary')
+  if band(ref) is None or band(ref) != band(oth):
+    mism.append('X3_S1_band')
+  counts = lambda r: (r.get('class_counts') or {}).get('n_c_sha')
+  if counts(ref) is None or counts(ref) != counts(oth):
+    mism.append('class_counts')
+  allow = bool(getattr(a, 'allow_mismatch', False))
+  out = {'ref': a.ref, 'other': a.other, 'mismatch': mism, 'allow_mismatch': allow,
+         'band_source': {'ref': ref.get('band_source'), 'other': oth.get('band_source')},
+         'class_counts': {'ref': ref.get('class_counts'), 'other': oth.get('class_counts')}, 'primaries': {}}
   for k, e1 in ref['primary']['estimates'].items():
     e2 = oth['primary']['estimates'].get(k)
     n1, n2 = ref['primary']['null'].get(k), oth['primary']['null'].get(k)
@@ -2302,8 +2691,10 @@ def cmd_compare(a):
       else:
         rec['within_ref_ci'] = bool(inside)
         rec['replicated'] = bool(same and inside)
+      if mism and not allow:
+        rec['replicated'], rec['refused'] = None, mism
     out['primaries'][k] = rec
-  json.dump(jsonable(out), open(a.out_json, 'w'), indent=1)
+  dump_json(jsonable(out), a.out_json, indent=1)
   print(json.dumps(jsonable(out)), flush=True)
 
 
@@ -2327,12 +2718,19 @@ def main():
   p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
   p.add_argument('--visual', default='docs/data/imagenet_dinov2_classdist.npz')
   p.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz')
-  p.add_argument('--class_counts', default='', help='per-example labels (labels.npy or rand_groups.npy) or per-class '
-                 'counts; default: <run>/rand_groups.npy, then /dev/shm/imagenet256/labels.npy')
+  p.add_argument('--class_counts', default='', help='per-example labels (labels.npy or rand_groups.npy), or per-class '
+                 'counts: a file of exactly C entries, any dtype; default: <run>/rand_groups.npy, then '
+                 '/dev/shm/imagenet256/labels.npy; none found is an error (toy tests: --params \'{"equal_counts": '
+                 'true}\')')
   p.add_argument('--params', default='', help='JSON overrides of the protocol parameters (tests on toy runs only)')
   p.add_argument('--force', action='store_true', help='events: rebuild a frozen events.json')
   p.add_argument('--no_events', action='store_true', help='intervals without events.json (no event pairs; tests only)')
   p.add_argument('--skip_integrity', action='store_true')
+  p.add_argument('--no_full', action='store_true', help='drop history snapshots that have no full_{step}.pt (otherwise '
+                 'an error: G+, mu, S3, the carry-over and D need them)')
+  p.add_argument('--no_random', action='store_true', help='run without the random split even if attrR files exist')
+  p.add_argument('--allow_mismatch', action='store_true', help='compare: give verdicts although the runs differ in '
+                 'steps, X3 band or class counts')
   p.add_argument('--out_json', default=None)
   p.add_argument('--ref', default=None, help='compare: the reference run\'s exits_tests.json (E1)')
   p.add_argument('--other', default=None, help='compare: the replicating run\'s exits_tests.json (E1r)')
@@ -2342,21 +2740,27 @@ def main():
     build_probe(a.val, a.probe, a.per_class)
     return
   if a.stage == 'compare':
+    if not (a.ref and a.other):
+      p.error('compare needs --ref and --other')
+    a.out_json = a.out_json or os.path.join(a.out or os.path.dirname(os.path.abspath(a.other)), 'exits_compare.json')
+    os.makedirs(os.path.dirname(os.path.abspath(a.out_json)), exist_ok=True)
     cmd_compare(a)
     return
   a.out = a.out or os.path.join(a.run, 'exits')
   os.makedirs(a.out, exist_ok=True)
   torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = False
   grid = [int(t) for t in a.grid.split(',')] if a.grid else None
-  run = Run(a.run, a.history, a.full, grid=grid, device=a.device)
+  mk = lambda snaps=None: Run(a.run, a.history, a.full, grid=grid, snaps=snaps, device=a.device, no_random=a.no_random)
+  run = mk()
+  require_full(a, run)
+  avail = run.snaps_avail
   if a.stage not in ('integrity', 'all'):
-    run = Run(a.run, a.history, a.full, grid=grid, snaps=usable_snaps(a, a.run, a.history, a.full), device=a.device)
+    run = mk(usable_snaps(a, a.run, a.history, a.full, avail))
   stages = ['integrity', 'stock', 'events', 'intervals', 'gradstate', 'tests'] if a.stage == 'all' else [a.stage]
   for st in stages:
     if st == 'integrity':
-      if run.snaps:
-        cmd_integrity(a, run)
-      run = Run(a.run, a.history, a.full, grid=grid, snaps=usable_snaps(a, a.run, a.history, a.full), device=a.device)
+      cmd_integrity(a, run)                            # always: integrity.json records what was checked and dropped
+      run = mk(usable_snaps(a, a.run, a.history, a.full, avail))
     elif st == 'stock':
       cmd_stock(a, run, Probe(a.probe))
     elif st == 'events':
