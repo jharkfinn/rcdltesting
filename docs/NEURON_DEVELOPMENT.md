@@ -911,8 +911,26 @@ whole stream gradient (the same bins and weights), against which the offset alon
   stage 1, a low component along e is evidence for the unit's top classes that the classifier reads directly through
   the skip path (W_head of those classes points against e), and the unit's own output removes that evidence on exactly
   those images; so raising the unit lowers their logits, and their gradients push it down. Why training builds a
-  classifier that reads a stage-1 direction in this way, and whether the account holds in E1r, E4 and the width-16
-  run, are the next questions (X4 on those three is running). Note for the essay's clean-stream picture: a low-level
+  classifier that reads a stage-1 direction in this way is the next question.
+
+X4 on the other runs (CPU, the same 8,000-image probe; `docs/data/x4/`), CE readout:
+
+| run, step, stage-1 block | exact writes of the top 20 (Sec. 1) | offset along e | head reader | weights-only head term | Spearman (weights-only, head) | cos(e_n, O_n) |
+|---|---|---|---|---|---|---|
+| E1r 12,500, block 0 / 1 / 2 | reversed / reversed / reversed | +0.13 / +0.18 / +0.12 | +0.40 / +0.22 / +0.18 | +0.60 / +0.30 / +0.33 | 0.92 / 0.94 / 0.95 | 0.17 / 0.14 / 0.13 |
+| E4 20,000, block 0 / 1 / 2 | reversed / none (near-zero writes) / reversed | +1.06 / -0.05 / +0.18 | +1.14 / -0.07 / +0.24 | +1.20 / -0.06 / +0.20 | 0.87 / 0.92 / 0.91 | 0.53 / -0.04 / 0.15 |
+| width 16, 20,000, block 0 / 1 / 2 | reversed / reversed / normal (+0.82) | +0.16 / +0.23 / -0.71 | +0.24 / +0.07 / -0.76 | +0.28 / +0.14 / -0.95 | 0.92 / 0.94 / 0.77 | 0.11 / 0.10 / -0.38 |
+
+- In all 12 stage-1 blocks of the four runs, the sign of the weights-only term (the classifier rows of a unit's top
+  classes, carried back through the final norm and the two downsamples, against the unit's write direction) matches
+  whether the block is reversed: positive in the 9 reversed blocks, about 0 in E4's block 1, which shows no reversal,
+  and clearly negative in the width-16 run's normal block 2, where the readout favours the top classes. The term needs
+  no images and predicts the head reader unit by unit (Spearman 0.77 to 0.98).
+- In the width-16 run's block 1 the head reader is small (+0.07) and stage 2 carries more of the offset (+0.12); the
+  weights-only term still has the reversal's sign.
+- So whether a stage-1 unit's strongest classes teach it down is set, in these runs, by how the final classifier reads
+  the unit's direction through the skip path. This moves the open question from stage 1 to the classifier: why do the
+  rows of W_head for the classes that most excite a stage-1 unit point against that unit's write direction? Note for the essay's clean-stream picture: a low-level
   stage-1 component that the classifier reads directly through the skips, and that the stage's own units undo on the
   very classes it signals, is the kind of stream accounting the essay says it does not see.
 
