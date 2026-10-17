@@ -485,7 +485,7 @@ def test_compare_on_synthetic_runs(tmp_path):
     return {'cls': c, 'kind': kind, 'stratum': 'dense', 'level': level, 'condition': cond, 'set': 'A',
             'PI': pi + 0.1 * rng.normal(), 'defined': True, 'F': 0.5, 'O': 0.1, 'O_whole': 2.0, 'auroc_far': 0.7,
             'top1': top1, 'own_share': 0.1, 'signature': False, 'pseudo_signature': False,
-            'P2': {'lambda3': l3, 'defined': True}, 'P2_whole': {'lambda3': 0.5},
+            'P2': {'lambda3': l3, 'defined': True}, 'P2_whole': {'lambda3': 0.5, 'defined': True},
             'P3': {'defined': True, 'Delta_flow': df + 0.01 * rng.normal(), 'R_own': 0.3, 'R_mis': 0.1,
                    'R_flow': 0.3}}
   rare = {'run': 'A0', 'run_set': 'A', 'classes': [rec(c, 'rare') for c in range(30)]
@@ -507,6 +507,17 @@ def test_compare_on_synthetic_runs(tmp_path):
   assert s0['noise_control']['passes'] and res['decision']['against_essay'] == []
   assert s0['noise_control']['state'] == 'pass' and s0['relabel_control']['state'] == 'uninformative'
   assert res['decision']['controls_state'] == {'seed0': 'uninformative'}       # no relabel control in this toy
+  # support (A11): tagged by seed-1 replication of P1, P2 and P3
+  sup = res['decision']['support_for_essay']
+  assert len(sup) == 1 and sup[0]['replication'] == 'pending seed 1' and res['role'] == 'primary'
+  cr.cmd_compare(argparse.Namespace(**{**vars(a), 'rare1': a.rare, 'c1': a.c0}))
+  assert json.load(open(out))['decision']['support_for_essay'][0]['replication'] == 'replicated'
+  flipped = {**rare, 'classes': [rec(c, 'rare', pi=-0.3) for c in range(30)]}         # P1 reverses at seed 1
+  files['flipped'] = str(tmp_path / 'flipped.json')
+  json.dump(flipped, open(files['flipped'], 'w'))
+  cr.cmd_compare(argparse.Namespace(**{**vars(a), 'rare1': [files['flipped'], files['other']], 'c1': a.c0}))
+  dec = json.load(open(out))['decision']
+  assert dec['support_for_essay'][0]['replication'] == 'not replicated' and dec['replicated']['P1'] is False
 
 
 # ---------------------------------------------------------------------------------------- review fixes (adversarial)
@@ -568,6 +579,9 @@ def test_builder_scores_count_cross_writes_only():
   raw0 = bms[0]['raw']
   assert np.isclose(rows[c_in]['N'], raw0[2, c_in] / raw0[2].sum())
   assert rows[c_out]['N'] is None
+  late = cr.late_units(units)                                           # S7 per class (measure, every run) = the rows
+  for c in (c_in, c_out):
+    assert cr.s7_class(DeltaQ[late].numpy(), late, c, bms) == {k: rows[c][k] for k in ('C1', 'PR', 'N')}
 
 
 def test_control_sets_probes_and_snapshots(tmp_path):
@@ -703,7 +717,7 @@ def test_compare_counts_against_only_beyond_floor_and_replicated(tmp_path):
   def rec(c, cond, l3, ref=0.5):
     return {'cls': c, 'kind': 'selected', 'stratum': 'dense', 'level': 10, 'condition': cond, 'set': 'A', 'PI': 0.1,
             'defined': True, 'F': 0.5, 'O': 0.1, 'O_whole': 2.0, 'auroc_far': 0.7, 'top1': 0.3,
-            'P2': {'lambda3': l3, 'defined': True}, 'P2_whole': {'lambda3': ref}}
+            'P2': {'lambda3': l3, 'defined': True}, 'P2_whole': {'lambda3': ref, 'defined': True}}
 
   def write(name, o):
     p = str(tmp_path / f'{name}.json')
@@ -778,8 +792,8 @@ def test_compare_amendment_1(tmp_path):
             'top1': top1, 'signature': sig, 'pseudo_signature': False,
             'S1': {'RBpx_K': 0.6, 'RPp_K': 0.5, 'RBpx_w': 0.45 + 0.01 * rng.normal(), 'RPp_w': 0.5},
             'S2': {'sigma_stage0': 1.0 + 0.1 * rng.normal()},
-            'P2': {'lambda3': l3 + 0.01 * rng.normal(), 'defined': True}, 'P2_whole': {'lambda3': 0.5},
-            'P2_whole_fo': {'lambda3': fo}}
+            'P2': {'lambda3': l3 + 0.01 * rng.normal(), 'defined': True}, 'P2_whole': {'lambda3': 0.5, 'defined': True},
+            'P2_whole_fo': {'lambda3': fo, 'defined': True}}
 
   def write(name, recs):
     path = str(tmp_path / f'{name}.json')
@@ -795,21 +809,30 @@ def test_compare_amendment_1(tmp_path):
   cr.cmd_compare(argparse.Namespace(rare=[rare, shallow], **args))
   res = json.load(open(out))
   s0, dec = res['seed0'], res['decision']
+  sec = s0['secondary']
   # P1: primary on the defined classes; secondaries over all 40 and with 'no route' as 0
-  assert s0['P1']['n'] == 20 and s0['P1_secondary']['raw_all']['n'] == 40
-  assert s0['P1_secondary']['no_route_as_zero']['n'] == 40 and s0['P1_secondary']['F_pct_tails']['le_0.05'] == 20
-  assert s0['P1_secondary']['symmetric_gate_2.5_97.5']['n'] == 20
+  assert s0['P1']['n'] == 20 and sec['P1_alternatives']['raw_all']['n'] == 40
+  alt = sec['P1_alternatives']
+  assert alt['no_route_as_zero']['n'] == 40 and alt['F_pct_tails']['le_0.05'] == 20
+  assert sec['P1_alternatives']['symmetric_gate_2.5_97.5']['n'] == 20
   # P2: a negative median whose floor points the other way is not a count; the references are all reported
   assert s0['P2']['median'] < 0 and s0['P2']['floor_wilcoxon']['z'] > 0
   p2 = [i for i in dec['against_candidates'] if i['claim'] == 'median lambda_3 difference < 0'][0]
   assert p2['floor_ok'] is False and 'median lambda_3 difference < 0' not in dec['against_pending_seed1']
-  assert {'P2_ref_first_order', 'P2_ref_own_m'} <= set(s0)
+  assert {'P2_ref_first_order', 'P2_ref_own_m'} <= set(sec) and not {'P2_ref_first_order', 'P2_ref_own_m'} & set(s0)
   # P1 and the signature excess also hold in C0: flagged, still pending
   assert dec['against_pending_seed1'] == ['median PI < 0', 'excess of packing signatures']
   assert any('median PI < 0' in f and 'common run' in f for f in dec['secondary_flags'])
-  u = s0['universality']
+  u = sec['universality']
+  assert set(s0['universality']) == {'n', 'signatures', 'pseudo_signatures', 'p_excess'}     # the primary test only
   assert u['mcnemar_vs_pseudo']['x_only'] == 10 and u['mcnemar_vs_pseudo']['p_one_sided'] == pytest.approx(0.5 ** 10)
   assert u['common']['signatures'] == 3 and u['mcnemar_rare_vs_common']['x_only'] == 7
+  # the non-contrast candidates carry no floor (A10) and their Holm p (P1) or binomial test (universality)
+  cand = {i['claim']: i for i in dec['against_candidates']}
+  assert cand['median PI < 0']['floor_ok'] is None and cand['median PI < 0']['holm_p'] < 0.05
+  ex = cand['excess of packing signatures']
+  assert ex['holm_p'] is None and 'binomial' in ex['test']
+  assert cand['excess of packing signatures']['secondary']['mcnemar_vs_pseudo_p']['seed0'] == pytest.approx(0.5 ** 10)
   # noise control: fit check fails -> uninformative, not failed
   assert s0['noise_control']['state'] == 'uninformative' and dec['controls_state']['seed0'] == 'uninformative'
   assert dec['note'].startswith('noise control uninformative') and dec['note'] != cr.CONTROL_NOTES['fail']
@@ -820,7 +843,7 @@ def test_compare_amendment_1(tmp_path):
   c0fo = write('c0_fo', [rec(c, 'common', 0.5, fo=0.3) for c in ids])
   cr.cmd_compare(argparse.Namespace(rare=[fo, deep], **{**args, 'c0': [c0fo]}))
   res = json.load(open(out))
-  assert res['seed0']['P2_ref_first_order']['median'] > 0
+  assert res['seed0']['secondary']['P2_ref_first_order']['median'] > 0
   assert 'median lambda_3 difference < 0' in res['decision']['against_pending_seed1']
   assert any('references are not all negative' in f for f in res['decision']['secondary_flags'])
   # the result does not depend on the order of the files
@@ -873,7 +896,7 @@ def test_compare_amendment_1_gates_contrasts_and_controls(tmp_path):
             'S2': {'sigma_stage0': 1.0 + 0.1 * rng.normal()},
             'P2': {'lambda3': 0.6 if run == 'rare' else 0.5, 'defined': True} if l3def
             else {'lambda3': 0.0, 'defined': False},
-            'P2_whole': {'lambda3': 0.5}, 'P2_whole_fo': {'lambda3': 0.5},
+            'P2_whole': {'lambda3': 0.5, 'defined': True}, 'P2_whole_fo': {'lambda3': 0.5, 'defined': True},
             'P3': {'defined': p3def, 'R_own': 0.3 if p3def else 5.0, 'R_mis': 0.1, 'R_flow': 0.2, 'Delta_flow': 0.1}}
 
   def ctl(c, cond, kind, **kw):
@@ -914,15 +937,16 @@ def test_compare_amendment_1_gates_contrasts_and_controls(tmp_path):
   cell = s0['cells']['selected/dense/10']
   assert cell['n_defined'] == 10 and cell['median_PI'] == pytest.approx(-0.9, abs=0.01)
   # P1 secondaries and the protocol's other versions (A4, B7)
+  sec = s0['secondary']
   assert s0['P1']['n'] == 10 and s0['P1']['n_no_route'] == 10
-  assert s0['P1_secondary']['raw_all']['n'] == 20 and s0['P1_secondary']['no_route_as_zero']['median'] < 0
-  v = s0['P1_versions']
+  assert sec['P1_alternatives']['raw_all']['n'] == 20 and sec['P1_alternatives']['no_route_as_zero']['median'] < 0
+  v = sec['P1_versions']
   assert v['F_gate']['all']['median'] == pytest.approx(-0.5) and v['F_gate']['defined']['median'] == -2.0
   assert v['F_lin_pct_minus_half']['all']['median'] == pytest.approx(0.3)
   assert v['F_gate_minus_O_gate']['defined']['median'] == -2.5
   assert (v['F_absent']['n'], v['F_absent']['median']) == (2, 3.0)
   # the common run's P1 and P3 (A10), the new contrasts (A9), S1 on K keeps its keys (A8)
-  assert s0['common']['P1']['n'] == 5 and s0['common']['P3']['n'] == 20
+  assert sec['common']['P1']['n'] == 5 and sec['common']['P3']['n'] == 20
   fit = s0['rare_minus_C0_fit_T']
   assert fit['median'] == pytest.approx(-0.5) and fit['floor_wilcoxon']['z'] < 0
   assert s0['rare_minus_C0_auroc_near']['median'] == pytest.approx(-0.2)
@@ -945,7 +969,7 @@ def test_compare_amendment_1_gates_contrasts_and_controls(tmp_path):
   cr.cmd_compare(argparse.Namespace(rare=[rare, other], **{**args, 'rare1': [rare, other], 'c1': [c0]}))
   dec = json.load(open(out))['decision']
   assert dec['against_essay'] == ['median PI < 0'] and dec['controls_state'] == {'seed0': 'pass', 'seed1': 'pass'}
-  assert dec['against_candidates'][0]['also_in_common'] == {'seed0': True, 'seed1': True}
+  assert dec['against_candidates'][0]['secondary']['also_in_common'] == {'seed0': True, 'seed1': True}
   assert len(dec['secondary_flags']) == 2 and dec['note_seed1'] is None
   # a relabel control whose median is <= 0 fails, and 'fail' outranks 'pass'; fit_T unmeasured in C0: n = 0
   rare, _, c0, other = runs([-5.0, -6.0, 1.0, -1.0], c0_fit=False)
@@ -954,3 +978,202 @@ def test_compare_amendment_1_gates_contrasts_and_controls(tmp_path):
   assert res['seed0']['relabel_control']['state'] == 'fail' and res['decision']['controls_state']['seed0'] == 'fail'
   assert res['decision']['note'] == cr.CONTROL_NOTES['fail'] and not res['decision']['controls_pass']
   assert res['seed0']['rare_minus_C0_fit_T'] == {'n': 0, 'floor_wilcoxon': None}
+
+
+# ------------------------------------------------------------------------- protocol amendment 1, second review
+
+def test_compare_gates_references_floors_and_controls(tmp_path):
+  """The C0 references and the floors use lambda_3 and PI only where defined (A5), the noise control's R_own - R_mis
+  uses P3's gate, the relabel differences carry their own classes, and the sensitivity checks are summarized."""
+  import argparse
+  import json
+  ids = range(12)
+
+  def sel(c, run, cond):
+    pdef = c % 2 == 0 or run == 'rare'
+    return {'cls': c, 'kind': 'selected', 'stratum': 'dense', 'level': 10, 'condition': cond, 'set': 'A',
+            'defined': pdef, 'PI': (-0.9 if run == 'rare' else -0.8) if pdef else 0.9, 'F': -20.0, 'O': 0.01,
+            'auroc_far': 0.8, 'top1': 0.1, 'O_whole': 2.0, 'signature': False, 'pseudo_signature': False,
+            'P2': {'lambda3': 0.6 if run == 'rare' else 0.5, 'defined': True},
+            'P2_whole': {'lambda3': 9.0, 'defined': False} if (run, c) in (('c0', 0), ('e1', 2))
+            else {'lambda3': 0.5, 'defined': True},
+            'P2_whole_fo': {'lambda3': 9.0, 'defined': False} if (run, c) == ('c0', 1)
+            else {'lambda3': 0.4, 'defined': True},
+            'P3': {'defined': True, 'R_own': 0.3, 'R_mis': 0.1, 'R_flow': 0.2, 'Delta_flow': 0.1,
+                   'sens': {'near20': {'R_own': 0.4, 'R_mis': 0.15, 'R_flow': 0.3, 'Delta_flow': 0.1}}},
+            'sens': {'near20': {'n_set': 20, 'F': -5.0, 'PI': -0.5, 'defined': c < 6},
+                     'mean_pool': {'n_set': 10, 'F': 3.0, 'PI': 0.7, 'defined': True}}}
+
+  def ctl(c, kind, **kw):
+    return {'cls': c, 'kind': kind, 'stratum': kind, 'level': None, 'condition': 'rare', 'set': 'A', **kw}
+
+  def write(name, recs, step=None):
+    path = str(tmp_path / f'{name}.json')
+    json.dump({'run': name, 'classes': recs, **({'step': step} if step else {})}, open(path, 'w'))
+    return path
+  noise = [ctl(200 + k, 'noise', top1=1.0, defined=False, PI=0.9, F=1.0,
+               P3={'defined': k == 0, 'R_own': 0.2 + k, 'R_mis': 0.1}) for k in range(4)]
+  rel = [ctl(300 + k, 'relabel', F=0.0, F_src=float(k + 1), PI=0.0) for k in range(3)]
+  rel_c0 = [{**r, 'condition': 'common', 'F_src': 0.5} for r in rel if r['cls'] != 301]   # 301: no C0 value
+  rare = write('rare', [sel(c, 'rare', 'rare') for c in ids] + noise + rel)
+  other = write('other', [sel(c, 'other', 'common') for c in ids])
+  c0 = write('c0', [sel(c, 'c0', 'common') for c in ids] + rel_c0)
+  e1 = write('e1', [sel(c, 'e1', 'common') for c in ids])
+  c1 = write('c1', [sel(c, 'c1', 'common') for c in ids])
+  out = str(tmp_path / 'cmp.json')
+  cr.cmd_compare(argparse.Namespace(rare=[rare, other], c0=[c0], rare1=[], c1=[c1], e1=[e1], e1r=[], out=out))
+  res = json.load(open(out))
+  s0, sec = res['seed0'], res['seed0']['secondary']
+  # references: each gated by its own definedness, with the number it excludes
+  assert (s0['P2']['n'], s0['P2']['n_ref_undefined'], s0['P2']['n_rare_undefined']) == (11, 1, 0)
+  assert s0['P2']['median'] == pytest.approx(0.1)
+  fo = sec['P2_ref_first_order']
+  assert (fo['n'], fo['n_ref_undefined'], fo['median']) == (11, 1, pytest.approx(0.2))
+  assert sec['P2_ref_own_m']['n'] == 12
+  # floors: PI and the whole-class lambda_3 only where defined in both runs; raw values kept apart
+  fi = res['floor_instrumentation_C0_minus_E1']
+  assert fi['P2_whole.lambda3']['n'] == 10 and fi['P2_whole.lambda3_raw']['n'] == 12
+  assert fi['P2_whole.lambda3']['median_abs'] == 0.0 and 'PI' not in fi
+  fs = res['floor_seed_C1_minus_C0']
+  assert fs['PI']['n'] == 6 and fs['PI']['median_abs'] == 0.0 and fs['PI_raw']['n'] == 12
+  assert fs['P2_whole.lambda3']['n'] == 11 and fs['F']['n'] == 12 and 'F_raw' not in fs
+  # noise control: R_own - R_mis under P3's gate, raw values separately, each with its classes
+  nc = s0['noise_control']
+  assert nc['R_own_minus_mis'] == [pytest.approx(0.1)] and nc['cls_R_own_minus_mis'] == [200]
+  assert len(nc['R_own_minus_mis_raw']) == 4 and nc['cls_R_own_minus_mis_raw'] == [200, 201, 202, 203]
+  assert nc['fit_T_mean'] == 1.0 and nc['cls_fit_ge_half'] == [200, 201, 202, 203]
+  # relabel control: rare - C0 only where C0 has a value, aligned with its own class list
+  rl = s0['relabel_control']
+  assert rl['cls'] == [300, 301, 302] and rl['cls_rare_minus_C0'] == [300, 302]
+  assert rl['rare_minus_C0'] == [pytest.approx(0.5), pytest.approx(2.5)]
+  # sensitivity checks (C2), the same gates; the same-seed other-set comparisons (A10) are reported
+  sn = sec['sensitivity']
+  assert sn['near20']['P1']['n'] == 6 and sn['near20']['P1']['n_no_route'] == 6 and sn['near20']['P1']['median'] == -0.5
+  assert sn['near20']['P3']['median'] == pytest.approx(0.1) and sn['near20']['P3_own_minus_mis']['median'] == 0.25
+  assert sn['mean_pool']['P1']['n'] == 12 and 'P3' not in sn['mean_pool'] and sn['near20']['n_set']['median'] == 20
+  assert sec['vs_other_set_run']['PI']['n'] == 6 and sec['vs_other_set_run']['PI']['median'] == pytest.approx(-0.1)
+  assert sec['vs_other_set_run']['signatures']['n'] == 12
+
+
+def test_compare_p3_count_needs_holm(tmp_path, monkeypatch):
+  """Sec. 7: a count against the essay holds after Holm correction; the P3 count included (A10)."""
+  import argparse
+  import json
+  rng = np.random.default_rng(5)
+
+  def rec(c, cond):
+    return {'cls': c, 'kind': 'selected', 'stratum': 'dense', 'level': 10, 'condition': cond, 'set': 'A', 'PI': 0.0,
+            'defined': False, 'F': 0.5, 'O': 0.1, 'auroc_far': 0.7, 'top1': 0.3,
+            'P2': {'lambda3': 0.5, 'defined': True}, 'P2_whole': {'lambda3': 0.5, 'defined': True},
+            'P3': {'defined': True, 'Delta_flow': -0.5 + 0.01 * rng.normal(), 'R_own': 0.1, 'R_mis': 0.1,
+                   'R_flow': 0.2}}
+  paths = {}
+  for name, cond in (('rare', 'rare'), ('other', 'common'), ('c0', 'common')):
+    paths[name] = str(tmp_path / f'{name}.json')
+    json.dump({'run': name, 'classes': [rec(c, cond) for c in range(30)]}, open(paths[name], 'w'))
+  out = str(tmp_path / 'cmp.json')
+  args = argparse.Namespace(rare=[paths['rare'], paths['other']], c0=[paths['c0']], rare1=[], c1=[], e1=[], e1r=[],
+                            out=out)
+  cr.cmd_compare(args)
+  dec = json.load(open(out))['decision']
+  claim = 'Delta_flow interval below -delta'
+  assert dec['against_pending_seed1'] == [claim] and dec['against_candidates'][0]['floor_ok'] is None
+  monkeypatch.setattr(cr, 'holm', lambda p: {k: 0.2 for k in p})            # the interval alone is not enough
+  cr.cmd_compare(args)
+  assert json.load(open(out))['decision']['against_candidates'] == []
+
+
+def test_compare_marks_other_steps_secondary(tmp_path):
+  """The decision rules apply at step 25,020; another step's decision block is written as secondary (C5)."""
+  import argparse
+  import json
+
+  def run(name, cond, step):
+    path = str(tmp_path / f'{name}_{step}.json')
+    recs = [{'cls': c, 'kind': 'selected', 'stratum': 'dense', 'level': 10, 'condition': cond, 'set': 'A',
+             'PI': -0.9, 'defined': True, 'F': -2.0, 'O': 0.0} for c in range(10)]
+    json.dump({'run': name, 'step': step, 'classes': recs}, open(path, 'w'))
+    return path
+  out = str(tmp_path / 'cmp.json')
+  kw = dict(rare1=[], c1=[], e1=[], e1r=[], out=out)
+  cr.cmd_compare(argparse.Namespace(rare=[run('rare', 'rare', 12500), run('other', 'common', 12500)],
+                                    c0=[run('c0', 'common', 12500)], **kw))
+  res = json.load(open(out))
+  assert (res['step'], res['role']) == (12500, 'secondary') and 'decision' not in res
+  assert res['decision_secondary']['role'].startswith('secondary: step 12500')
+  cr.cmd_compare(argparse.Namespace(rare=[run('rare', 'rare', 25020), run('other', 'common', 25020)],
+                                    c0=[run('c0', 'common', 25020)], **kw))
+  res = json.load(open(out))
+  assert res['role'] == 'primary' and res['decision']['role'] == 'primary' and 'decision_secondary' not in res
+  with pytest.raises(ValueError):
+    cr.cmd_compare(argparse.Namespace(rare=[run('rare', 'rare', 12500), run('other', 'common', 12500)],
+                                      c0=[run('c0', 'common', 25020)], **kw))
+
+
+def test_pooled_knockouts_equal_direct_recomputation(toy):
+  """Mean pooling (Sec. 4.7): the knockout of a set's parts at every position equals removing the parts from the
+  block's maps and recomputing u at every position; the summed-row form equals the per-group parts."""
+  model, pc, pf = toy['model'], toy['pc'], toy['pf']
+  x = images(toy)
+  mods = rc.tracked_modules(model, list(pc))
+  for parts, S in ((pc, [1, 3, 5]), (pf, list(rc.own_groups(toy['spec'], 0)) + [41])):
+    up = cr.unit_map_parts(parts, 'cpu', torch.float64)
+    for b, blk in model.blocks():
+      U = blk.pw_gate.out_features
+      pl = cr.unit_pooled(model, x, {b: list(range(U))})[b]
+      h = pl['h'].flatten(0, 1)
+      xin = {}
+      hk = blk.register_forward_pre_hook(lambda mod, inp: xin.__setitem__('x', inp[0]))
+      with torch.no_grad():
+        model(x)
+      hk.remove()
+      for n in (0, U - 1):
+        g, v = pl['g'][..., n].flatten(), pl['v'][..., n].flatten()
+        u = F.silu(g) * v
+        sets = [S, S[:2], [S[0], S[0]], []]                               # unequal sizes, a repeat, an empty set
+        L, lin = cr.pooled_knockouts(up, b, n, h, g, v, sets, 1.0, 1.0, 1.0, 1.0)
+        Pg, Pv = cr.unit_parts(up, b, n, h)
+        Gs, Vs = cr.set_sums(Pg, sets), cr.set_sums(Pv, sets)
+        for mode in ('both', 'gate', 'value'):
+          assert torch.allclose(L[mode], cr.knockout(g, v, Gs, Vs, 1.0, 1.0, mode), atol=1e-12, rtol=0)
+        assert torch.allclose(lin, Gs.mean(1) + Vs.mean(1), atol=1e-12, rtol=0) and abs(float(L['both'][3])) < 1e-15
+        eq, _ = cr.pooled_knockouts(up, b, n, h, g, v, [S[:2], S[1:3]], 1.0, 1.0, 1.0, 1.0)   # equal sizes
+        assert torch.allclose(eq['both'], cr.knockout(g, v, cr.set_sums(Pg, [S[:2], S[1:3]]),
+                                                      cr.set_sums(Pv, [S[:2], S[1:3]]), 1.0, 1.0), atol=1e-12)
+        undo = rc.excise(mods, parts, S, [f'{b}.pw_gate', f'{b}.pw_value'])
+        with torch.no_grad():
+          u2 = blk.units(xin['x']).flatten(0, 2)[:, n]
+        undo()
+        assert torch.allclose(L['both'][0], (u - u2).mean(), atol=1e-12, rtol=0), (b, n)
+
+
+def test_sensitivity_sets_s7_and_family_on_toy(toy):
+  """The sensitivity sets hold only classes common in c's rare run and in C0; measure reports P1 and P3 with them and
+  P1 at mean pooling, the family-correct rate and S7 per class (C2)."""
+  sel = toy['sel']
+  vt = np.random.default_rng(9).random((NC, NC))
+  for c in (0, 6):
+    ss = cr.sensitivity_sets(sel, c, vt)
+    own_set = {k for k in sel.selected if sel.rows[k]['set'] == sel.rows[c]['set']}
+    for k, R in ss.items():
+      assert c not in R and not own_set & set(R) and len(set(R)) == len(R), k
+    assert len(ss['near20']) == 20 and ss['near20'][:5] == [k for k in map(int, sel.order[c]) if k not in own_set][:5]
+    assert all(sel.D[c, k] <= 4 for k in ss['wordnet']) and len(ss['near10_train']) == 10
+  V, Vpos, Q, Qy = toy_images()
+  out = cr.measure(toy['model'], sel, toy['spec'], toy['pc'], toy['pf'], V, Vpos, Q, Qy, 'cpu', run_set='A',
+                   counts=np.full(NC, PER), n_draws=20, log=lambda s: None, check_units=0, classes=[0, 3, 6],
+                   visual_train=vt)
+  for r in out['classes']:
+    assert 0 <= r['family_top1'] <= 1 and r['family_top1'] >= r['top1'] and set(r['S7']) == {'C1', 'PR'}
+    if not r['K']:
+      continue
+    assert set(r['sens']) == {'near20', 'near10_train', 'mean_pool'} | ({'wordnet'} if cr.sensitivity_sets(
+      sel, r['cls'])['wordnet'] else set())
+    for k, v in r['sens'].items():
+      assert np.isfinite(v['F']) and -1 <= v['PI'] <= 1 and isinstance(v['defined'], bool), k
+    assert r['sens']['near20']['n_set'] == 20 and r['sens']['mean_pool']['n_set'] == 10
+    assert r['sens']['mean_pool']['O'] is not None and set(r['P3']['sens']) == set(r['sens']) - {'mean_pool'}
+  one = cr.measure(toy['model'], sel, toy['spec'], toy['pc'], toy['pf'], V, Vpos, Q, Qy, 'cpu', run_set='A',
+                   counts=np.full(NC, PER), n_draws=20, log=lambda s: None, check_units=0, classes=[3], sens=False)
+  r3 = {r['cls']: r for r in out['classes']}[3]
+  assert 'sens' not in one['classes'][0] and one['classes'][0]['PI'] == pytest.approx(r3['PI'])   # P1 unchanged

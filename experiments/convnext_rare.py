@@ -71,10 +71,20 @@ S4, churn (subcommand churn, descriptive): for n in K(c) and consecutive checkpo
   evaluated on fixed inputs h_t'(x) at p*_t'(x) on V_est, and the drift S_t (h_t' - h_t) of the earlier parts:
   traffic_w = sum over intervals and units of mean_x |s^g write^g_w + s^v write^v_w| / sigma_n; tau = (traffic_Far /
   |Far|) / (traffic_Near10 / 10). With --split attrR (E1r) the same sets index random groups: the noise floor.
-S7, consolidation (phase 0, descriptive, on Q): over the units of stages 2 and 3, Delta~Q = DeltaQ[:, c] - median over
+S6, family-correct rate (amendment 1 C2; the protocol gives no formula): the fraction of probe images whose top-1 class
+  is c or a class at WordNet distance <= 4 from c (family_top1).
+Sensitivity checks (Sec. 2 and 4.7; amendment 1 C2; secondary, under 'sens' and 'P3.sens'): F, O, PI and its gate,
+  and R_own, R_flow, R_mis, Delta_flow, with Near10 replaced by Near20, by the WordNet relatives (distance <= 4) or,
+  given --visual_train, by the 10 nearest classes by training-image DINOv2 class means; each set holds only classes
+  common in c's rare run and in C0 (as Near10's do) and gets its own matched draws from Pi(c) without the set. P1 at
+  mean pooling ('mean_pool'): u, g, v and the parts taken at every position of the V_est images and averaged instead
+  of at p*, with s_n, s^g_n, s^v_n the signs of their means over V_c and positions and sigma_mean_n the std over
+  classes of the class-mean pooled u on Q.
+S7, consolidation (every run, descriptive, on Q): over the units of stages 2 and 3, Delta~Q = DeltaQ[:, c] - median over
   k != c; C1 = max Delta~Q+ / sum Delta~Q+, PR = (sum Delta~Q+)^2 / sum (Delta~Q+)^2, for the 548 stratum candidates,
   with Spearman correlations with cos10 and nW; with the atlas, N = the share of c's own writes in the builder row of
   c on its top carrier, raw[c, c] / sum_k raw[c, k] (raw as in S1 without the cross-write rule; c must be a pole).
+  Every analysed class's C1, PR and N are also in its record ('S7'), so compare contrasts them rare - C0.
 M4 (phase 0): removing the 10 Near10 class parts from all 36 unit maps at once, X^U_Near10 on V_c against matched
   draws, with the probe accuracy after removal (documents the collapse).
 
@@ -87,20 +97,28 @@ one-sided binomial test at the pseudo rate (k + 1) / (n + 2). The P2 primary D(c
 lambda_3^ref(C0, whole class) has the floor D0(c) = lambda_3(other-set run, Own_m) - lambda_3^ref(C0). Decision rules
 (section 7): a count against the essay needs Holm significance, the floor (P2) and seed-1 replication; without
 seed-1 runs it is listed as pending.
-Amendment 1 (docs/data/rare/protocol_amendment_1.md): classes sorted by id before every bootstrap; PI, lambda_3 and
-R_own enter every statistic only where defined (PI: 'defined', lambda_3: P2.defined, R_own: P3.defined); a floor
-passes only when its Wilcoxon z has the sign of the contrast's median; the noise control has three states (pass,
-fail, uninformative); secondary reports: P1 over all classes, with 'no route' as 0 and with symmetric F_pct gates;
-the protocol's other P1 versions; P2 with the first-order and Own_m references; McNemar tests for universality
-(against the pseudo-own, and rare against common); S1 RBpx_w; S2 and the relabel control with their floors; and
-flags when a count against the essay also holds in the common run (C0, C1) or when the P2 references disagree.
+Amendment 1 (docs/data/rare/protocol_amendment_1.md): classes sorted by id before every bootstrap; PI, lambda_3,
+R_own and Delta_flow enter every statistic only where defined (PI: 'defined'; lambda_3: P2.defined, and for the C0
+references P2_whole.defined and P2_whole_fo.defined; R_own, Delta_flow: P3.defined), the floors and the noise control's
+R_own - R_mis included (raw values under '_raw' keys); a floor passes only when its Wilcoxon z has the sign of the
+contrast's median; floors apply to rare - C0 contrasts only (the P2 count; floor_ok None for the other counts); every
+count except universality (its own binomial test) needs Holm significance, the P3 count included; support is tagged
+'replicated', 'not replicated' or 'pending seed 1'; the noise control has three states (pass, fail, uninformative);
+the decision rules apply at step 25,020, and another step's block is written as 'decision_secondary'. Each seed's
+block lists the roles of its keys ('roles'); the amendment's secondary reports sit under 'secondary': P1 over all
+classes, with 'no route' as 0 and with symmetric F_pct gates; the protocol's other P1 versions; P2 with the
+first-order and Own_m references; P1 and P3 in the common run; McNemar tests for universality (against the
+pseudo-own, rare against common, rare against the other-set run); PI, Delta_flow and signatures against the same-seed
+other-set run; the sensitivity checks. Also: S1 RBpx_w; S2, S6 (fit_T, auroc_near, family_top1), S7 and the relabel
+control with their floors; and flags when a count against the essay also holds in the common run (C0, C1) or when the
+P2 references disagree.
 
 Subcommands:
   measure  --run R --step S [--flow flow.npz] [--train /dev/shm/imagenet256] -> rare_measure_{S}.json (+ .npz arrays)
   flow     --run R --train /dev/shm/imagenet256 -> rare_flow.npz
   churn    --run R [--split attr|attrR] -> rare_churn.json
   compare  --rare A0.json B0.json --c0 C0.json [--rare1 ... --c1 ...] [--e1 ... --e1r ...] -> rare_compare.json
-Phase 0: measure on E1 / E1r (no fine split: own = the whole class) with --phase0 adds M4 and S7.
+Phase 0: measure on E1 / E1r (no fine split: own = the whole class) with --phase0 adds M4 (S7 is in every run).
 """
 
 import argparse
@@ -122,6 +140,7 @@ from experiments.rare_common import (Selection, auroc, by_region, class_gradient
 N_DRAWS = 1000
 K_UNITS = 8
 EPS, BETA2 = 1e-8, 0.999
+PRIMARY_STEP = 25020                               # the primaries' checkpoint (Sec. 3); other steps are secondary
 
 
 # ------------------------------------------------------------------------------------------------- model plumbing
@@ -187,10 +206,11 @@ def unit_star(model, x, blocks=None, batch: int = 100) -> Dict[str, dict]:
 
 @torch.no_grad()
 def probe_stats(model, xQ_u8, yQ, n_classes: int, device, batch: int = 200, dtype=torch.float32) -> Dict[str, dict]:
-  """{block: {'R': (U, n_classes) class-mean u*, 'ubar': (U,) mean u over images and positions, 'sigma': (U,)}}."""
+  """{block: {'R': (U, n_classes) class-mean u*, 'ubar': (U,) mean u over images and positions, 'sigma': (U,),
+  'sigma_mean': (U,) the same scale for u mean-pooled over positions (the mean-pooling check, amendment 1 C2)}}."""
   named = dict(model.blocks())
   yQ = torch.as_tensor(np.asarray(yQ))
-  acc = {b: {'R': 0, 'ubar': 0, 'n': 0, 'cnt': torch.zeros(n_classes, dtype=dtype)} for b in named}
+  acc = {b: {'R': 0, 'Rm': 0, 'ubar': 0, 'n': 0, 'cnt': torch.zeros(n_classes, dtype=dtype)} for b in named}
   for i in range(0, len(yQ), batch):
     x = normalize(xQ_u8[i:i + batch], device).to(dtype) if xQ_u8.dtype == torch.uint8 else xQ_u8[i:i + batch]
     hs, _ = block_inputs(model, x, set(named))
@@ -199,15 +219,19 @@ def probe_stats(model, xQ_u8, yQ, n_classes: int, device, batch: int = 200, dtyp
       h = hs[b].flatten(1, 2)
       u = F.silu(blk.pw_gate(h)) * blk.pw_value(h)                 # (B, P, U)
       us = u.max(1).values.cpu().to(dtype)                         # u at p*
+      um = u.mean(1).cpu().to(dtype)                               # u mean-pooled over positions
       R = torch.zeros(n_classes, us.shape[1], dtype=dtype).index_add_(0, yb, us)
       acc[b]['R'] = acc[b]['R'] + R
+      acc[b]['Rm'] = acc[b]['Rm'] + torch.zeros(n_classes, um.shape[1], dtype=dtype).index_add_(0, yb, um)
       acc[b]['ubar'] = acc[b]['ubar'] + u.sum((0, 1)).cpu().to(dtype)
       acc[b]['n'] += u.shape[0] * u.shape[1]
       acc[b]['cnt'] += torch.bincount(yb, minlength=n_classes).to(dtype)
   out = {}
   for b, a in acc.items():
     R = (a['R'] / a['cnt'].clamp_min(1)[:, None]).T
-    out[b] = {'R': R, 'ubar': a['ubar'] / a['n'], 'sigma': R.std(1).clamp_min(1e-12)}
+    Rm = (a['Rm'] / a['cnt'].clamp_min(1)[:, None]).T
+    out[b] = {'R': R, 'ubar': a['ubar'] / a['n'], 'sigma': R.std(1).clamp_min(1e-12),
+              'sigma_mean': Rm.std(1).clamp_min(1e-12)}
   return out
 
 
@@ -391,6 +415,89 @@ def p1_unit(g, v, s, sig, P_cls, P_own, near, draws, own_set, nown_sets, c, sg, 
   return out
 
 
+# ------------------------------------------------------------------- sensitivity checks (Sec. 2, 4.7; amendment 1 C2)
+
+def sensitivity_sets(sel: Selection, c: int, visual_train=None) -> Dict[str, List[int]]:
+  """Relatives for the sensitivity checks, from the classes that are common in c's rare run and in C0 as Near10's are
+  (not c, not a selected class of c's set, not a relabel or noise control, not a control's source), visually nearest
+  first: 'near20' the 20 nearest; 'wordnet' every class at WordNet distance <= 4 (empty for some iso classes); with
+  visual_train, the (n, n) cosine distances of training-image DINOv2 class means, 'near10_train' its 10 nearest."""
+  row = sel.rows.get(c, {})
+  bad = {c} | ({int(row['source'])} if row.get('source') is not None else set())
+  ok = lambda k: k not in bad and (k not in sel.rows or (sel.rows[k]['kind'] == 'selected'
+                                                         and sel.rows[k]['set'] != row.get('set')))
+  order = [int(k) for k in sel.order[c]]
+  out = {'near20': [k for k in order if ok(k)][:20], 'wordnet': [k for k in order if ok(k) and sel.D[c, k] <= 4]}
+  if visual_train is not None:
+    d = np.asarray(visual_train, np.float64)[c].copy()
+    d[c] = np.inf
+    out['near10_train'] = [int(k) for k in np.argsort(d, kind='stable') if ok(int(k))][:10]
+  return out
+
+
+SENS_KEYS = ('n_units', 'F', 'F_pct', 'F_null_median', 'O', 'PI', 'defined', 'def_threshold', 'FO_size', 'F_gate',
+             'F_value', 'F_lin_pct', 'signature')
+
+
+@torch.no_grad()
+def unit_pooled(model, x, cols: Dict[str, List[int]], batch: int = 50) -> Dict[str, dict]:
+  """{block: {'h': (N, P, d) LayerNorm outputs at every position, 'g', 'v': (N, P, len(cols[block])) of the units
+  cols[block]}} for normalized images x (mean pooling)."""
+  named = dict(model.blocks())
+  out = {b: {k: [] for k in ('h', 'g', 'v')} for b in cols}
+  for i in range(0, len(x), batch):
+    hs, _ = block_inputs(model, x[i:i + batch], set(cols))
+    for b, ns in cols.items():
+      h = hs[b].flatten(1, 2)
+      out[b]['h'].append(h)
+      out[b]['g'].append(named[b].pw_gate(h)[..., ns])
+      out[b]['v'].append(named[b].pw_value(h)[..., ns])
+  return {b: {k: torch.cat(v) for k, v in d.items()} for b, d in out.items()}
+
+
+def pooled_knockouts(up, block: str, n: int, h, g, v, sets: Sequence[Sequence[int]], s: float, sig: float, sg: float,
+                     sv: float, chunk: int = 128):
+  """Knockouts of unit n at every position (mean pooling instead of p*): h (M, d) and g, v (M,) over all positions of
+  the images. A set's parts are summed over its weight rows before they are applied (linear in the parts), in chunks
+  of sets. Returns ({mode: L (S,)}, lin (S,)) with L = s mean over images and positions of [u - u_S] / sig."""
+  Wg, Bg = up[f'{block}.pw_gate']['C'][:, n], up[f'{block}.pw_gate']['Cb'][:, n]
+  Wv, Bv = up[f'{block}.pw_value']['C'][:, n], up[f'{block}.pw_value']['Cb'][:, n]
+  h = h.to(Wg.dtype)
+  L, lin = {m: [] for m in ('both', 'gate', 'value')}, []
+  for i in range(0, len(sets), chunk):
+    part = [list(S) for S in sets[i:i + chunk]]
+    M = torch.zeros(len(part), Wg.shape[0], dtype=Wg.dtype, device=Wg.device)
+    if len({len(S) for S in part}) == 1 and len(part[0]):           # equal sizes (the draws): one scatter
+      idx = torch.as_tensor(part, dtype=torch.long, device=Wg.device)
+      M.scatter_add_(1, idx, torch.ones(idx.shape, dtype=Wg.dtype, device=Wg.device))
+    else:
+      for j, S in enumerate(part):
+        if len(S):
+          idx = torch.as_tensor(S, dtype=torch.long, device=Wg.device)
+          M[j].index_add_(0, idx, torch.ones(len(S), dtype=Wg.dtype, device=Wg.device))
+    Gs, Vs = (M @ Wg) @ h.T + (M @ Bg)[:, None], (M @ Wv) @ h.T + (M @ Bv)[:, None]
+    for mode in L:
+      L[mode].append(knockout(g, v, Gs, Vs, s, sig, mode))
+    lin.append((sg * Gs.mean(1) + sv * Vs.mean(1)) / sig)
+  return {m: torch.cat(t) for m, t in L.items()}, torch.cat(lin)
+
+
+def p1_unit_pooled(g, v, h, s, sig, up_c, up_o, block, n, near, draws, own_set, nown_sets, sg, sv) -> dict:
+  """p1_unit at mean pooling (no single-class knockouts, so no S3 or O_whole): g, v (M,), h (M, d) at every position
+  of the V_est images; s, sg, sv the signs of mean u, g, v over V_c and positions; sig the unit's sigma_mean."""
+  out = {}
+  Lc, lc = pooled_knockouts(up_c, block, n, h, g, v, [list(near)] + [list(d) for d in draws], s, sig, sg, sv)
+  for mode, L in Lc.items():
+    out[f'near_{mode}'], out[f'rand_{mode}'] = float(L[0]), L[1:].cpu().numpy()
+  out['lin_near'], out['lin_rand'] = float(lc[0]), lc[1:].cpu().numpy()
+  if own_set is not None:
+    Lo, lo = pooled_knockouts(up_o, block, n, h, g, v, [list(own_set)] + [list(k) for k in nown_sets], s, sig, sg, sv)
+    for mode, L in Lo.items():
+      out[f'own_{mode}'], out[f'nown_{mode}'] = float(L[0]), L[1:].cpu().numpy()
+    out['lin_own'], out['lin_nown'] = float(lo[0]), lo[1:].cpu().numpy()
+  return out
+
+
 def summarize_p1(units: List[dict], c: int, nown_cls: Sequence[int], prefix='') -> dict:
   """F, O, PI, the null, the linear version, universality and S3 from per-unit knockouts (see the module docstring)."""
   if not units:
@@ -427,20 +534,20 @@ def summarize_p1(units: List[dict], c: int, nown_cls: Sequence[int], prefix='') 
       res['pseudo_signature'] = bool(O_ps > np.percentile(Oj_ps, 99) and F_ <= np.median(Fj))
     res['F_lin_pct'] = float(np.median([pct_rank(u['lin_near'], u['lin_rand']) for u in units]))
     res['O_lin_pct'] = float(np.median([pct_rank(u['lin_own'], u['lin_nown']) for u in units]))
-    # S3: own niche among the single class parts
-    ranks, shares = [], []
-    for u in units:
-      Lk = np.delete(u['L_class'], c)
-      ranks.append(pct_rank(u['own_both'], Lk))
-      pos = max(0.0, u['own_both'])
-      shares.append(pos / (pos + np.maximum(Lk, 0).sum()) if pos + np.maximum(Lk, 0).sum() > 0 else 0.0)
-    res['own_rank'], res['own_share'] = float(np.median(ranks)), float(np.median(shares))
+    if 'L_class' in units[0]:                      # S3: own niche among the single class parts
+      ranks, shares = [], []
+      for u in units:
+        Lk = np.delete(u['L_class'], c)
+        ranks.append(pct_rank(u['own_both'], Lk))
+        pos = max(0.0, u['own_both'])
+        shares.append(pos / (pos + np.maximum(Lk, 0).sum()) if pos + np.maximum(Lk, 0).sum() > 0 else 0.0)
+      res['own_rank'], res['own_share'] = float(np.median(ranks)), float(np.median(shares))
   else:
     res['F_lin_pct'] = float(np.median([pct_rank(u['lin_near'], u['lin_rand']) for u in units]))
-  # whole own class (class split): calibration
-  Lw = np.array([u['L_class'][c] - np.median(u['L_class'][list(nown_cls)]) if len(nown_cls) else np.nan
-                 for u in units])
-  res['O_whole'] = float(np.median(Lw))
+  if 'L_class' in units[0]:                        # whole own class (class split): calibration
+    Lw = np.array([u['L_class'][c] - np.median(u['L_class'][list(nown_cls)]) if len(nown_cls) else np.nan
+                   for u in units])
+    res['O_whole'] = float(np.median(Lw))
   return {prefix + k: v for k, v in res.items()}
 
 
@@ -704,10 +811,12 @@ def membership(top20: np.ndarray, n_classes: int) -> np.ndarray:
 
 def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, device, *, run_set=None, snap=None,
             pole_R=None, atlas=None, flow=None, train_x=None, noise_x=None, counts=None, classes=None,
-            n_draws=N_DRAWS, seed=0, dtype=None, log=print, check_units=16, p2=True) -> dict:
-  """Per-class records of P1, P2, P3, S1 to S3 and the accuracy numbers for one run and checkpoint (see the module
-  docstring). parts_f None: own = the whole class (class split), as in phase 0. Also returns '_DeltaQ' (n_units,
-  n_classes) for S7 (not for JSON)."""
+            n_draws=N_DRAWS, seed=0, dtype=None, log=print, check_units=16, p2=True, sens=True,
+            visual_train=None) -> dict:
+  """Per-class records of P1, P2, P3, S1 to S3, S7 and the accuracy numbers for one run and checkpoint (see the module
+  docstring). parts_f None: own = the whole class (class split), as in phase 0. sens: the sensitivity checks (P1 and
+  P3 with Near20 and WordNet relatives, and with training-image Near10 if visual_train is given; P1 at mean pooling).
+  Also returns '_DeltaQ' (n_units, n_classes) for S7 (not for JSON)."""
   t0 = time.time()
   dtype = dtype or next(model.parameters()).dtype
   n_classes = int(model.head.weight.shape[0])
@@ -721,6 +830,7 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
   # probe statistics (sigma, ubar, R) and the pole classes
   ps = probe_stats(model, Q, Qy, n_classes, device, dtype=dtype)
   sigma = torch.cat([ps[b]['sigma'] for b in blocks]).double().numpy()
+  sigma_mean = torch.cat([ps[b]['sigma_mean'] for b in blocks]).double().numpy()
   R_pole = pole_R if pole_R is not None else torch.cat([ps[b]['R'] for b in blocks]).numpy()
   top20 = np.argsort(-R_pole, 1, kind='stable')[:, :20]
   member = membership(top20, n_classes).astype(np.float64)
@@ -771,6 +881,14 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
     rec.update(top1=float((z.argmax(1) == c).float().mean()),
                top5=float((torch.topk(z, 5, 1).indices == c).any(1).float().mean()),
                auroc_far=auroc(sv_, sq[np.isin(Qy, sel.far(c))]), auroc_near=auroc(sv_, sq[np.isin(Qy, near)]))
+    # S6 family-correct rate (amendment 1 C2): top-1 within c's WordNet family, c or a class at WordNet distance <= 4
+    family = [c] + [int(k) for k in np.flatnonzero(sel.D[c, :n_classes] <= 4)]
+    rec['family_top1'] = float(np.isin(z.argmax(1).cpu().numpy(), family).mean())
+    # sensitivity sets (Sec. 2, 4.7) with their own matched draws from Pi(c) without the set
+    ssets = {k: R for k, R in sensitivity_sets(sel, c, visual_train).items() if R} if sens else {}
+    sdraws = {k: matched_draws(R, [q for q in pool if q not in set(R)], cdec, ndec, n_draws,
+                               np.random.default_rng([seed, 5, i, c]))
+              for i, (k, R) in enumerate(sorted(ssets.items()))}
     # carriers K(c) on V_sel
     nsel = len(x[0::2])
     spec_eff = specific_effect(DV[:, pos:pos + nsel].mean(1), DeltaQ, c)
@@ -781,17 +899,38 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
     # P1 and S3 on V_est at p*
     kb = sorted({units[j][0] for j in K})
     st_est, st_all = unit_star(model, x[1::2], blocks=kb), unit_star(model, x, blocks=kb)
-    per_unit = []
+    per_unit, sens_units = [], {k: [] for k in ssets}
+    own_c, own_n = own_of(c) if has_own else None, [own_of(k) for k in nown]
     for j in K:
       b, n = units[j]
       d = st_est[b]
       s = float(torch.sign(st_all[b]['u'][:, n].mean())) or 1.0
       sg = float(torch.sign(st_all[b]['g'][:, n].mean())) or 1.0
       sv = float(torch.sign(st_all[b]['v'][:, n].mean())) or 1.0
-      per_unit.append(p1_unit(d['g'][:, n], d['v'][:, n], s, sigma[j], unit_parts(up_c, b, n, d['h'][:, n]),
-                              unit_parts(up_o, b, n, d['h'][:, n]), near, draws, own_of(c) if has_own else None,
-                              [own_of(k) for k in nown], c, sg, sv))
+      Pc, Po = unit_parts(up_c, b, n, d['h'][:, n]), unit_parts(up_o, b, n, d['h'][:, n])
+      per_unit.append(p1_unit(d['g'][:, n], d['v'][:, n], s, sigma[j], Pc, Po, near, draws, own_c, own_n, c, sg, sv))
+      for k, R in ssets.items():
+        sens_units[k].append(p1_unit(d['g'][:, n], d['v'][:, n], s, sigma[j], Pc, Po, R, sdraws[k], own_c, own_n, c,
+                                     sg, sv))
     rec.update(summarize_p1(per_unit, c, nown))
+    if sens and K:                                   # sensitivity checks of P1 (secondary, amendment 1 C2)
+      pick = lambda r, n_set: {**{k: r[k] for k in SENS_KEYS if k in r}, 'n_set': n_set}
+      rec['sens'] = {k: pick(summarize_p1(u, c, nown), len(ssets[k])) for k, u in sens_units.items()}
+      cols = {}
+      for j in K:
+        cols.setdefault(units[j][0], []).append(units[j][1])
+      pl = unit_pooled(model, x, cols)               # mean pooling instead of p*: every position, V_est = odd images
+      pooled = []
+      for j in K:
+        b, n = units[j]
+        i_ = cols[b].index(n)
+        A = pl[b]
+        g_, v_ = A['g'][..., i_], A['v'][..., i_]
+        s = float(torch.sign((F.silu(g_) * v_).mean())) or 1.0
+        sg, sv = float(torch.sign(g_.mean())) or 1.0, float(torch.sign(v_.mean())) or 1.0
+        pooled.append(p1_unit_pooled(g_[1::2].flatten(), v_[1::2].flatten(), A['h'][1::2].flatten(0, 1), s,
+                                     sigma_mean[j], up_c, up_o, b, n, near, draws, own_c, own_n, sg, sv))
+      rec['sens']['mean_pool'] = pick(summarize_p1(pooled, c, nown), len(near))
     if per_unit:                                     # per-unit knockouts and their nulls (saved, amendment 1 C3)
       nulls[c] = {k: np.array([u[k] for u in per_unit]) for k in ('near_both', 'rand_both', 'own_both', 'nown_both')
                   if k in per_unit[0]}
@@ -826,6 +965,18 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
           fD = None
       rec['P3'] = p3_class(Eo, En, rel, rel_mis, fw, fD, q_units)
       w = own_weights(Eo, En)
+      if ssets:                                      # sensitivity checks of P3 (secondary, amendment 1 C2)
+        mis_sets = {k: sensitivity_sets(sel, k, visual_train) for k in mis}
+        rec['P3']['sens'] = {}
+        for k, R in ssets.items():
+          relk = member[:, R].sum(1) / 20
+          mk = [member[:, mis_sets[q][k]].sum(1) / 20 for q in mis if mis_sets[q].get(k)]
+          r = {'n_set': len(R), 'R_own': weighted(w, relk), 'R_mis': weighted(w, np.mean(mk, 0)) if mk else None}
+          if fw is not None:
+            r['R_flow'] = weighted(fw, relk)
+            if r['R_own'] is not None and r['R_flow'] is not None:
+              r['Delta_flow'] = r['R_own'] - r['R_flow']
+          rec['P3']['sens'][k] = r
       if check_units:                                  # exact excision of Own_m from rows n, top units by E_own(n)
         top = np.argsort(-Eo)[:check_units]
         rec['P3']['check'] = unit_row_check(model, mods, own_split, own_of(c), [units[j] for j in top], x[1::2], c,
@@ -838,6 +989,10 @@ def measure(model, sel: Selection, spec, parts_c, parts_f, V, Vpos, Q, Qy, devic
     recs.append(rec)
     if ci % 10 == 0:
       log(f'class {ci + 1}/{len(classes)} {time.time() - t0:.0f}s')
+  late = late_units(units)                         # S7 per class, in every run (rare against C0, amendment 1 C2)
+  Dq = DeltaQ[late].numpy()
+  for rec in recs:
+    rec['S7'] = s7_class(Dq, late, rec['cls'], atlas)
   return {'classes': recs, 'sigma': sigma.tolist(), 'units': [list(u) for u in units], '_DeltaQ': DeltaQ,
           '_nulls': nulls}
 
@@ -1173,6 +1328,29 @@ def m4_collapse(model, mods, parts_c, sel: Selection, classes, V, Vpos, Q, Qy, c
   return out
 
 
+def late_units(units) -> List[int]:
+  """Indices of the units of stages 2 and 3 (S7)."""
+  return [j for j, (b, n) in enumerate(units) if b.startswith('stage2') or b.startswith('stage3')]
+
+
+def s7_class(Dq: np.ndarray, late: Sequence[int], c: int, atlas: Optional[List[dict]] = None) -> dict:
+  """S7 of one class (see s7_consolidation): C1 and PR from Dq = DeltaQ of the late units, and N with the atlas."""
+  if not len(late):
+    return {'C1': None, 'PR': None}
+  t = Dq[:, c] - np.median(np.delete(Dq, c, 1), 1)
+  tp = np.maximum(t, 0)
+  tot = tp.sum()
+  r = {'C1': float(tp.max() / tot) if tot > 0 else None, 'PR': float(tot ** 2 / (tp ** 2).sum()) if tot > 0 else None}
+  if atlas is not None:                             # c's own row of the top carrier's builder matrix, if c is a pole
+    bm = atlas[late[int(np.argmax(t))]]
+    if int(c) in bm['top']:
+      beta = bm['raw'][bm['top'].index(int(c))]
+      r['N'] = float(beta[c] / beta.sum()) if beta.sum() > 0 else None
+    else:
+      r['N'] = None
+  return r
+
+
 def s7_consolidation(DeltaQ: torch.Tensor, units, sel: Selection, atlas: Optional[List[dict]] = None) -> dict:
   """S7 for the stratum candidates of experiments/rare_select.py (dense: nW >= 8 and cos10 <= its 60th percentile;
   iso: nW <= 4 and cos10 >= its median): C1, PR over the units of stages 2 and 3 on Q, the own niche share N on the
@@ -1182,25 +1360,13 @@ def s7_consolidation(DeltaQ: torch.Tensor, units, sel: Selection, atlas: Optiona
   nW, cos10 = sel.nW, sel.cos10
   cand = {'dense': np.flatnonzero((nW >= 8) & (cos10 <= np.percentile(cos10, 60))),
           'iso': np.flatnonzero((nW <= 4) & (cos10 >= np.percentile(cos10, 50)))}
-  late = [j for j, (b, n) in enumerate(units) if b.startswith('stage2') or b.startswith('stage3')]
+  late = late_units(units)
   Dq = DeltaQ[late].numpy()
   rows = []
   for st, cs in cand.items():
     for c in cs:
-      t = Dq[:, c] - np.median(np.delete(Dq, c, 1), 1)
-      tp = np.maximum(t, 0)
-      tot = tp.sum()
-      r = {'cls': int(c), 'stratum': st, 'cos10': float(cos10[c]), 'nW': int(nW[c]),
-           'C1': float(tp.max() / tot) if tot > 0 else None,
-           'PR': float(tot ** 2 / (tp ** 2).sum()) if tot > 0 else None}
-      if atlas is not None:                         # c's own row of the top carrier's builder matrix, if c is a pole
-        bm = atlas[late[int(np.argmax(t))]]
-        if int(c) in bm['top']:
-          beta = bm['raw'][bm['top'].index(int(c))]
-          r['N'] = float(beta[c] / beta.sum()) if beta.sum() > 0 else None
-        else:
-          r['N'] = None
-      rows.append(r)
+      rows.append({'cls': int(c), 'stratum': st, 'cos10': float(cos10[c]), 'nW': int(nW[c]),
+                   **s7_class(Dq, late, int(c), atlas)})
   out = {'classes': rows}
   for k in ('C1', 'PR', 'N'):
     ok = [r for r in rows if r.get(k) is not None]
@@ -1279,9 +1445,10 @@ def floor_agrees(res: dict) -> bool:
 
 
 def noise_state(fit, noise_pi, real_pi, min_fit: float = 0.5) -> str:
-  """The noise control (Sec. 4.3 and 7, amendment 1 A1/B1): 'uninformative' when the fit check fails (median top-1
-  on T below min_fit) or no noise or real PI is defined; otherwise 'pass' when the median noise PI is below the median
-  real PI (defined PIs), else 'fail'."""
+  """The noise control (Sec. 4.3 and 7, amendment 1 A1/B1): 'uninformative' when the fit check fails (the median over
+  the noise classes of their top-1 on T below min_fit: the aggregator is the code's, the protocol names none) or no
+  noise or real PI is defined; otherwise 'pass' when the median noise PI is below the median real PI (defined PIs),
+  else 'fail'."""
   if not len(fit) or np.median(fit) < min_fit or not len(noise_pi) or not len(real_pi):
     return 'uninformative'
   return 'pass' if np.median(noise_pi) < np.median(real_pi) else 'fail'
@@ -1298,6 +1465,18 @@ def controls_state(noise: str, relabel: str) -> str:
 CONTROL_NOTES = {'pass': None, 'fail': 'positive controls failed: primaries are unvalidated',
                  'uninformative': 'noise control uninformative (fit check failed or no defined noise PI), or no '
                                   'relabel control: the primaries are not validated by it'}
+
+# what each key of a seed's compare block is (amendment 1 C5); amendment-1 additions sit under 'secondary'
+COMPARE_ROLES = {
+  'primary': ['P1', 'P2', 'P3', 'universality'],
+  'decision_inputs': ['P3_own_minus_mis (support rule)', 'noise_control', 'relabel_control'],
+  'secondary': "every other key: the protocol's secondary and descriptive reports (rare_minus_C0_*, S1, S2, S5, cells, "
+               "C0_calibration) and the amendment's additions under 'secondary'; none adds or removes a count"}
+
+DECISION_RULE = ("a count against the essay needs Holm significance (P1 to P3; universality has its own binomial "
+                 "test), the same-seed floor where the count is a rare - C0 contrast (P2, in the effect's direction; "
+                 "floor_ok None: no floor applies, Sec. 6, amendment 1 A10) and seed-1 replication; support is tagged "
+                 "'not replicated' unless P1 and P2 replicate (Sec. 6) and seed 1 meets P3's part of the rule (A11)")
 
 
 def get(rec: dict, path: str):
@@ -1332,15 +1511,20 @@ def cmd_compare(a):
       out.update(by_cls(o, 'common'))
     return dict(sorted(out.items()))
 
-  # values that exist only where their definedness gate holds (amendment 1, A5)
+  # values that exist only where their definedness gate holds (amendment 1, A5): PI, lambda_3 (the rare and Own_m
+  # side, and the C0 whole-class references), R_own
   pi_d = lambda r: r.get('PI') if r.get('defined') else None
   l3_d = lambda r: get(r, 'P2.lambda3') if get(r, 'P2.defined') else None
+  ref_exact = lambda r: get(r, 'P2_whole.lambda3') if get(r, 'P2_whole.defined') else None
+  ref_fo = lambda r: get(r, 'P2_whole_fo.lambda3') if get(r, 'P2_whole_fo.defined') else None
   rown_d = lambda r: get(r, 'P3.R_own') if get(r, 'P3.defined') else None
+  df_d = lambda r: get(r, 'P3.Delta_flow') if get(r, 'P3.defined') else None
   med = lambda v: float(np.median(v)) if len(v) else None
 
   def stats(rr, cc, other):
     prim = sorted(c for c, r in rr.items() if r['kind'] == 'selected' and r['level'] in (10, 100))
-    res = {}
+    res = {'roles': COMPARE_ROLES}
+    sec = {}                                         # secondary reports added by amendment 1 (C5)
     # P1 (primary): median PI over the primary classes where PI is defined; 'no route' classes are counted
     pi = [rr[c]['PI'] for c in prim if rr[c].get('defined')]
     res['P1'] = bootstrap_median(pi)
@@ -1351,7 +1535,7 @@ def cmd_compare(a):
     lo, hi = sum(v <= 0.05 for v in fpct), sum(v >= 0.95 for v in fpct)
     sym = [rr[c]['PI'] for c in prim if rr[c].get('PI') is not None and rr[c].get('F_pct') is not None
            and (rr[c]['F_pct'] <= 0.025 or rr[c]['F_pct'] >= 0.975)]
-    res['P1_secondary'] = {
+    sec['P1_alternatives'] = {
       'raw_all': bootstrap_median([rr[c].get('PI') for c in prim]),
       'no_route_as_zero': bootstrap_median([rr[c]['PI'] if rr[c].get('defined') else 0.0 for c in prim]),
       'symmetric_gate_2.5_97.5': bootstrap_median(sym),
@@ -1363,17 +1547,20 @@ def cmd_compare(a):
                 ('O_lin_pct_minus_half', lambda r: r['O_lin_pct'] - 0.5 if r.get('O_lin_pct') is not None else None),
                 ('F_gate_minus_O_gate', lambda r: r['F_gate'] - r['O_gate'] if r.get('F_gate') is not None
                  and r.get('O_gate') is not None else None))
-    res['P1_versions'] = {k: {'all': bootstrap_median([fn(rr[c]) for c in prim]),
+    sec['P1_versions'] = {k: {'all': bootstrap_median([fn(rr[c]) for c in prim]),
                               'defined': bootstrap_median([fn(rr[c]) for c in prim if rr[c].get('defined')])}
                           for k, fn in versions}
     absent = [c for c, r in rr.items() if r['kind'] == 'selected' and r['level'] == 0]
-    res['P1_versions']['F_absent'] = bootstrap_median([rr[c].get('F') for c in absent])
+    sec['P1_versions']['F_absent'] = bootstrap_median([rr[c].get('F') for c in absent])
 
-    # P2 (primary: the exact whole-class reference in C0) and the first-order and Own_m references (secondary, A3)
+    # P2 (primary: the exact whole-class reference in C0) and the first-order and Own_m references (secondary, A3);
+    # each lambda_3 only where its own gate holds (A5), with the number of classes each gate excludes
     def p2(ref_of):
-      d2, f2 = [], []
+      d2, f2, n_rare, n_ref = [], [], 0, 0
       for c in prim:
         l3, ref = l3_d(rr[c]), ref_of(cc.get(c, {}))
+        n_rare += l3 is None
+        n_ref += l3 is not None and ref is None
         if l3 is not None and ref is not None:
           d2.append(l3 - ref)
           o = l3_d(other.get(c, {}))                  # floor D0: the same contrast where c is common (other set)
@@ -1381,18 +1568,19 @@ def cmd_compare(a):
             f2.append((l3 - ref) - (o - ref))
       r = bootstrap_median(d2)
       r['floor_wilcoxon'] = wilcoxon(f2) if f2 else None
+      r['n_rare_undefined'], r['n_ref_undefined'] = n_rare, n_ref
       return r
-    res['P2'] = p2(lambda r: get(r, 'P2_whole.lambda3'))
-    res['P2_ref_first_order'] = p2(lambda r: get(r, 'P2_whole_fo.lambda3'))
-    res['P2_ref_own_m'] = p2(l3_d)
+    res['P2'] = p2(ref_exact)
+    sec['P2_ref_first_order'] = p2(ref_fo)
+    sec['P2_ref_own_m'] = p2(l3_d)
     l3r = [l3_d(rr[c]) for c in prim if l3_d(rr[c]) is not None]
     res['P2']['median_lambda3_rare'] = med(l3r)
     res['P2']['frac_lambda3_gt_half'] = float(np.mean([v > 0.5 for v in l3r])) if l3r else None
 
     # P3 (primary), and the same in the common run
     def p3(recs):
-      df = [get(recs.get(c, {}), 'P3.Delta_flow') for c in prim if get(recs.get(c, {}), 'P3.defined')]
-      df = [v for v in df if v is not None]            # None: no flow weights for the class
+      df = [df_d(recs.get(c, {})) for c in prim]
+      df = [v for v in df if v is not None]            # None: undefined, or no flow weights for the class
       r = bootstrap_median(df)
       gap = [get(recs[c], 'P3.R_flow') - get(recs[c], 'P3.R_mis') for c in prim if c in recs
              and get(recs[c], 'P3.R_flow') is not None and get(recs[c], 'P3.R_mis') is not None]
@@ -1403,13 +1591,15 @@ def cmd_compare(a):
     om = [rown_d(rr[c]) - get(rr[c], 'P3.R_mis') for c in prim
           if rown_d(rr[c]) is not None and get(rr[c], 'P3.R_mis') is not None]
     res['P3_own_minus_mis'] = bootstrap_median(om)
-    # the common run (C0, or C1 at seed 1): P1 and P3 by the same statistics (secondary, A10)
-    res['common'] = {'P1': bootstrap_median([pi_d(cc[c]) for c in prim if c in cc]), 'P3': p3(cc)}
+    # the common run (C0, or C1 at seed 1): P1 and P3 by the same statistics (A10)
+    sec['common'] = {'P1': bootstrap_median([pi_d(cc[c]) for c in prim if c in cc]), 'P3': p3(cc)}
     # rare - C0 contrasts, with the same-seed floor D0 = other-set run - C0
     for name, fn in (('PI', pi_d), ('F', lambda r: r.get('F')), ('O', lambda r: r.get('O')), ('lambda3', l3_d),
                      ('R_own', rown_d), ('auroc_far', lambda r: r.get('auroc_far')),
                      ('auroc_near', lambda r: r.get('auroc_near')), ('own_share', lambda r: r.get('own_share')),
-                     ('fit_T', lambda r: r.get('fit_T'))):
+                     ('fit_T', lambda r: r.get('fit_T')), ('family_top1', lambda r: r.get('family_top1')),
+                     ('S7_C1', lambda r: get(r, 'S7.C1')), ('S7_PR', lambda r: get(r, 'S7.PR')),
+                     ('S7_N', lambda r: get(r, 'S7.N'))):
       D, D0 = [], []
       for c in prim:
         r, q, o = fn(rr[c]), fn(cc.get(c, {})), fn(other.get(c, {}))
@@ -1460,7 +1650,7 @@ def cmd_compare(a):
     res['S2_rare_minus_C0'] = {k: {**bootstrap_median(v), 'floor_wilcoxon': wilcoxon(s2f[k]) if s2f.get(k) else None}
                                for k, v in s2.items()}
 
-    # universality (primary test: binomial at the pseudo rate) and the McNemar tests (secondary, A6/A10)
+    # universality (primary test: binomial at the pseudo rate); the McNemar tests are secondary (A6/A10)
     def univ(recs):
       sig = [recs[c].get('signature') for c in prim if c in recs and recs[c].get('signature') is not None]
       ps = [recs[c].get('pseudo_signature') for c in prim if c in recs and recs[c].get('pseudo_signature') is not None]
@@ -1469,10 +1659,43 @@ def cmd_compare(a):
               'p_excess': binom_sf(k, n, (kp + 1) / (n + 2)) if n else None}
     res['universality'] = univ(rr)
     sig_r = [rr[c].get('signature') for c in prim]
-    res['universality']['mcnemar_vs_pseudo'] = mcnemar_exact(sig_r, [rr[c].get('pseudo_signature') for c in prim])
-    res['universality']['common'] = univ(cc)
-    res['universality']['mcnemar_rare_vs_common'] = mcnemar_exact(sig_r, [cc.get(c, {}).get('signature')
-                                                                          for c in prim])
+    sec['universality'] = {
+      'mcnemar_vs_pseudo': mcnemar_exact(sig_r, [rr[c].get('pseudo_signature') for c in prim]),
+      'common': univ(cc),
+      'mcnemar_rare_vs_common': mcnemar_exact(sig_r, [cc.get(c, {}).get('signature') for c in prim]),
+      'mcnemar_rare_vs_other': mcnemar_exact(sig_r, [other.get(c, {}).get('signature') for c in prim])}
+    # the counts that are not rare - C0 contrasts, against the same statistic in the same-seed run where c is common
+    # (A10: reported, never a floor)
+    vs_other = {}
+    for name, fn in (('PI', pi_d), ('Delta_flow', df_d)):
+      d = [fn(rr[c]) - fn(other[c]) for c in prim if c in other and fn(rr[c]) is not None
+           and fn(other[c]) is not None]
+      vs_other[name] = {**bootstrap_median(d), 'wilcoxon': wilcoxon(d)}
+    vs_other['signatures'] = sec['universality']['mcnemar_rare_vs_other']
+    sec['vs_other_set_run'] = vs_other
+    # sensitivity checks (Sec. 2 and 4.7, C2): P1 and P3 with other relatives, P1 at mean pooling; gates as above
+    sens = {}
+    names = sorted({k for c in prim for k in (rr[c].get('sens') or {})}
+                   | {k for c in prim for k in (get(rr[c], 'P3.sens') or {})})
+    for k in names:
+      sp = lambda r: get(r, f'sens.{k}.PI') if get(r, f'sens.{k}.defined') else None
+      sd = lambda r: get(r, f'P3.sens.{k}.Delta_flow') if get(r, 'P3.defined') else None
+      so = lambda r: get(r, f'P3.sens.{k}.R_own') - get(r, f'P3.sens.{k}.R_mis') \
+        if get(r, 'P3.defined') and get(r, f'P3.sens.{k}.R_own') is not None \
+        and get(r, f'P3.sens.{k}.R_mis') is not None else None
+      e = {'n_set': {'median': med([get(rr[c], f'sens.{k}.n_set') for c in prim
+                                    if get(rr[c], f'sens.{k}.n_set') is not None]),
+                     'n_classes': sum(get(rr[c], f'sens.{k}') is not None for c in prim)}}
+      if any(get(rr[c], f'sens.{k}') is not None for c in prim):
+        e['P1'] = bootstrap_median([sp(rr[c]) for c in prim])
+        e['P1']['n_no_route'] = sum(get(rr[c], f'sens.{k}') is not None and sp(rr[c]) is None for c in prim)
+        e['F'] = bootstrap_median([get(rr[c], f'sens.{k}.F') for c in prim])
+        e['common_P1'] = bootstrap_median([sp(cc[c]) for c in prim if c in cc])
+      if any(get(rr[c], f'P3.sens.{k}') is not None for c in prim):
+        e['P3'] = bootstrap_median([sd(rr[c]) for c in prim])
+        e['P3_own_minus_mis'] = bootstrap_median([so(rr[c]) for c in prim])
+      sens[k] = e
+    sec['sensitivity'] = sens
     # cells (descriptive; PI where defined)
     cells = {}
     for c in rr:
@@ -1490,28 +1713,35 @@ def cmd_compare(a):
     npi = [pi_d(r) for r in noise if pi_d(r) is not None]
     fit = [r['top1'] for r in noise if r.get('top1') is not None]          # noise probes are its training images
     nF = [r['F'] for r in noise if r.get('F') is not None]
+    om_raw = [r for r in noise if get(r, 'P3.R_own') is not None and get(r, 'P3.R_mis') is not None]
+    om_d = [r for r in om_raw if rown_d(r) is not None]                    # R_own about R_mis: P3's gate (A5)
     state = noise_state(fit, npi, real)
     res['noise_control'] = {'n': len(noise), 'fit_T': fit, 'informative': bool(fit and np.median(fit) >= 0.5),
                             'cls': [r['cls'] for r in noise if r.get('top1') is not None],     # the order of fit_T
+                            'fit_T_mean': float(np.mean(fit)) if fit else None,             # descriptive (A1)
+                            'cls_fit_ge_half': [r['cls'] for r in noise if (r.get('top1') or 0) >= 0.5],
                             'n_defined': len(npi), 'median_PI': med(npi), 'median_PI_real': med(real),
                             'median_PI_raw': med([r['PI'] for r in noise if r.get('PI') is not None]),
                             'median_PI_real_raw': med([rr[c]['PI'] for c in prim if rr[c].get('PI') is not None]),
                             'auroc_noise_below_real': auroc(real, npi) if npi and real else None,
                             'median_F': med(nF), 'n_F_negative': sum(v < 0 for v in nF),
-                            'R_own_minus_mis': [get(r, 'P3.R_own') - get(r, 'P3.R_mis') for r in noise
-                                                if get(r, 'P3.R_own') is not None and get(r, 'P3.R_mis') is not None],
+                            'R_own_minus_mis': [rown_d(r) - get(r, 'P3.R_mis') for r in om_d],
+                            'cls_R_own_minus_mis': [r['cls'] for r in om_d],
+                            'R_own_minus_mis_raw': [get(r, 'P3.R_own') - get(r, 'P3.R_mis') for r in om_raw],
+                            'cls_R_own_minus_mis_raw': [r['cls'] for r in om_raw],
                             'state': state, 'passes': state == 'pass'}
     stat = lambda r: r['F_src'] - r['F'] if r.get('F_src') is not None and r.get('F') is not None else None
     rel = [c for c, r in rr.items() if r['kind'] == 'relabel' and stat(r) is not None]
     diff = [stat(rr[c]) for c in rel]
+    rel_c0 = [c for c in rel if c in cc and stat(cc[c]) is not None]
     D = [(stat(rr[c]) - stat(cc[c]), stat(other[c]) - stat(cc[c]) if c in other and stat(other[c]) is not None
-          else None) for c in rel if c in cc and stat(cc[c]) is not None]
+          else None) for c in rel_c0]
     res['relabel_control'] = {'n': len(diff), 'F_src_minus_F_label': diff, 'cls': rel,
                               'passes': bool(diff and np.median(diff) > 0),
                               'state': ('pass' if np.median(diff) > 0 else 'fail') if diff else 'uninformative',
                               'sign_test_p': binom_sf(sum(v > 0 for v in diff), sum(v != 0 for v in diff), 0.5)
                               if diff else None,
-                              'rare_minus_C0': [x for x, _ in D],
+                              'rare_minus_C0': [x for x, _ in D], 'cls_rare_minus_C0': rel_c0,
                               'floor_wilcoxon': wilcoxon([x - y for x, y in D if y is not None]) if D else None}
     cal = [get(cc.get(c, {}), 'O_whole') for c in prim]
     cal = [v for v in cal if v is not None]
@@ -1521,9 +1751,16 @@ def cmd_compare(a):
     res['C0_calibration'] = {'median_O_whole_C0': med(cal), 'median_O_rare': med(orare),
                              'frac_O_whole_above_C0_threshold': float(np.mean([abs(o) > t for o, t in thr]))
                              if thr else None}
+    res['secondary'] = sec
     return res
 
-  out = {}
+  # the step of the measure files: the decision rules apply at PRIMARY_STEP only (Sec. 3 and 6; amendment 1 C5)
+  steps = {o.get('step') for o in rare + c0 + rare1 + c1} - {None}
+  if len(steps) > 1:
+    raise ValueError(f'compare: the rare and common measure files come from different steps {sorted(steps)}')
+  step = steps.pop() if steps else None
+  role = 'primary' if step in (None, PRIMARY_STEP) else 'secondary'
+  out = {'step': step, 'role': role}
   rr0 = rare_recs(rare)
   cc0 = by_cls(c0[0]) if c0 else {}
   out['seed0'] = s0 = stats(rr0, cc0, common_recs(rare))
@@ -1546,87 +1783,122 @@ def cmd_compare(a):
       rep[k] = {'same_sign': bool(np.sign(m0) == np.sign(m1)), 'p_one_sided': p1s,
                 'replicated': bool(np.sign(m0) == np.sign(m1) and p1s < 0.05)}
     out['replication'] = rep
-  # floors: C0 - E1 (instrumentation) and E1r - E1 (seed) on measures both runs have
+
+  # floors: C0 - E1 (instrumentation), E1r - E1 and C1 - C0 (seed) on measures both runs have; PI and the whole-class
+  # lambda_3 only where defined in both runs (A5), their raw values under '<path>_raw'
+  gates = {'PI': 'defined', 'P2_whole.lambda3': 'P2_whole.defined'}
+
   def floor(A, B, paths=('auroc_far', 'top1', 'F', 'O_whole', 'P2_whole.lambda3')):
     if not A or not B:
       return None
     a_, b_ = by_cls(A[0]), by_cls(B[0])
     res = {}
     for p in paths:
-      d = [get(a_[c], p) - get(b_[c], p) for c in a_ if c in b_ and get(a_[c], p) is not None
-           and get(b_[c], p) is not None]
-      res[p] = {'median_abs': float(np.median(np.abs(d))) if d else None, 'median': float(np.median(d)) if d else None}
+      for key, gate in ((p, gates.get(p)), (f'{p}_raw', None)):
+        if key != p and p not in gates:
+          continue
+        val = lambda r, p=p, gate=gate: get(r, p) if gate is None or get(r, gate) else None
+        d = [val(a_[c]) - val(b_[c]) for c in a_ if c in b_ and val(a_[c]) is not None and val(b_[c]) is not None]
+        res[key] = {'n': len(d), 'median_abs': float(np.median(np.abs(d))) if d else None,
+                    'median': float(np.median(d)) if d else None}
     return res
   out['floor_instrumentation_C0_minus_E1'] = floor(c0, e1)
   out['floor_seed_E1r_minus_E1'] = floor(e1r, e1)
   out['floor_seed_C1_minus_C0'] = floor(c1, c0, ('auroc_far', 'top1', 'F', 'O', 'PI', 'O_whole', 'P2_whole.lambda3'))
-  # decision rules (section 7): a count against the essay needs Holm significance (P1, P2), the same-seed floor (P2,
-  # the only rare - C0 primary contrast, in the effect's direction) and seed-1 replication; without seed-1 runs it is
-  # only 'pending'. The flags below are secondary (amendment 1) and change no count.
+  # decision rules (section 7, amendment 1 A10/A11): a count against the essay needs Holm significance (P1 to P3),
+  # the same-seed floor where it is a rare - C0 contrast (P2, in the effect's direction) and seed-1 replication;
+  # without seed-1 runs it is only 'pending'. Everything under 'secondary' changes no count.
   hp = out['holm_seed0']
   sig = lambda k: hp.get(k) is not None and hp[k] < 0.05
   rep = out.get('replication', {})
   replicated = lambda k: (rep.get(k) or {}).get('replicated') if rep else None
   d = s0['P3'].get('delta')
   below = lambda r, dd: bool(r.get('n') and dd is not None and r['ci95'][1] < -dd)
+  sec0, sec1 = s0['secondary'], (s1['secondary'] if s1 else None)
 
   def in_common(s, claim, sign=-1):
     """The claim holds in that seed's common run by the same statistic (P1, P3) or test (universality)."""
     if s is None:
       return None
-    cm = s['common']
+    cm = s['secondary']['common']
     if claim == 'P1':
       return bool(cm['P1'].get('n') and np.sign(cm['P1']['median']) == sign and cm['P1']['p_two_sided'] < 0.05)
     if claim == 'P3':
       return below(cm['P3'], cm['P3'].get('delta'))
-    pe = s['universality']['common'].get('p_excess')
+    pe = s['secondary']['universality']['common'].get('p_excess')
     return bool(pe is not None and pe < 0.05)
 
   def refs(s, sign):
-    """P2 medians with the three references, and whether all have the given sign."""
+    """P2 medians with the three references (each over the classes where it is defined), and whether all have the
+    given sign."""
     if s is None:
       return None
-    m = {k: s[key].get('median') for k, key in (('exact', 'P2'), ('first_order', 'P2_ref_first_order'),
-                                                ('own_m', 'P2_ref_own_m'))}
-    return {**m, 'all_same_sign': all(v is not None and np.sign(v) == sign for v in m.values())}
+    m = {k: v.get('median') for k, v in (('exact', s['P2']), ('first_order', s['secondary']['P2_ref_first_order']),
+                                         ('own_m', s['secondary']['P2_ref_own_m']))}
+    n = {k: v.get('n') for k, v in (('exact', s['P2']), ('first_order', s['secondary']['P2_ref_first_order']),
+                                    ('own_m', s['secondary']['P2_ref_own_m']))}
+    return {**m, 'n': n, 'all_same_sign': all(v is not None and np.sign(v) == sign for v in m.values())}
+
+  def vs_other_p(s, key):
+    if s is None:
+      return None
+    v = s['secondary']['vs_other_set_run'][key]
+    return v.get('p_one_sided') if key == 'signatures' else (v.get('wilcoxon') or {}).get('p')
+  no_floor = None                                  # floor_ok None: not a rare - C0 contrast, no floor applies (A10)
   items = []
   if sig('P1') and s0['P1']['median'] < 0:
-    items.append({'claim': 'median PI < 0', 'replicated': replicated('P1'), 'floor_ok': True,
-                  'also_in_common': {'seed0': in_common(s0, 'P1'), 'seed1': in_common(s1, 'P1')}})
+    items.append({'claim': 'median PI < 0', 'holm_p': hp['P1'], 'floor_ok': no_floor, 'replicated': replicated('P1'),
+                  'secondary': {'also_in_common': {'seed0': in_common(s0, 'P1'), 'seed1': in_common(s1, 'P1')},
+                                'vs_other_set_run_p': {'seed0': vs_other_p(s0, 'PI'), 'seed1': vs_other_p(s1, 'PI')}}})
   if sig('P2') and s0['P2']['median'] < 0:
-    items.append({'claim': 'median lambda_3 difference < 0', 'replicated': replicated('P2'),
-                  'floor_ok': floor_agrees(s0['P2']), 'references': {'seed0': refs(s0, -1), 'seed1': refs(s1, -1)}})
-  if below(s0['P3'], d):
-    items.append({'claim': 'Delta_flow interval below -delta', 'floor_ok': True,
+    items.append({'claim': 'median lambda_3 difference < 0', 'holm_p': hp['P2'], 'floor_ok': floor_agrees(s0['P2']),
+                  'replicated': replicated('P2'),
+                  'secondary': {'references': {'seed0': refs(s0, -1), 'seed1': refs(s1, -1)}}})
+  if sig('P3') and below(s0['P3'], d):
+    items.append({'claim': 'Delta_flow interval below -delta', 'holm_p': hp['P3'], 'floor_ok': no_floor,
                   'replicated': below(s1['P3'], s1['P3'].get('delta')) if s1 else None,
-                  'also_in_common': {'seed0': in_common(s0, 'P3'), 'seed1': in_common(s1, 'P3')}})
+                  'secondary': {'also_in_common': {'seed0': in_common(s0, 'P3'), 'seed1': in_common(s1, 'P3')},
+                                'vs_other_set_run_p': {'seed0': vs_other_p(s0, 'Delta_flow'),
+                                                       'seed1': vs_other_p(s1, 'Delta_flow')}}})
   u = s0['universality']
   if u.get('p_excess') is not None and u['p_excess'] < 0.05:
-    items.append({'claim': 'excess of packing signatures', 'floor_ok': True,
+    items.append({'claim': 'excess of packing signatures', 'holm_p': None,
+                  'test': 'one-sided binomial at the pseudo rate (Sec. 6; not in the Holm family)',
+                  'floor_ok': no_floor,
                   'replicated': bool(s1['universality'].get('p_excess') is not None
                                      and s1['universality']['p_excess'] < 0.05) if s1 else None,
-                  'also_in_common': {'seed0': in_common(s0, 'U'), 'seed1': in_common(s1, 'U')},
-                  'mcnemar_vs_pseudo_p': {'seed0': u['mcnemar_vs_pseudo']['p_one_sided'],
-                                          'seed1': s1['universality']['mcnemar_vs_pseudo']['p_one_sided']
-                                          if s1 else None}})
-  counts = [i['claim'] for i in items if i['floor_ok'] and i['replicated']]
-  pending = [i['claim'] for i in items if i['floor_ok'] and i['replicated'] is None]
+                  'secondary': {'also_in_common': {'seed0': in_common(s0, 'U'), 'seed1': in_common(s1, 'U')},
+                                'mcnemar_vs_pseudo_p': {
+                                  'seed0': sec0['universality']['mcnemar_vs_pseudo']['p_one_sided'],
+                                  'seed1': sec1['universality']['mcnemar_vs_pseudo']['p_one_sided'] if s1 else None},
+                                'vs_other_set_run_p': {'seed0': vs_other_p(s0, 'signatures'),
+                                                       'seed1': vs_other_p(s1, 'signatures')}}})
+  counts = [i['claim'] for i in items if i['floor_ok'] is not False and i['replicated']]
+  pending = [i['claim'] for i in items if i['floor_ok'] is not False and i['replicated'] is None]
   flags = []
   for i in items:
     if i['claim'] not in counts + pending:
       continue
-    for seed, v in (i.get('also_in_common') or {}).items():
+    for seed, v in (i['secondary'].get('also_in_common') or {}).items():
       if v:
         flags.append(f"'{i['claim']}' also holds in the common run ({seed})")
-    for seed, v in (i.get('references') or {}).items():
+    for seed, v in (i['secondary'].get('references') or {}).items():
       if v and not v['all_same_sign']:
         flags.append(f"'{i['claim']}': the P2 references are not all negative ({seed})")
-  ok_p3 = s0['P3'].get('n') and d is not None and s0['P3']['ci95'][0] >= -d and \
-    (s0['P3_own_minus_mis'].get('median') or -1) > 0
+  def p3_within(s):
+    """P3's part of the support rule: the interval of median Delta_flow not below -delta, and R_own > R_mis."""
+    dd = s['P3'].get('delta')
+    return bool(s['P3'].get('n') and dd is not None and s['P3']['ci95'][0] >= -dd
+                and (s['P3_own_minus_mis'].get('median') or -1) > 0)
   support = []
   if sig('P1') and s0['P1']['median'] > 0 and sig('P2') and s0['P2']['median'] > 0 and floor_agrees(s0['P2']) and \
-     (s0['P2'].get('median_lambda3_rare') or 0) > 0.5 and ok_p3:
-    support.append('all of P1 > 0, P2 > 0 (beyond the floor) with lambda_3 > 0.5, P3 within -delta with R_own > R_mis')
+     (s0['P2'].get('median_lambda3_rare') or 0) > 0.5 and p3_within(s0):
+    # Sec. 6: a result that does not replicate is reported as 'not replicated' (A11). P1 and P2 replicate by Sec. 6's
+    # sign rule; P3's part is an interval criterion, so it replicates when seed 1 meets it, as the P3 count does
+    ok1 = s1 is not None and bool(replicated('P1')) and bool(replicated('P2')) and p3_within(s1)
+    support.append({'claim': 'all of P1 > 0, P2 > 0 (beyond the floor) with lambda_3 > 0.5, P3 within -delta with '
+                             'R_own > R_mis',
+                    'replication': 'pending seed 1' if s1 is None else ('replicated' if ok1 else 'not replicated')})
     for seed, s in (('seed0', s0), ('seed1', s1)):
       if in_common(s, 'P1', 1):
         flags.append(f"'P1 > 0' also holds in the common run ({seed})")
@@ -1636,16 +1908,19 @@ def cmd_compare(a):
   states = {'seed0': controls_state(s0['noise_control']['state'], s0['relabel_control']['state'])}
   if s1:
     states['seed1'] = controls_state(s1['noise_control']['state'], s1['relabel_control']['state'])
-  out['decision'] = {'against_essay': counts, 'against_pending_seed1': pending, 'against_candidates': items,
-                     'support_for_essay': support, 'secondary_flags': flags,
-                     'controls_pass': states['seed0'] == 'pass', 'controls_state': states,
-                     'replicated': {k: replicated(k) for k in ('P1', 'P2', 'P3')} if rep else 'no seed-1 runs',
-                     'rule': 'a count against the essay needs Holm significance, the same-seed floor (P2, in the '
-                             "effect's direction) and seed-1 replication",
-                     'note': CONTROL_NOTES[states['seed0']],
-                     'note_seed1': CONTROL_NOTES[states['seed1']] if s1 else None}
+  decision = {'role': role, 'against_essay': counts, 'against_pending_seed1': pending, 'against_candidates': items,
+              'support_for_essay': support, 'secondary_flags': flags,
+              'controls_pass': states['seed0'] == 'pass', 'controls_state': states,
+              'replicated': {k: replicated(k) for k in ('P1', 'P2', 'P3')} if rep else 'no seed-1 runs',
+              'rule': DECISION_RULE, 'note': CONTROL_NOTES[states['seed0']],
+              'note_seed1': CONTROL_NOTES[states['seed1']] if s1 else None}
+  if role == 'primary':
+    out['decision'] = decision
+  else:                                            # another step: the same rules, reported as secondary only
+    decision['role'] = f'secondary: step {step}; the decision rules apply at step {PRIMARY_STEP} only'
+    out['decision_secondary'] = decision
   json.dump(clean_json(out), open(a.out, 'w'), indent=1)
-  print(json.dumps(clean_json(out['decision']), indent=1))
+  print(json.dumps(clean_json(decision), indent=1))
 
 
 # ------------------------------------------------------------------------------------------------------- CLI
@@ -1702,14 +1977,16 @@ def cmd_measure(a):
         idx = np.array([int(np.flatnonzero(spec['group'] == g)[0]) for g in gids])
         train_x[r['cls']] = (train_center_u8(a.train, idx, spec.get('noise', ())), [int(g) for g in gids])
   counts = class_counts(spec, int(model.head.weight.shape[0]), a.labels)
+  visual_train = np.load(a.visual_train)['cos_dist'] if a.visual_train else None
   out = measure(model, sel, spec, parts_c, parts_f, V, Vpos, Q, Qy, dev, run_set=run_set, snap=snap, pole_R=pole_R,
                 atlas=atlas, flow=load_flow(a.flow), train_x=train_x, noise_x=noise_x, counts=counts,
                 classes=[int(c) for c in a.only.split(',')] if a.only else None, n_draws=a.n_draws, seed=a.seed,
-                log=log)
+                log=log, visual_train=visual_train)
   DeltaQ, nulls = out.pop('_DeltaQ'), out.pop('_nulls')
   out.update({'run': a.run, 'step': a.step, 'run_set': run_set, 'own': 'Own_m (fine split)' if parts_f is not None
               else 'whole class (class split)', 'pole_step': pole_step, 'atlas': atlas is not None,
-              'snapshot': snap is not None, 'snapshot_step': snap_step, 'flow': bool(a.flow)})
+              'snapshot': snap is not None, 'snapshot_step': snap_step, 'flow': bool(a.flow),
+              'visual_train': a.visual_train or None})
   for rec in out['classes']:                       # relabel controls: F with the source class's Near10
     if rec['kind'] == 'relabel' and rec.get('K'):
       rec['F_src'] = relabel_source_F(model, sel, rec, parts_c, V, Vpos, counts, dev, out['sigma'], a.n_draws, a.seed)
@@ -1721,11 +1998,11 @@ def cmd_measure(a):
         xt = train_center_u8(a.train, idx, spec.get('noise', ()))
         hit = logits_of(model, xt, dev).argmax(1) == torch.as_tensor(spec['labels'][idx])
         rec['fit_T'], rec['n_T'] = float(hit.float().mean()), int(len(idx))
+  out['S7'] = s7_consolidation(DeltaQ, unit_list(model), sel, atlas)    # every run: rare against C0 (amendment 1 C2)
   if a.phase0:
     mods = tracked_modules(model, list(parts_c))
     m4cls = sorted(int(c) for c in np.random.default_rng(7).choice(sel.selected, a.m4, replace=False))
     out['M4'] = m4_collapse(model, mods, parts_c, sel, m4cls, V, Vpos, Q, Qy, counts, dev, seed=a.seed)
-    out['S7'] = s7_consolidation(DeltaQ, unit_list(model), sel, atlas)
   os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
   json.dump(clean_json(out), open(a.out, 'w'), indent=1)
   np.savez_compressed(a.out.replace('.json', '') + '_arrays.npz', DeltaQ=DeltaQ.numpy(), sigma=np.array(out['sigma']),
@@ -1790,6 +2067,8 @@ def main():
   m.add_argument('--n_draws', type=int, default=N_DRAWS)
   m.add_argument('--only', default='', help='comma-separated classes (tests, partial runs)')
   m.add_argument('--phase0', action='store_true', help='own = the whole class (class split), adds M4')
+  m.add_argument('--visual_train', default='', help='cosine distances of DINOv2 class means from training images '
+                 '(the format of --visual): adds the near10_train sensitivity set')
   m.add_argument('--m4', type=int, default=20)
   sub.choices['flow'].add_argument('--n_aug', type=int, default=4)
   sub.choices['flow'].add_argument('--only', default='', help='comma-separated classes (partial runs)')
