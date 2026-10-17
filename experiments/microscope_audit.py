@@ -20,7 +20,7 @@ Relative activation of a cell = its value / the neuron's strongest value (the to
 
   python3 -m experiments.microscope_audit fetch --n 40 --seed 0 --out AUDIT_DIR
   python3 -m experiments.microscope_audit compose --out AUDIT_DIR
-  python3 -m experiments.microscope_audit collect --out AUDIT_DIR --journal WORKFLOW_DIR/journal.jsonl --ratings ratings.json
+  python3 -m experiments.microscope_audit collect --out AUDIT_DIR --journal J1.jsonl [J2.jsonl ...] --ratings ratings.json
   python3 -m experiments.microscope_audit score --out AUDIT_DIR --ratings ratings.json
 Downloads go to AUDIT_DIR/raw (untrusted data: images and JSON are only parsed, never run).
 """
@@ -224,14 +224,21 @@ def score(a):
 
 
 def collect(a):
-  """Ratings from a workflow journal: agents labelled rate:{item}:{rater} (rating fields) and test:{item}:{rater} (picks)."""
+  """Ratings from workflow journals: agents labelled rate:{item}:{rater} (rating fields) and test:{item}:{rater} (picks).
+  A journal's result entries carry only the call key; the label is on the call's 'started' entry. Later journals win."""
   rate, test = {}, {}
-  for line in open(a.journal):
-    e = json.loads(line)
-    if e.get('type') != 'result' or not isinstance(e.get('result'), dict):
-      continue
-    kind, item, rater = (e.get('label') or '::').split(':')[:3]
-    (rate if kind == 'rate' else test if kind == 'test' else {})[item, rater] = e['result']
+  for path in a.journal:
+    lab, res = {}, []
+    for line in open(path):
+      e = json.loads(line)
+      if e.get('type') == 'started':
+        lab[e['key']] = e.get('label') or ''
+      elif e.get('type') == 'result' and isinstance(e.get('result'), dict):
+        res.append(e)
+    for e in res:
+      parts = lab.get(e['key'], '').split(':')
+      if len(parts) == 3 and parts[0] in ('rate', 'test'):
+        (rate if parts[0] == 'rate' else test)[parts[1], parts[2]] = e['result']
   rows = []
   for (item, rater), r in sorted(rate.items()):
     t = test.get((item, rater), {})
@@ -250,7 +257,7 @@ def main():
   p.add_argument('--n', type=int, default=40, help='neurons per microscope')
   p.add_argument('--seed', type=int, default=0)
   p.add_argument('--ratings', default=None, help='collect: output; score: input (JSON list of ratings)')
-  p.add_argument('--journal', default=None, help='collect: the workflow journal.jsonl')
+  p.add_argument('--journal', nargs='+', default=None, help='collect: workflow journal.jsonl files (later ones win)')
   p.add_argument('--save', default=None, help='score: write the summary here')
   a = p.parse_args()
   {'fetch': fetch, 'compose': compose, 'collect': collect, 'score': score}[a.cmd](a)
