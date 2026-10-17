@@ -826,6 +826,55 @@ dataset under `neuron-dev/e1w16_tiny_s1w16/`).
   arrives along their direction on their own top classes and leave it near zero. Whether that is interference being
   undone or ordinary computation is still not decided here; the essay's medium stage 1 is 96 wide.
 
+**X4: which part of the network reads e against the top classes (E1, step 12,500).** Part (ii) of the Reading says that
+at a matched stream state the readout r = e . dCE/dx_out is higher on a stage-1 unit's top classes than on the rest.
+X4 (`experiments/convnext_stage1_mech.py --x4_blocks`, reviewed by three lenses; all six findings fixed) splits r
+exactly. With x_j the stream after stage-1 block j (the unit's block is b), g_j = dL/dx_j, D1 and D2 the stage-2 and
+stage-3 downsamples (LayerNorm and a 2x2 stride-2 convolution) and h, zeta the stage-2 and stage-3 stream gradients,
+the residual recursion g_{j-1} = g_j + J_{f_j}^T g_j unrolls to
+
+  g_b = sum_{j>b} (g_{j-1} - g_j) + D1^T [ sum_k (h_{k-1} - h_k) + D2^T ( sum_l (zeta_{l-1} - zeta_l) + zeta_L ) ]
+
+where each term collects the paths whose first block after x_b is that block (pure skips before it), and the last term
+(the head) is the path through every skip to the pooled final norm and the classifier W_head. r_R = e . term_R, so the
+readers add up to r (checked to 1e-8; finite differences per reader in float64). Each reader's top-20-minus-rest
+offset at matched s_out uses X1's bins and weights, so the offsets add up to X1's. Three additions from the review: the
+single path of each block (that block, then pure skips to the head); a weights-only head term q[k, n] = e_n .
+(-W_head[k] pulled back through the final norm, D2 and D1 at fixed 1/sigma, averaged over the 2x2 phases), whose
+top-20-minus-rest value needs no data; and, for specificity, the d-dimensional class-difference vector O_n of the
+whole stream gradient (the same bins and weights), against which the offset along e is e_n . O_n.
+
+| stage 1 | block 0 | block 1 | block 2 |
+|---|---|---|---|
+| offset along e, CE (X1's role_offset_r_by_sout) | +0.283 | +0.189 | +0.207 |
+| first readers: head / stage-1 later blocks / stage 2 / stage 3 | +0.549 / -0.104 / -0.218 / +0.056 | +0.149 / -0.016 / +0.023 / +0.032 | +0.269 / 0 / -0.074 / +0.012 |
+| weights-only head term (top 20 minus rest, in sd over classes) | +0.79 | +0.34 | +0.50 |
+| Spearman over units, weights-only term against the head reader's offset | 0.98 | 0.86 | 0.89 |
+| head offset left where the weights-only term is 0 | +0.016 | -0.007 | +0.008 |
+| cos(e_n, O_n), mean over units (null sd of the offset along a random direction) | 0.30 (0.036) | 0.19 (0.043) | 0.18 (0.049) |
+| share of units with e_n . O_n > 0 | 0.77 | 0.69 | 0.76 |
+
+- The readout against the top classes comes mostly from the head path, and the head path's class dependence is the
+  classifier's weight geometry: the rows of W_head for a unit's top classes, carried back through the final norm and
+  the two downsamples, point against the unit's write direction. This term needs no images and predicts the head
+  reader's offset unit by unit (Spearman 0.86 to 0.98); what is left after it is about 0.
+- The later stage-1 blocks and stage 2 enter with the opposite sign (block 0: -0.10 and -0.22). Their single paths to
+  the head (-0.10, -0.08) and their per-unit correlation with the weights-only term (Spearman -0.68, -0.81) show that
+  they mostly cancel part of e's image on the skip path, which the classifier then reads; they do not read the class
+  themselves.
+- e is specific: the stream gradient's class difference has cosine 0.18 to 0.30 with e (random directions about 0), and
+  e points with it in 69 to 77% of units. (Under the fixed-sigma true-class readout this cosine is about 0 in blocks 0
+  and 1, so the specificity comes with the full loss and the normalisers' scale.)
+- Together with the stream geometry of the width test (in reversed blocks the incoming stream along e is negative on
+  the unit's top classes, and the unit's write cancels it), this gives one account of the reversal: in this model's
+  stage 1, a low component along e is evidence for the unit's top classes that the classifier reads directly through
+  the skip path (W_head of those classes points against e), and the unit's own output removes that evidence on exactly
+  those images; so raising the unit lowers their logits, and their gradients push it down. Why training builds a
+  classifier that reads a stage-1 direction in this way, and whether the account holds in E1r, E4 and the width-16
+  run, are the next questions (X4 on those three is running). Note for the essay's clean-stream picture: a low-level
+  stage-1 component that the classifier reads directly through the skips, and that the stage's own units undo on the
+  very classes it signals, is the kind of stream accounting the essay says it does not see.
+
 Bearing on the essay. (a) Its account of growth gives a unit already on for a class the first claim on that class's
 error (a head start). The late blocks are consistent with it (their top classes push the unit up; E3 did not test the
 essay's milder head start); in stage 1 after about step 2,000 the strongest classes act as a brake and the bulk of the
