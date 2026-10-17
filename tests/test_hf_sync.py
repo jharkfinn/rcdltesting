@@ -30,6 +30,7 @@ def test_sync_status_finds_syncs_that_would_upload_a_training_resume_state(tmp_p
   (proc / 'self').mkdir(parents=True)
   resume, model = str(res / 'm10' / 'resume.pt'), str(res / 'm10' / 'model_25020.pt')
   _proc(proc, 7, ['python3', '-m', 'experiments.convnext_train', '--out', str(res / 'm10')], str(work))
+  _proc(proc, 8, ['vim', 'experiments/hf_sync.py'], str(work))
   assert hs.sync_status(resume, str(proc)) == 'none'
   _proc(proc, 11, ['python3', '-m', 'experiments.hf_sync', '--root', 'results', '--extra_ignore', '*/resume.pt'],
         str(work))                                                      # relative root: against the process's cwd

@@ -52,8 +52,8 @@ EOF
 fi
 if [ ! -f $TRAIN/DONE ]; then
   echo "$(date +%T) packing the training set into $TRAIN (log: $W/prep_train.log)"
-  python3 -c "from rcdl.imagenet import prepare_train; prepare_train('$TRAIN', token=open('$W/.hf_token').read().strip())" \
-    > $W/prep_train.log 2>&1
+  python3 -c "from rcdl.imagenet import prepare_train;\
+prepare_train('$TRAIN', token=open('$W/.hf_token').read().strip())" > $W/prep_train.log 2>&1
 fi
 cat $TRAIN/DONE; echo
 
@@ -113,7 +113,8 @@ sys.exit(0 if any(r['step'] == int(sys.argv[2]) for r in json.load(open(sys.argv
 if trained; then
   echo "$(date +%T) $RUN already trained (step $(last_step)); not training again"
 else
-  [ -f $OUT/resume.pt ] && echo "$(date +%T) resuming from the local resume.pt" || echo "$(date +%T) starting from step 0"
+  [ -f $OUT/resume.pt ] && echo "$(date +%T) resuming from the local resume.pt" \
+    || echo "$(date +%T) starting from step 0"
   RC=0
   python3 -m experiments.convnext_train --out $OUT --val $VAL --train $TRAIN "$@" || RC=$?
   if [ $RC -ne 0 ]; then

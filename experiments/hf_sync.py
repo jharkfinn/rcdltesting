@@ -46,9 +46,11 @@ def running_syncs(proc: str = '/proc') -> list:
       cwd = os.readlink(os.path.join(proc, pid, 'cwd'))
     except OSError:                                     # ended meanwhile, or not ours to read
       continue
+    if not argv or not os.path.basename(argv[0]).startswith('python') or int(pid) == os.getpid():
+      continue                                          # (an editor open on hf_sync.py is not a sync)
     at = next((i + 1 for i, t in enumerate(argv) if os.path.basename(t) == 'hf_sync.py'), None)
-    at = at or next((i + 2 for i, t in enumerate(argv[:-1]) if t == '-m' and argv[i + 1] == 'experiments.hf_sync'), None)
-    if at is None or int(pid) == os.getpid():
+    at = at or next((i + 2 for i in range(len(argv) - 1) if argv[i:i + 2] == ['-m', 'experiments.hf_sync']), None)
+    if at is None:
       continue
     args = parser().parse_known_args(argv[at:])[0]
     args.root = os.path.realpath(os.path.join(cwd, args.root))
