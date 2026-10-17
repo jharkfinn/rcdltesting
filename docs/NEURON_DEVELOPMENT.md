@@ -972,6 +972,34 @@ same set). Data in `docs/data/audit_tiny/`.
   and are still read as one job, which is the essay's "coarser, not mixed". The two kinds of measure answer different
   questions (class purity against visual coherence), and only the second separates the essay's tiny model from E1.
 
+### Blind audit of a middle layer: the essay's medium stage2.block4 against InceptionV1 mixed4c (2026-10-17)
+
+The essay says its medium ConvNeXt is "broadly legible the whole way through". Same protocol as the pilot (Haiku raters,
+two per neuron, common blind layout, held-out description test), 40 random neurons of the medium model's stage2.block4
+(the middle of its 9-block third stage, 512 units, 14 x 14 grid) and 40 of InceptionV1 mixed4c (512 units, 14 x 14
+grid), seed 1. Data in `docs/data/audit_mid/`.
+
+| | medium stage2.block4 | InceptionV1 mixed4c |
+|---|---|---|
+| ratings 'one job' (with or without related offshoots) | 48 of 80 (0.60; 0.49 to 0.70) | 59 of 80 (0.74; 0.63 to 0.82) |
+| neurons rated so by both raters | 22 of 40 | 27 of 40 |
+| 'not understood' ratings | 29 of 80 | 16 of 80 |
+| description test, mean correct of 8 (share of neurons at 4 or less) | 5.49 (0.12) | 6.12 (0.07) |
+| ratings with the call and 6 or more correct | 24 of 80 | 45 of 80 |
+| rater agreement, kappa | 0.79 | 0.68 |
+
+- In this middle layer the essay's ConvNeXt is not more legible than InceptionV1 under this protocol; by both the rating
+  and the description test it is somewhat less. The essay's comparison with InceptionV1 (5%, 50%, 70%, 99%) is about the
+  last layer, and there the contrast holds (pilot above); InceptionV1's middle layers are the ones the Circuits work
+  found readable, so this does not contradict the essay's last-layer numbers, but it does not support "legible the whole
+  way through" as a difference between the two models.
+- Limits, beyond those of the pilot: the two microscopes crop differently in middle layers. The medium sheet's stage-2
+  crops are 144 px windows around the strongest position (the essay's focus crop), so a rater sees a part or texture,
+  while the InceptionV1 sheet's mixed4c crops show close to the whole image, with the object's context. A unit that
+  responds to a texture or part can be harder to name from a zoomed window. One block per model; Haiku raters; dataset
+  examples only (the essay's microscope also offers feature visualizations and attribution, which the essay counts as
+  part of the better tools).
+
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
 - Pipeline: `experiments/molab_e1.sh <run> [trainer args]` downloads the validation set, packs the training set into RAM
