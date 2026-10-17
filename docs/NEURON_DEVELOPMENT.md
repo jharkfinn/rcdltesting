@@ -1108,6 +1108,30 @@ grid), seed 1. Data in `docs/data/audit_mid/`.
   examples only (the essay's microscope also offers feature visualizations and attribution, which the essay counts as
   part of the better tools).
 
+Crop-scale check (zoomed InceptionV1 mixed4c). Each positive InceptionV1 cell was cut down to the medium sheet's stage-2
+window (144 / 224 of the cell's side), centred on the argmax of the microscope's own 24 x 24 heat map for that cell and
+moved inside the cell; the negative cells were left whole (`microscope_audit.py`, source `iv1_4c_zoom`). Same 40
+channels, same item numbers and distractor draws (compose with seed 1 gives identical medium items, checked), new
+Haiku ratings (2 per neuron) for the 40 zoomed items only; the medium ratings are those above.
+
+| | medium stage2.block4 | InceptionV1 mixed4c, whole | InceptionV1 mixed4c, zoomed |
+|---|---|---|---|
+| ratings 'one job' (with or without offshoots) | 48 of 80 (0.60) | 59 of 80 (0.74) | 69 of 80 (0.86; 0.77 to 0.92) |
+| neurons rated so by both raters | 22 of 40 | 27 of 40 | 32 of 40 |
+| 'not understood' ratings | 29 of 80 | 16 of 80 | 7 of 80 |
+| description test, mean correct of 8 | 5.49 | 6.12 | 6.36 |
+| ratings with the call and 6 or more correct | 24 of 80 | 45 of 80 | 55 of 80 |
+| kappa | 0.79 | 0.68 | 0.48 |
+
+- The zoom raised InceptionV1's score. Paired by channel and rater, 14 ratings changed to 'one job' and 4 changed away
+  (two-sided sign test p = 0.031); the description test rose by 0.24 crops (28 up, 17 down, p = 0.14).
+- With the crops matched, the gap to the medium model's stage2.block4 grew: 69 of 80 against 48 of 80 (Fisher exact
+  p = 3.0e-4); strict count 55 against 24 (p = 1.6e-6). Crop scale does not explain the gap. A part or texture in a
+  window was easier to name than a whole scene, so the earlier InceptionV1 number was low.
+- Limits still open: the two layers sit at different relative depths (mixed4c is the 5th of 9 Inception blocks; stage2.block4
+  is the 11th of 18 ConvNeXt blocks in the medium model, counting its 3-3-9-3 stages); the window centre comes from
+  the heat map for InceptionV1 and from the grid position for ConvNeXt; the zoomed raters agree less (kappa 0.48).
+
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
 - Pipeline: `experiments/molab_e1.sh <run> [trainer args]` downloads the validation set, packs the training set into RAM
