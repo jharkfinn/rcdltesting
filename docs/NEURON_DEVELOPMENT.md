@@ -933,6 +933,14 @@ same set). Data in `docs/data/audit_tiny/`.
   gap in the category call shrinks (0.75 against 0.95, not significant on 20 items), while the description test, which
   does not depend on the rater's leniency, gives the same order with both raters: essay tiny units, then E1's random
   directions, then E1's units.
+- The automatic class rule on the same sets (the medium plan's R16: a direction is mixed if its top 16 images split into
+  two WordNet groups at cut 7, each of at least 3 images, and also into two visual groups by DINOv2 class distance):
+  essay tiny units 0.34, E1 units 0.42, E1 random directions 0.66 (references: the essay's medium last block 0.077,
+  InceptionV1 mixed5b 0.69). By classes, E1's random directions are the most mixed set, while raters and the description
+  test find them more coherent than E1's units: they cut across classes along visual properties (a white body on grass is
+  egrets, hens and poodles). At 64 units for 1,000 classes the essay's tiny units also span several class groups (0.34)
+  and are still read as one job, which is the essay's "coarser, not mixed". The two kinds of measure answer different
+  questions (class purity against visual coherence), and only the second separates the essay's tiny model from E1.
 
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
