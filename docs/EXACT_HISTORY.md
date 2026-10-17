@@ -184,8 +184,13 @@ set, so the crossover's "common" condition was not common); the same images spli
 controls (10 smooth-noise images labelled to a dropped class) as a positive control that must show a packing
 signature; size-matched nulls throughout.
 
-Status: A0 and C0 running on one sandbox and B0 on the other since 18:43; go/no-go at step 12,500 (level-100 classes
-must be learnable); seed-1 runs after that.
+Status (2026-10-17): seed 0 done (A0, B0, C0; both rare runs passed the go/no-go). Results in
+`NEURON_DEVELOPMENT.md` ("Rare classes, seed 0"): no primary is validated (the noise control did not fit, the relabel
+control does not exceed its floor); P1's median PI of -1 reflects the sign of F where F is extreme, because O is
+about 70 times smaller than F by construction, and the same holds for common classes; the rare classes are not
+memorized as predictions (top-1 0). The suspected bugs and protocol issues are listed in
+`docs/data/rare/seed0/bugs_and_questions.md`; an amendment for seed 1 is to be fixed before any seed-1 measure is read.
+Seed-1 runs follow T90 on the same sandbox.
 
 ### 4.4 Where memorization sits (one training run with injected items; planned)
 

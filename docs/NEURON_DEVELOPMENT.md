@@ -980,6 +980,377 @@ without changing the growth statistics of the other blocks. Whether the crushed 
 relatedness, which the essay expects) or unrelated ones is the question of the rare-class experiment
 (`docs/EXACT_HISTORY.md` Sec. 4.3).
 
+### Rare classes, seed 0: own routes, related carriers and an uninformative noise control (2026-10-17)
+
+Question. The essay says that a rare class does not get packed into unrelated units but rides machinery it is related
+to: "A rare fact barely moves the loss, so it can't support a niche of its own. What it can do is ride existing
+machinery as a small route between circuits it's related to [...] Those circuits feed it, and shelter it from unrelated
+gradients. The prediction is testable: the neurons and heads that carry a rare fact should be related to what the fact
+is about, not unrelated ones chosen because they rarely collide" (appendix 'Does Scale Help or Hurt Superposition?').
+It adds that this held "in every experiment we've run" ('Do Weak Activations Matter?') and that "memorization tends to
+want to sit as close to the output as possible" ('Rare Things and Memorization'). The pre-registered protocol (v2,
+`docs/EXACT_HISTORY.md` Sec. 4.3) turns these into four claims: C2a (feeding), C2b (carriers), C1 (universality) and
+C4 (location). Three parts of the quotes are not tested here. "Shelter" would be measured by S4, which was not run. The
+essay's heads are out of scope. And C4 borrows the phrase "nearly all of it in the last three blocks", which the essay
+uses for the umbrella-to-bee relabel in its 7.06M-parameter model, not for rare classes.
+
+Setup. There are three tiny ConvNeXt-SwiGLU runs, all with the E1 recipe (AdamW, 25,020 steps, seed 0, E1's data
+order). Each run tracks the 36 unit maps and the head under a class split and a fine-group split.
+- Runs: A0 makes set A rare, B0 makes set B rare, and C0 keeps every class common.
+- Classes: each set has 64 selected classes, 32 dense and 32 isolated. Per stratum, 4 classes get 0 training images, 14
+  get 10 and 14 get 100. Each set also has 4 relabel and 4 noise controls.
+- Conditions: a class is rare in its own set's run and common in C0 and in the other set's run.
+- Primary sample: the 112 selected classes at levels 10 and 100, each measured in its rare run at step 25,020.
+- Code: `experiments/convnext_rare.py` (subcommand `measure`, and `compare` for the statistics),
+  `experiments/rare_common.py` and `experiments/rare_gonogo.py`.
+
+Four review lenses (primaries, secondaries, controls, the essay) recomputed the numbers from the per-class files, and a
+skeptic checked each claim. Below are only the claims that held, or their corrections. Seed 1 (A1, B1, C1) has not been
+run. The floors that need E1 and E1r were not passed to `compare`. So nothing here is replicated.
+
+Symbols. Everything is at step 25,020, on V_c, the class's 50 validation images.
+- Group sets:
+  - Near10(c): the 10 nearest classes to c by DINOv2 class-mean distance. All ten are common in every run.
+  - Own_m(c): c's own m training images, m = 10 or 100.
+  - N_own(c): Own_m of the 13 other classes with the same set, level and stratum. They are rare in the same run and
+    unrelated to c.
+  - Matched random10: 10 classes matched to Near10 on image count and part norm, with 1,000 draws.
+- K(c): c's 8 carrier units, the units with the largest specific mean-ablation effect on zeta_c, c's centered logit.
+  They are chosen without attribution. sigma_n: unit n's response scale (std over classes of its class-mean response).
+- L_S(n): the exact local knockout of group set S in unit n. It is the drop in the oriented response u = SiLU(g) v
+  when S's summed parts are removed from both the gate g and the value v, at fixed block inputs, divided by sigma_n.
+- F(c): median over n in K(c) of L_Near10(n) minus the median L over matched random10 draws, in sigma_n units.
+  F > 0 means relatives build c's carriers; F < 0 means they hold c's carriers down. F_pct is F's percentile among
+  the 1,000 draws.
+- O(c): the same for Own_m against N_own. O > 0 means c's own images build its carriers.
+- PI(c) = (F - O) / (|F| + |O|), between -1 and 1. PI > 0 means relatives write more of the route than c's own images.
+  PI is 'defined' when |F| + |O| is above the 95th percentile of the same sum with Near10 replaced by a random10 draw
+  and Own_m by an N_own group. Otherwise the class has 'no route'.
+- Packing signature: O above the 99th percentile of its N_own null and F at or below its null median. A
+  pseudo-signature is the same test with Own_m replaced by an N_own class.
+- lambda_3(c): the stage-3 share of the own effect.
+  - X^s is the drop in mean zeta_c when Own_m's parts are excised exactly from the unit maps of stage s, minus the
+    N_own median.
+  - lambda_3 = X^3+ / sum_s X^s+, where X+ = max(0, X).
+  - Stage 3 is the last 3 of 18 blocks, 192 of 1,152 units. The head is reported separately (head_share).
+- R_own(c): the relatedness of units, averaged with own-write weights.
+  - rel(n, c) is the fraction of unit n's 20 strongest classes that lie in Near10(c); chance is 0.010.
+  - w_n is the first-order effect of Own_m's parts in unit n on zeta_c, minus the N_own median, floored at 0.
+  - R_own = sum_n w_n rel / sum_n w_n.
+- R_flow: the same average weighted by c's own gradient flow over training. It shows where plain gradient flow would
+  put c's writes.
+- R_mis: R_own computed with the Near10 sets of 20 unrelated selected classes. It shows the relatedness expected by
+  chance.
+- Delta_flow = R_own - R_flow. The protocol's tolerance is delta = 0.2 x median(R_flow - R_mis).
+- auroc_far: the AUROC of zeta_c on V_c against probe images of far classes (visual rank > 200 and WordNet distance
+  > 6). auroc_near is the same against the Near10 classes.
+- D0: the same-seed floor for rare - C0 contrasts, defined as the other set's run minus C0 (c is common in both).
+
+**Learning.** Validation top-1 on 50,000 images is 17.85% for A0, 18.12% for B0 and 18.44% for C0 (E1: 18.52%). Both
+rare runs passed the pre-registered go/no-go at step 12,500:
+- the median auroc_far of the level-100 rare classes was 0.947 in A0 and 0.943 in B0 (n=28 each);
+- E_Own_m was above its N_own 95th percentile in 28 of 28 classes.
+
+At step 25,020 the rare classes are told apart from far classes but are almost never predicted. The table splits by
+level, which is post hoc. The pooled retention, a pre-registered secondary, is rare - C0 auroc_far -0.044
+[-0.069, -0.033] (n=112), well beyond its floor (Wilcoxon z = -9.16).
+
+| level (n=56 each) | auroc_far, rare / C0 | rare - C0, paired median [95% CI] | D0 | top-1 on V_c, rare / C0 (medians) |
+|---|---|---|---|---|
+| 10 | 0.828 / 0.972 | -0.126 [-0.178, -0.100] | +0.002 | 0 / 0.10 |
+| 100 | 0.953 / 0.973 | -0.014 [-0.021, -0.011] | +0.0004 | 0 / 0.16 |
+
+- Median top-5 is 0 for the rare classes at both levels.
+- No level-10 class gets a single top-1 hit; the maximum at level 100 is 0.30.
+- fit_T is the top-1 rate of the training label on centre crops of the class's own training images. At step 12,500
+  it was 0 in every rare cell. It is not computed at 25,020.
+
+So these runs test classes that are learned as directions but not memorized as predictions.
+
+**Primaries (pre-registered; seed 0 only).**
+
+| primary | statistic | n | median [95% CI] | p (Holm) | essay predicts | packing predicts |
+|---|---|---|---|---|---|---|
+| P1, feeding (C2a) | PI, defined classes only | 23 of 112 (89 no route) | -0.99987 [-1.0, -0.99945] | < 1e-4 (< 1e-4) | PI > 0, F > 0, O smaller than F | PI < 0, F about 0 |
+| P2, depth (C4) | lambda_3(rare) - lambda_3(C0, whole class, exact) | 110 | -0.032 [-0.053, +0.005] | 0.107 (0.107) | > 0, with lambda_3(rare) > 0.5 | <= 0 |
+| P3, carriers (C2b) | Delta_flow | 106 (6 excluded) | +0.0043 [+0.0036, +0.0051] | < 1e-4 (< 1e-4) | >= -delta (delta = 8.6e-5), R_own > R_mis | < 0 |
+| C1, universality | signatures against pseudo-signatures | 112 | 18 against 1 | 1.5e-12 (binomial) | no excess | excess |
+
+The compare stage's decision:
+- support for the essay: none;
+- counts against it: none;
+- pending seed 1: two candidates, "median PI < 0" and "excess of packing signatures";
+- controls_pass: false, with the note "positive controls failed: primaries are unvalidated".
+
+All 23 defined PIs are negative, so the bootstrap cannot produce any other result for P1. Recomputing from the three
+measure files in the compare stage's class order (A0's rare records, then B0's) reproduces every number in the compare
+file bit for bit, intervals and p values included. A different class order moves the bootstrap intervals and p values
+of the contrasts slightly: rare - C0 PI gives p = 0.954 against 0.935.
+
+**P1: the negative median PI is the sign of F in the large-F tail, and it is not about rarity.**
+- PI is close to the sign of F because the two terms differ in scale: Near10 is ten whole common classes, while Own_m
+  is 10 or 100 images.
+  - Over the 112 classes, |O| < |F| in 109. The median |O|/|F| is 0.015: 0.0046 at level 10 and 0.068 at level 100.
+  - sign(PI) = sign(F) in 110 of 112.
+  - Even c's whole class in C0 gives an O_whole (median 1.99, n=112) below |F| in 74 of 112.
+  - So the essay's condition |O| < |F| is close to guaranteed by the measure and tells us little.
+- In all 23 defined classes, F is large and negative and O is small.
+  - F runs from -157.2 to -10.9 (median -25.9); F_pct is at most 0.039 (median 0.004).
+  - |O| is at most 0.49 (median 0.027), and |O|/|F| at most 0.034.
+  - With O set to 0, all 23 stay defined at PI = -1. For the 9 classes with F <= 0 <= O, PI is exactly -1 whatever O
+    is. In the other 14, O raises PI by at most 0.016.
+  - So the median of -0.99987 means this: where F is extreme, removing the relatives' parts raises c's carrier
+    response more than removing random classes' parts does. It says nothing about own writes. It fits neither
+    prediction: the essay predicts F > 0, and packing predicts F about 0.
+- In these data, 'defined' works as a one-sided test.
+  - The rule treats both signs of F alike. Yet in the primary sample the 23 defined classes are exactly the 23 with
+    F_pct <= 0.05.
+  - None of the 13 classes with F_pct >= 0.95 is defined; their F is 0.28 to 0.91 of the threshold. For example, class
+    877 has F = +20.0, above all 1,000 draws, against a threshold of 27.4.
+  - The likely cause is a left-skewed F null: the null median is below 0 in 104 of 112 classes (median -0.37). The
+    draws are not saved, so this is inferred.
+  - Positive F can pass where the threshold is low: class 911 in the other-set run (F = +11.4, threshold 9.2) and noise
+    class 366 (F = +13.0, threshold 7.2).
+- The excess of negative extremes is in the data; it is not an artefact.
+  - 23 classes lie in the bottom 5% of their null against 5.6 expected (binomial p = 7e-9); 13 lie in the top 5%
+    (p = 0.004).
+  - Post hoc symmetric gates keep the median negative but less certain:
+    - F_pct <= 0.025 or >= 0.975: n=26, 19 negative, median -0.999 [-1, -0.988], p = 0.008;
+    - 5% and 95%: n=36, median -0.997 [-1.0, +0.71], p = 0.06.
+  - Over all 112 classes with no gate, the median raw PI is -0.970 [-0.996, +0.220] (p = 0.14). Counting 'no route'
+    as 0 gives a median of 0.0.
+  - The protocol's statistic is "median PI over the 112 rare classes", and it does not say how 'no route' enters.
+    Dropping those classes (`convnext_rare.py:1276`) is the code's choice, and it is what makes P1 significant.
+- 'No route' means F sits inside its null; it does not mean the carriers are weak.
+  - All 112 classes have 8 carriers with a positive specific effect (minimum 0.039 centered logits).
+  - The mean carrier effect is 0.180 in defined classes and 0.157 in undefined ones (Mann-Whitney p = 0.15, n = 23 and
+    89).
+  - In undefined classes, |F| + |O| is a median 3.60 against a threshold of 15.0, and F_pct has median 0.63.
+  - Definedness is set mostly by |F| (25.9 against 3.38, AUROC 0.94), only modestly by the threshold (10.5 against
+    15.0, AUROC 0.68), and not by how well the class is learned (auroc_far 0.885 against 0.930, p = 0.62).
+- The same pattern holds where the classes are common.
+  - C0: 24 of 112 defined, all with F < 0, median PI -0.998.
+  - Other-set run: 26 defined, 25 with F < 0, median -0.997.
+  - Classes defined with negative PI, rare against C0: 18 against 19 discordant (McNemar p = 1).
+  - The pre-registered secondary PI(rare) - PI(C0) has median -0.00016 [-0.0166, +0.0003], p = 0.935, n=112. For F it
+    is -0.46 [-2.79, +2.28]; for O, -0.001 (p = 0.94).
+  - That secondary's floor test (rare against the other-set run, Wilcoxon, n=103) gives z = -2.14, p = 0.033,
+    uncorrected. The differences it tests cluster at -2, 0 and +2.
+  - Definedness is not a stable property of a class. The rare and C0 defined sets share 5 classes (4.9 expected by
+    chance), and per-class F does not carry over between runs (Spearman -0.006, rare against C0).
+- The single-pathway and linear versions point the other way over all 112 classes. The protocol reports them next to
+  P1; reading them as tests is post hoc.
+
+  | version | rare, median [95% CI] | C0 |
+  |---|---|---|
+  | gate-only F | +1.61 [0.91, 2.30] | +1.73 |
+  | value-only F | +6.06 [2.24, 9.71] | +5.51 |
+  | linear, F_lin_pct - 0.5 | +0.298 [0.19, 0.38] | +0.176 |
+  | joint F | -0.71 [-2.84, +0.51] | -0.38 |
+
+  - The protocol's "Near10 opens the gate on c's images more than own does" holds over the 112 (F_gate - O_gate +1.43
+    [0.83, 2.25]). It holds just as much in C0 (+1.43), and set size favours it.
+  - These versions do not explain P1. Among the 23 defined classes, the median gate-only F is -1.81, the median
+    value-only F -5.83 and the median F_lin_pct 0.49.
+  - 13 of the 23 have both single pathways negative, and only 6 have both positive. Dropping those 6 leaves the median
+    PI at -0.9995 (n=17).
+  - In the 13 with both pathways negative, the median F_gate + F_value is -21.4 and the median joint F is -35.9. The
+    joint knockout deepens a negative sum; it does not flip a sign. A SwiGLU double-negative artefact therefore does
+    not account for P1.
+
+**Universality (C1).** By the pre-registered test, 18 of 112 classes carry a packing signature against 1 with a
+pseudo-signature (one-sided binomial p = 1.46e-12). Three caveats make this weak evidence of packing that is specific
+to rare classes.
+- The test treats the pseudo rate (1 + 1) / (112 + 2) as known (`convnext_rare.py:1347`). An exact paired McNemar test
+  on the same classes (18 against 1 discordant, none with both) gives one-sided p = 3.8e-5.
+- The O criterion is looser than it reads.
+  - The interpolated 99th percentile of 13 null values is effectively their maximum. So the criterion means "O above
+    all 13 N_own classes", which happens by chance about 1 time in 14, not 1 in 100.
+  - 48 of 112 classes meet it, 42 of them 'no route'.
+  - The pseudo-own is not exchangeable with Own_m: carriers are chosen on c's own validation images, and Own_m are
+    images of c.
+  - The pseudo-own is the lowest-index N_own class of its cell, so only 16 distinct pseudo groups serve the 112
+    classes.
+- The excess also appears where the classes are common.
+  - C0: 11 signatures against 5 pseudo-signatures (p = 0.034).
+  - Other-set run: 11 against 2 (p = 0.0002).
+  - Rare against C0 on the same classes: 18 against 11 (McNemar p = 0.21, post hoc).
+  - A likely reading is that own images carry their own label on c's carriers, which an N_own null cannot match.
+
+**P2: the pre-registered reference shows no deepening, and the sign depends on the reference.**
+- The pre-registered result is -0.032 [-0.053, +0.005], p = 0.107, n=110 (2 classes undefined).
+  - The median lambda_3(rare) is 0.426 (bootstrap 95% CI [0.406, 0.445], post hoc), and 28 of 110 classes (25%) are
+    above 0.5.
+  - So within the unit maps, the essay's "nearly all of it in the last three blocks" (lambda_3 > 0.5) fails, mostly
+    at level 100: 0.395 there, with 3 of 56 above 0.5, against 0.484 at level 10, with 25 of 54.
+  - Median stage shares for stages 0 to 3 are 0.036, 0.024, 0.497 and 0.426.
+  - Depth still matters: stage 3's share is above its unit fraction (1/6) in 110 of 110 classes, and stages 2 and 3
+    together hold 0.93.
+- The head holds most of the rare own effect: the median head_share is 0.912 (n=110), against 0.563 for the same
+  images in C0 (n=112).
+  - The protocol makes the head secondary because AdamW enlarges a rare head row's steps. The rare/C0 ratio of the
+    head row's effective step has median 6.1: 11.2 at level 10 and 3.4 at level 100.
+  - That ratio tracks the head share across classes (Spearman 0.76, n=110).
+  - These runs cannot tell "memorization sits at the output" apart from AdamW's per-row normalization. The optional
+    Muon arm can.
+- The choice of reference decides the sign.
+  - The pre-registered sensitivity check, with C0's Own_m (the same images) as reference, gives +0.062
+    [+0.037, +0.077], n=112.
+  - In C0, Own_m and the whole class have the same profile to first order: lambda_3 is 0.353 for both, r = 0.985.
+    Exact Own_m excision agrees (0.365).
+  - Only exact excision of the whole common class moves lambda_3 up, to 0.450: exact minus first order is +0.090
+    [0.078, 0.113].
+  - That excision is far from linear. Its exact over first-order stage effects are 1.31, 1.34, 0.18 and 0.35 for
+    stages 0 to 3. This breaks the protocol's assumption that "shares do not depend on scale", in the large-excision
+    regime its Risk 2 warns about.
+  - The protocol says to compute the whole-class reference "both by exact excision and to first order", but `compare`
+    computes only the exact one (`convnext_rare.py:1281`). With the first-order reference, P2 is +0.069
+    [+0.045, +0.082], n=110 (computed post hoc). That nearly matches the Own_m contrast, as it must, given the
+    first-order identity above.
+- The positive contrast is a level-10 effect (a post hoc split).
+  - Rare - C0 on Own_m: +0.135 [0.083, 0.151] at level 10, with 48 of 56 positive, beyond the floor (Wilcoxon of
+    D - D0, z = +5.16, p = 2.5e-7).
+  - At level 100 it is +0.006 [-0.009, +0.037] (z = -0.95, p = 0.34).
+  - The floor D0 is itself positive: +0.027 [0.005, 0.036], n=112.
+  - The exact P2's negative median comes from level 100, -0.067 [-0.090, -0.038] (n=56), and that does not exceed its
+    own floor (p = 0.34).
+- At level 10, part of the gain comes from the null (post hoc).
+  - In the rare run, excising another rare level-10 class's Own_m from stage 3 lowers zeta_c by a median 0.30
+    (quartiles 0.26 to 0.34, positive for all 56 classes). In C0 the figure is -0.004.
+  - Raw stage shares would give lambda_3 = 0.583 against 0.346 in C0. But the raw stage-3 gain is matched by the
+    stage-3 null gain (+0.309 against +0.310).
+  - The null-subtracted gain of +0.135 comes from stage 2. Its null rises by 0.127 while its raw own effect falls by
+    only 0.039.
+  - Why unrelated rare classes' images lower c's logit through stage 3 is an open question.
+- The P2 floor statistic reduces to lambda_3(rare) - lambda_3(other-set run), whatever the reference.
+  - It gives z = +3.61, p = 3.1e-4, n=110, which points the opposite way from P2's negative median.
+  - The decision code checks only its p value (`convnext_rare.py:1433`). Had P2 been Holm-significant, a negative P2
+    would have passed a floor that contradicts it.
+
+**P3: own writes sit in slightly related units, as they do for common classes.**
+- Medians over n=112:
+  - R_own is 0.0143, R_flow 0.0098 and R_mis 0.0093, against a chance level of 0.010.
+  - Delta_flow is +0.0043 [0.0036, 0.0051] (n=106), and R_own - R_mis is +0.0046 [0.0033, 0.0069].
+  - R_flow is close to R_mis (+0.00043), so delta is 8.6e-5 and the tolerance reduces to Delta_flow >= 0.
+  - P3 meets the essay's condition. In absolute terms the effect is small: own-weighted relatedness is about 1.4 times
+    chance.
+- The result does not depend on rarity.
+  - C0 gives the same Delta_flow (+0.0039, n=112).
+  - Rare - C0 R_own is +0.0005 [-0.0004, +0.0017], p = 0.30 (floor p = 0.22).
+- Own weight is not enriched in quiet units.
+  - q_n is the unit's AdamW effective step (mean 1/(sqrt(v_hat) + eps) over its rows).
+  - The pre-registered covariate Spearman(w_n / f_n, q_n) has a median of -0.15 and is negative in 111 of 112 classes.
+  - So the packing prediction fails. Own writes, relative to flow, lean towards busy units.
+
+**Secondaries.**
+- S1 (builders beyond pole membership): the intercept at RPp = 0.5 is 0.606 [0.550, 0.661] on K(c), n=112. The protocol
+  also lists an own-effect-weighted version, which `compare` omits; it is at chance (RBpx_w median 0.470, C0 0.485).
+- S2 (memorization per image, level 10): the only nominal effect is stage 2, +0.047 [0.020, 0.084], p = 0.007, n=56. It
+  equals its same-seed floor (D0 +0.055; rare against the other-set run, Wilcoxon p = 0.84). `compare` reports S2
+  without the floor.
+- S3 (own share): rare - C0 is 0.0000, p = 0.79 (floor p = 0.49).
+- S5 (rare against the other-set run, where c is common): PI -0.015 [-0.051, 0], lambda_3 +0.047 [0.016, 0.064],
+  auroc_far -0.046 [-0.069, -0.035].
+- S6 (retention, post hoc by level): auroc_near loses -0.112 at level 10 and -0.031 at level 100 (paired medians),
+  against -0.126 and -0.014 for auroc_far. The essay's secondary prediction (near retention below far retention) holds
+  at level 100 only.
+
+**Controls.**
+- Noise, fit check. fit_T is [1, 0, 0, 0, 0, 0, 1, 0] (median 0), and top-5 is 1.0 for all 8.
+  - Protocol Sec. 4 says such a control is "reported as uninformative".
+  - `compare` computes informative = false but never reads it (`convnext_rare.py:1459`). It writes "positive controls
+    failed: primaries are unvalidated".
+  - Read literally, the protocol contradicts itself here. Sec. 7's failure condition ("noise PI not below the real
+    classes'") is also met: the noise median PI is +0.993 (n=8) against -0.970 (n=112). On defined classes only it is
+    -0.9994 (n=3) against -0.99987 (n=23).
+  - Neither section exempts an uninformative control. Either way, the primaries are not validated.
+- Noise, design. As built, this control cannot test memorization.
+  - Every noise PI is close to +1 or -1 (8 of 8 have |PI| >= 0.987) and equals sign(F).
+  - So the comparison passes when 5 or more of the 8 noise classes have F < 0. If noise F is symmetric about 0, which
+    is what the essay expects, that has probability 0.36. O never enters.
+- Noise, the two fitted classes are no evidence of memorization per image.
+  - In each run one noise label wins top-1 on its 10 images (122 in A0, 617 in B0), and the other three get 0.
+  - The 4 noise labels of a run share one carrier route: all 8 carriers in common for every A0 pair, 6 to 8 in B0.
+    When the same labels are common, they share 0 to 2.
+  - Net of the other noise classes, their own effects are near 0 in the unit maps and large in the head (X_head 26.7
+    to 34.0, head_share >= 0.97). So the labels are told apart only in the head.
+  - Both fitted classes are 'no route': |F| + |O| is 0.81 against a threshold of 9.31, and 6.12 against 9.19.
+  - For a noise class, N_own is the other 3 noise classes, so its O null has only 3 values.
+  - Per-image logits are not saved, so we cannot tell whether the winning label also takes the other labels' images.
+- Relabel. The statistic is F with the source class's Near10 minus F with the label's Near10.
+  - Median +7.84, 6 of 8 positive (n=8). That passes the code's median rule; the protocol gives no aggregator.
+  - It is weak: sign test p = 0.145, and the bootstrap interval of the median is [-0.43, 42.99].
+  - No relabel class fit its label: top-1 and top-5 are 0 on the source class's validation images, and fit_T was 0 of
+    10 at step 12,500.
+  - All 8 still learned from it: auroc_far is a median 0.764 against 0.529 in C0, higher in 8 of 8.
+  - The same statistic where nothing is relabelled has median +0.86 in C0 and +4.33 in the other-set run (up to
+    48.5).
+  - Rare - C0 is positive in 7 of 8, but no larger than the run-to-run spread (median |other - C0| 13.9 against
+    |rare - C0| 16.5). So the control does not separate from its floor.
+- Calibration. C0's whole own class gives O_whole with median 1.99 (n=112), against a rare O of 0.039.
+  - The protocol gives no pass criterion.
+  - Against what PI needs, it fails: |O_whole| is below C0's definedness threshold (median 14.9) in 112 of 112 classes.
+  - So a real own-built niche would not count as 'defined' under P1's rule.
+
+**Bearing on the essay.**
+- C2a (feeding): neither supported nor refuted.
+  - P1's median PI of -1 is the sign of F among classes with an extreme F. It is the same in common classes, and it is
+    unvalidated.
+  - It does not fit the packing account either, which predicts F about 0 and a large O.
+  - Over all classes the single-pathway and linear versions lean towards feeding, but they are reported, not tested.
+- C2b (carriers): consistent with the essay, though not specific to rare classes.
+  - Own writes sit in units related to c a little more than gradient flow or chance would put them (R_own 0.0143
+    against R_flow 0.0098 and chance 0.010), and not in quiet units.
+  - The same holds for common classes, so it says nothing particular about rare facts.
+- C4 (location): within the unit maps, the rare own effect is not "nearly all in the last three blocks" (lambda_3
+  0.426). Whether it sits deeper than for common classes depends on the reference. The head holds 91% of it, which
+  fits "as close to the output as possible", but that is confounded with AdamW's larger steps for a rare head row.
+- C1 (universality): the pre-registered test gives an excess of signatures at p about 1e-12. But the excess also
+  appears for common classes and rests on a null that is not exchangeable with own. So it is not evidence of packing
+  specific to rare classes.
+- This tiny model does not memorize rare classes as predictions (top-1 0, fit_T 0). The runs test where the own writes
+  of a weakly learned rare class go, not memorization in the essay's sense.
+
+**Limits.**
+- Seed 0 only.
+- No primary is validated: the noise control is uninformative, and the relabel control does not exceed its floor.
+- Floors: the instrumentation floor (C0 - E1) and the seed floors were not computed, because E1 and E1r were not
+  passed to `compare`. P1's floor_ok is hard-coded to true.
+- Not in the outputs:
+  - steps 12,500 (P1, P3, S1 to S3) and 5,000 (P2);
+  - S4 (shelter and churn) and S7 (consolidation);
+  - the relative and random decoys.
+- Two readings are inferred, not observed: the left skew of the F null and the joint-knockout mechanism. The F null
+  draws and the per-unit g, v, G and V at p* are not saved.
+- Most of the readings beyond the primaries, universality and the pre-registered secondaries are post hoc and
+  uncorrected: the level splits, the symmetric gates, the first-order reference, the null decomposition and the
+  per-class readings of the controls.
+
+**What seed 1 must show.** Pre-registered: a primary counts only if seed 1 gives the same sign at one-sided p < 0.05,
+after Holm correction and, for P2, beyond the same-seed floor. The further conditions below are not pre-registered.
+Seed 0 shows they are needed before a replication means what the protocol intends.
+- P1: a median PI < 0 at seed 1 would meet the decision rule, but it would only be about rarity if PI(rare) - PI(C1)
+  (or PI(C0)) is also negative beyond the same-seed floor. Report alongside it:
+  - the F_pct tail counts and the symmetric-gate medians;
+  - the median over all 112 classes and the median with 'no route' counted as 0;
+  - the gate-only, value-only and linear versions on the defined set.
+- Universality: the excess over the pseudo-own must also exceed the common-condition excess on the same classes (rare
+  against C1, paired), tested with McNemar.
+- P2:
+  - Report the first-order whole-class reference and the Own_m reference next to the exact one. A count against the
+    essay should need all three to be negative.
+  - Support needs lambda_3(rare) > 0.5, which seed 0 is far from (0.426).
+  - The level-10 deepening (+0.135, beyond the floor) should replicate, and the stage-3 null shift (0.30) needs an
+    explanation.
+- P3: Delta_flow >= -delta should replicate. Rare - C1 R_own decides whether the effect has anything to do with rarity.
+- Controls:
+  - An informative noise control needs top-1 on at least 50% of its training images, which this recipe did not reach
+    (2 of 8 classes at 25,020). Without it the primaries stay unvalidated, so the noise dose or design must change.
+  - The relabel control should be scored against C1 and the same-seed floor.
+
+Data: `docs/data/rare/seed0/` (compare output, per-class measures, go/no-go, logs) and the list of suspected bugs and
+protocol deviations, `docs/data/rare/seed0/bugs_and_questions.md`.
+
 ### Blind audit of the essay's own last-layer neurons (pilot, Haiku raters, 2026-10-17)
 
 The essay puts the share of easily interpretable last-layer neurons at about 50% for InceptionV1 mixed5b "with better
