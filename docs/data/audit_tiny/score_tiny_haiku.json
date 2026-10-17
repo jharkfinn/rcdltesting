@@ -1,0 +1,106 @@
+{
+ "e1:random_direction": {
+  "ratings": 64,
+  "pos_interpretable": 0.953125,
+  "pos_interpretable_ci95": [
+   0.8710013921145747,
+   0.9839312745678148
+  ],
+  "pos_non_arbitrary": 0.953125,
+  "pos_non_arbitrary_ci95": [
+   0.8710013921145747,
+   0.9839312745678148
+  ],
+  "pos_categories": {
+   "not_understood": 3,
+   "one_job": 13,
+   "one_job_related_offshoots": 48
+  },
+  "neg_categories": {
+   "none_or_weak": 10,
+   "not_understood": 2,
+   "one_job": 33,
+   "one_job_related_offshoots": 17,
+   "several_unrelated": 1,
+   "two_related_jobs": 1
+  },
+  "test_hits_mean": 5.828125,
+  "test_hits_by_category": {
+   "not_understood": 4.333333333333333,
+   "one_job": 6.769230769230769,
+   "one_job_related_offshoots": 5.666666666666667
+  },
+  "rater_agreement": 0.96875,
+  "cohen_kappa": 0.6521739130434783
+ },
+ "e1:unit": {
+  "ratings": 128,
+  "pos_interpretable": 0.59375,
+  "pos_interpretable_ci95": [
+   0.5071382471838718,
+   0.674898378585233
+  ],
+  "pos_non_arbitrary": 0.59375,
+  "pos_non_arbitrary_ci95": [
+   0.5071382471838718,
+   0.674898378585233
+  ],
+  "pos_categories": {
+   "not_understood": 52,
+   "one_job": 17,
+   "one_job_related_offshoots": 59
+  },
+  "neg_categories": {
+   "none_or_weak": 27,
+   "not_understood": 4,
+   "one_job": 47,
+   "one_job_related_offshoots": 38,
+   "several_unrelated": 10,
+   "two_related_jobs": 2
+  },
+  "test_hits_mean": 5.3515625,
+  "test_hits_by_category": {
+   "not_understood": 4.961538461538462,
+   "one_job": 6.176470588235294,
+   "one_job_related_offshoots": 5.4576271186440675
+  },
+  "rater_agreement": 0.8125,
+  "cohen_kappa": 0.6129032258064516
+ },
+ "tiny": {
+  "ratings": 128,
+  "pos_interpretable": 0.90625,
+  "pos_interpretable_ci95": [
+   0.8432686438028733,
+   0.945556734529914
+  ],
+  "pos_non_arbitrary": 0.9140625,
+  "pos_non_arbitrary_ci95": [
+   0.852657726143762,
+   0.9513373710031172
+  ],
+  "pos_categories": {
+   "not_understood": 11,
+   "one_job": 22,
+   "one_job_related_offshoots": 94,
+   "two_related_jobs": 1
+  },
+  "neg_categories": {
+   "none_or_weak": 3,
+   "not_understood": 2,
+   "one_job": 92,
+   "one_job_related_offshoots": 26,
+   "several_unrelated": 4,
+   "two_related_jobs": 1
+  },
+  "test_hits_mean": 6.828125,
+  "test_hits_by_category": {
+   "not_understood": 6.090909090909091,
+   "one_job": 7.2727272727272725,
+   "one_job_related_offshoots": 6.808510638297872,
+   "two_related_jobs": 7.0
+  },
+  "rater_agreement": 0.875,
+  "cohen_kappa": 0.2664756446991404
+ }
+}

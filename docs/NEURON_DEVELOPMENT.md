@@ -887,6 +887,46 @@ well-trained model; the essay's claim that the network is "broadly legible the w
 the blinding); (5) the two microscopes draw crops from different image pools (mixed5b: the first 50,000 training
 images, with negatives from all 1.28M; medium: the 50,000 validation images); (6) 40 neurons per model.
 
+### Blind audit at tiny scale: the essay's 90-epoch tiny model, E1's units and E1's random directions (2026-10-17)
+
+The essay says its ConvNeXt is "broadly legible at every scale" (92k to 28.6M parameters), and that with less room
+neurons become coarser, not mixed. Its tiny microscope is public (91,828 parameters, 90 epochs, top-1 13.8% on the
+microscope page). E1 (10 epochs, our recipe, top-1 18.5%) gives the comparison at the same size, and random directions
+of E1's last block give the control that the essay's models do not allow (their weights are not public).
+`experiments/convnext_microscope.py` renders E1's stage3.block2 in the essay's own sheet format (the same buckets: ranks
+1-16, 5-12, 47-54, 497-504 by each image's maximum of the post-SwiGLU product, and the 4 lowest minima; 192 px crops
+centred on the strongest position, moved inside the image; 96 px cells), for the 64 units and for 32 random dense
+directions over the 64 units (seeded Gaussian, unit norm; response sum_n d_n u_n). The audit protocol is that of the
+pilot above (Haiku raters, two per neuron, blind common layout, held-out description test against distractors from the
+same set). Data in `docs/data/audit_tiny/`.
+
+| | essay tiny, 90 epochs (64 units) | E1 units, 10 epochs (64) | E1 random directions (32) |
+|---|---|---|---|
+| ratings 'one job' (with or without related offshoots) | 116 of 128 (0.91; 0.84 to 0.95) | 76 of 128 (0.59; 0.51 to 0.67) | 61 of 64 (0.95; 0.87 to 0.98) |
+| neurons rated so by both raters | 54 of 64 (0.84) | 32 of 64 (0.50) | 30 of 32 (0.94) |
+| description test, mean correct of 8 (share of neurons at 4 or less) | 6.83 (0.03) | 5.35 (0.20) | 5.83 (0.00) |
+| ratings with the call and 6 or more correct | 105 of 128 | 45 of 128 | 39 of 64 |
+| rater agreement (kappa) | 0.88 (0.27) | 0.81 (0.61) | 0.97 (0.65) |
+
+- The essay's tiny last-layer units are read as one job about as often as its medium ones are in the pilot, and their
+  descriptions find the held-out crops nearly as well (6.83 against 7.45 of 8). At its own checkpoint, the essay's claim
+  that the tiny model is legible holds under this protocol, although that model is the least accurate of the three
+  (13.8% top-1).
+- In E1, units are read as one job less often than random directions over the same units (76 of 128 against 61 of 64
+  ratings; Fisher exact p = 2.5e-8), and their descriptions find fewer held-out crops (5.35 against 5.83). The random
+  directions read as visual properties that cut across classes (white or cream bodies against grass, spindly jointed
+  limbs, saturated green); the units read more often as "dogs and other furry animals" or as nothing. So in E1's last
+  block the unit basis is not privileged, which agrees with the automatic mixed-unit rule (E1 and E7 above) and goes
+  further: the units are less coherent than random directions.
+- The two tiny models differ in training length (90 against 10 epochs) and in an unpublished recipe (the essay's reaches
+  a lower accuracy in nine times the steps, so its regularization or augmentation is probably stronger), and possibly in
+  their widths (Sec. 2: the tiny widths are not determined by the published count). Which of these makes the essay's
+  units clean is not decided here. A run of our recipe for 90 epochs, rated at 10, 30, 60 and 90 epochs, would test the
+  training-length part.
+- Limits: Haiku raters (lenient on InceptionV1 in the pilot); "one job" here includes coherent visual properties, which
+  is why random directions can score high: the rating measures coherence, and the comparison against random directions
+  measures whether the basis is privileged; the essay's models allow only the first.
+
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
 - Pipeline: `experiments/molab_e1.sh <run> [trainer args]` downloads the validation set, packs the training set into RAM
