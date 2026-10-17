@@ -18,7 +18,9 @@ chance is 4 of 8 correct.
 
 Relative activation of a cell = its value / the neuron's strongest value (the top-1 cell), so both scales read alike.
 
-  python3 -m experiments.microscope_audit fetch --n 40 --seed 0 --out AUDIT_DIR
+  python3 -m experiments.microscope_audit fetch --sample medium=40 iv1=40 --seed 0 --out AUDIT_DIR     (the pilot)
+  python3 -m experiments.microscope_audit fetch --sample tiny=all e1:unit=all e1:random_direction=32 \
+      --local e1=results/e1_tiny_adamw/microscope --out AUDIT_DIR2
   python3 -m experiments.microscope_audit compose --out AUDIT_DIR
   python3 -m experiments.microscope_audit collect --out AUDIT_DIR --journal J1.jsonl [J2.jsonl ...] --ratings ratings.json
   python3 -m experiments.microscope_audit score --out AUDIT_DIR --ratings ratings.json
@@ -28,6 +30,7 @@ Downloads go to AUDIT_DIR/raw (untrusted data: images and JSON are only parsed, 
 import argparse
 import json
 import os
+import shutil
 import subprocess
 
 import numpy as np
@@ -39,8 +42,13 @@ MICRO = {
     layer='stage3_block2', sheet='examples/{layer}/{channel:04d}.jpg', data='data/{layer}.json', cell=96),
   'iv1': dict(
     base='https://already-clean.goodfire.com/microscope/inceptionv1',
-    layer='mixed5b', sheet='sheets/{layer}/{channel}.jpg', data='data/{layer}.json', cell=112),
+    layer='mixed5b', sheet='sheets/{layer}/{channel}.jpg', data='data/{layer}.json', cell=112, fmt='iv1'),
+  'tiny': dict(                                                   # the essay's 90-epoch tiny model (91,828 parameters)
+    base='https://already-clean.goodfire.com/thread/microscopes/leaky-relu-curve-basis/'
+         'convnext-capacity-polysemanticity/tiny/investigation/epoch_090/microscope-50k',
+    layer='stage3_block2', sheet='examples/{layer}/{channel:04d}.jpg', data='data/{layer}.json', cell=96),
 }
+LOCAL = dict(layer='stage3_block2', sheet='examples/{layer}/{channel:04d}.jpg', data='data_{layer}.json', cell=96)
 CELL = 128                                   # common cell size (px)
 COLS = 8
 HOLD_TOP = (2, 6, 10, 14)                    # 0-based ranks of the top 16 held out
@@ -58,9 +66,10 @@ def curl(url, path):
   return path
 
 
-def neuron_cells(model, n):
-  """Cells of neuron record n as {bucket: [(label, value, (row, col))]}, in sheet order."""
-  if model == 'medium':
+def neuron_cells(fmt, n):
+  """Cells of neuron record n as {bucket: [(label, value, (row, col))]}, in sheet order. fmt: 'convnext' (the essay's
+  ConvNeXt microscopes and experiments/convnext_microscope.py) or 'iv1'."""
+  if fmt == 'convnext':
     ex = {e['bucketId']: [(c['datasetLabel'], float(c['value'])) for c in e['cells']] for e in n['examples']}
     pos = {'top': [(0, i) for i in range(16)], 'p999': [(1, 8 + i) for i in range(8)],
            'p99': [(2, i) for i in range(8)], 'neg': [(2, 8 + i) for i in range(4)]}
@@ -74,19 +83,43 @@ def neuron_cells(model, n):
   return {k: [(lab, val, rc) for (lab, val), rc in zip(src[k], pos[k])] for k in pos}
 
 
+def source(name, local):
+  """Microscope config of a source: one of MICRO, or a local directory given as --local name=DIR."""
+  if name in local:
+    return dict(LOCAL, local=local[name], fmt='convnext')
+  return dict(MICRO[name], fmt=MICRO[name].get('fmt', 'convnext'))
+
+
 def fetch(a):
+  """--sample entries 'source[:kind]=N|all' (kind: unit or random_direction, for local microscopes), drawn in order with
+  one generator; the default 'medium=40 iv1=40' is the pilot's sample."""
+  local = dict(x.split('=', 1) for x in (a.local or []))
   rng = np.random.default_rng(a.seed)
-  sample = {}
-  for model, m in MICRO.items():
-    data = json.load(open(curl(f"{m['base']}/{m['data'].format(layer=m['layer'])}",
-                               os.path.join(a.out, 'raw', model, f"{m['layer']}.json"))))
-    chans = sorted(int(c) for c in rng.choice(len(data['neurons']), a.n, replace=False))
+  sets, srcs = [], {}
+  for spec in a.sample:
+    name_kind, n = spec.split('=')
+    name, _, kind = name_kind.partition(':')
+    m = srcs.setdefault(name, source(name, local))
+    raw = os.path.join(a.out, 'raw', name)
+    if 'local' in m:
+      data = json.load(open(os.path.join(m['local'], m['data'].format(layer=m['layer']))))
+    else:
+      data = json.load(open(curl(f"{m['base']}/{m['data'].format(layer=m['layer'])}", os.path.join(raw, f"{m['layer']}.json"))))
+    cand = [i for i, nr in enumerate(data['neurons']) if not kind or nr.get('kind', 'unit') == kind]
+    chans = cand if n == 'all' else sorted(int(cand[c]) for c in rng.choice(len(cand), int(n), replace=False))
     for c in chans:
-      curl(f"{m['base']}/{m['sheet'].format(layer=m['layer'], channel=c)}",
-           os.path.join(a.out, 'raw', model, 'sheets', f'{c:04d}.jpg'))
-    sample[model] = chans
-    print(model, len(chans), 'sheets', flush=True)
-  json.dump({'seed': a.seed, 'n': a.n, 'sample': sample}, open(os.path.join(a.out, 'sample.json'), 'w'), indent=1)
+      dst = os.path.join(raw, 'sheets', f'{c:04d}.jpg')
+      if 'local' in m:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if not os.path.exists(dst):
+          shutil.copy(os.path.join(m['local'], m['sheet'].format(layer=m['layer'], channel=c)), dst)
+      else:
+        curl(f"{m['base']}/{m['sheet'].format(layer=m['layer'], channel=c)}", dst)
+    if 'local' in m and not os.path.exists(os.path.join(raw, f"{m['layer']}.json")):
+      shutil.copy(os.path.join(m['local'], m['data'].format(layer=m['layer'])), os.path.join(raw, f"{m['layer']}.json"))
+    sets.append({'key': name_kind, 'source': name, 'channels': chans})
+    print(name_kind, len(chans), 'sheets', flush=True)
+  json.dump({'seed': a.seed, 'sources': srcs, 'sets': sets}, open(os.path.join(a.out, 'sample.json'), 'w'), indent=1)
 
 
 def cut(sheet, cell, rc):
@@ -106,16 +139,20 @@ def compose(a):
   from PIL import Image, ImageDraw, ImageFont
   font = ImageFont.load_default()
   S = json.load(open(os.path.join(a.out, 'sample.json')))
+  if 'sample' in S:                                               # the pilot's sample.json
+    S = {'seed': S['seed'], 'sources': {k: source(k, {}) for k in S['sample']},
+         'sets': [{'key': k, 'source': k, 'channels': v} for k, v in S['sample'].items()]}
   rng = np.random.default_rng(S['seed'] + 1)
   items, key = [], {}
-  strong = {}                                                     # model -> [(channel, cell image)] for distractors
+  strong = {}                                                     # set key -> [(channel, cell image)] for distractors
   recs = {}
-  for model, chans in S['sample'].items():
-    m = MICRO[model]
-    data = json.load(open(os.path.join(a.out, 'raw', model, f"{m['layer']}.json")))
-    for c in chans:
-      cells = neuron_cells(model, data['neurons'][c])
-      sheet = Image.open(os.path.join(a.out, 'raw', model, 'sheets', f'{c:04d}.jpg')).convert('RGB')
+  for st in S['sets']:
+    model, name = st['key'], st['source']
+    m = S['sources'][name]
+    data = json.load(open(os.path.join(a.out, 'raw', name, f"{m['layer']}.json")))
+    for c in st['channels']:
+      cells = neuron_cells(m['fmt'], data['neurons'][c])
+      sheet = Image.open(os.path.join(a.out, 'raw', name, 'sheets', f'{c:04d}.jpg')).convert('RGB')
       imgs = {k: [cut(sheet, m['cell'], rc) for _, _, rc in v] for k, v in cells.items()}
       recs[model, c] = (cells, imgs)
       strong.setdefault(model, []).extend((c, im) for im in imgs['top'] + imgs['p999'])
@@ -191,7 +228,7 @@ def score(a):
   key = json.load(open(os.path.join(a.out, 'key.json')))
   R = json.load(open(a.ratings))                                  # [{item, rater, pos_category, neg_category, picks}]
   out = {}
-  for model in MICRO:
+  for model in sorted({v['model'] for v in key.values()}):
     rows = [r for r in R if key[r['item']]['model'] == model]
     res = {'ratings': len(rows)}
     for name, ok in (('interpretable', INTERP), ('non_arbitrary', NONARB)):
@@ -254,7 +291,9 @@ def main():
   p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
   p.add_argument('cmd', choices=['fetch', 'compose', 'collect', 'score'])
   p.add_argument('--out', required=True, help='audit directory')
-  p.add_argument('--n', type=int, default=40, help='neurons per microscope')
+  p.add_argument('--sample', nargs='+', default=['medium=40', 'iv1=40'],
+                 help="fetch: 'source[:kind]=N|all' entries, e.g. tiny=all e1:unit=all e1:random_direction=32")
+  p.add_argument('--local', nargs='*', default=None, help='fetch: local microscopes as name=DIR (convnext_microscope.py output)')
   p.add_argument('--seed', type=int, default=0)
   p.add_argument('--ratings', default=None, help='collect: output; score: input (JSON list of ratings)')
   p.add_argument('--journal', nargs='+', default=None, help='collect: workflow journal.jsonl files (later ones win)')
