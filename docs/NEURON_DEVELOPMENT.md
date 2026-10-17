@@ -1132,6 +1132,80 @@ Haiku ratings (2 per neuron) for the 40 zoomed items only; the medium ratings ar
   is the 11th of 18 ConvNeXt blocks in the medium model, counting its 3-3-9-3 stages); the window centre comes from
   the heat map for InceptionV1 and from the grid position for ConvNeXt; the zoomed raters agree less (kappa 0.48).
 
+### Positive control for the audit: InceptionV1 units against random directions (2026-10-17)
+
+Question: can the audit (same protocol: Haiku raters, two per item, 'one job' call, held-out description test) tell a
+model's units from random directions in the same layer? If it cannot, a share of 'one job' neurons says nothing about
+whether the units, rather than the space, carry the meaning, and E1's result (random directions 0.95 against units 0.59)
+is in part a property of the method.
+
+Setup (`experiments/inception_microscope.py`; data `docs/data/audit_iv1r/`). One renderer for every item, in the format
+of `convnext_microscope.py`. Let a(x) be the concatenated pre-ReLU outputs of a layer's four branch convolutions (C
+channels, Lucid order). Items per layer: 40 units a_n (mixed5b: the pilot's 40 channels; mixed4c: the mid audit's 40),
+40 pre-ReLU random directions v_k = sum_n d_kn a_n and 40 post-ReLU random directions w_k = sum_n d_kn relu(a_n), with d_k
+a seeded Gaussian vector over the C channels, unit norm, the same d_k for both kinds. Crops: whole 224-px images for
+mixed5b, 144-px windows around the strongest position for mixed4c. 240 items, blind and shuffled together, 480 ratings.
+Check of the renderer: each unit's top 16 images equal the top 16 of E0's independent statistics (16 of 16 for every
+mixed5b unit, 15.98 of 16 on average for mixed4c).
+
+| | units | random, pre-ReLU | random, post-ReLU |
+|---|---|---|---|
+| mixed5b, 'one job' ratings | 46 of 80 (0.57; 0.47 to 0.68) | 54 of 80 (0.68; 0.57 to 0.77) | 45 of 80 (0.56; 0.45 to 0.67) |
+| mixed5b, both raters | 20 of 40 | 25 of 40 | 18 of 40 |
+| mixed5b, description test (mean of 8) | 5.71 | 5.60 | 5.08 |
+| mixed5b, 'one job' and 6 or more correct | 32 of 80 | 34 of 80 | 17 of 80 |
+| mixed4c, 'one job' ratings | 63 of 80 (0.79; 0.69 to 0.86) | 59 of 80 (0.74; 0.63 to 0.82) | 59 of 80 (0.74; 0.63 to 0.82) |
+| mixed4c, both raters | 29 of 40 | 28 of 40 | 29 of 40 |
+| mixed4c, description test | 6.03 | 6.03 | 5.34 |
+| mixed4c, 'one job' and 6 or more correct | 49 of 80 | 46 of 80 | 29 of 80 |
+| kappa (5b; 4c) | 0.69; 0.63 | 0.77; 0.81 | 0.55; 0.94 |
+
+- Units and pre-ReLU random directions score alike in both layers (Fisher exact, units against pre-ReLU directions:
+  'one job' p = 0.25 and 0.58; strict count p = 0.87 and 0.75). The audit does not see a privileged basis here.
+- Post-ReLU random directions get the 'one job' call as often as units, but their descriptions find fewer held-out
+  crops: strict count 17 against 32 (mixed5b, p = 0.016) and 29 against 49 (mixed4c, p = 0.0025). This is the space the
+  next layer reads, and the only place where the units do better.
+- The random directions are not disguised units. The median overlap of a direction's top 16 images with the top 16 of
+  any single unit (all 1,024 or 512 channels, from E0's statistics) is 2 of 16; with any unit's top 50 it is 3 (mixed5b)
+  and 5 (mixed4c). One direction of 40 in mixed5b and 7 (pre) or 8 (post) of 40 in mixed4c share 8 or more of their top
+  16 with one unit's top 50; all of those got the 'one job' call from both raters, the other directions in about two
+  thirds of the ratings (0.67 and 0.55 in mixed5b, 0.68 and 0.67 in mixed4c).
+- Our renderer agrees with the essay's sheets on the units: mixed5b 0.57 here against 0.62 in the pilot (same 40
+  channels); mixed4c 0.79 against 0.74 (whole images) and 0.86 (zoomed).
+
+Reading against earlier work (each paper read in full, quotes and numbers checked by a second reader):
+- Szegedy et al. (ICLR 2014, arXiv 1312.6199, Sec. 3) state that "there is no distinction between individual high level
+  units and random linear combinations of high level units". Their evidence is the authors' visual reading of 4 units
+  and 4 random directions of AlexNet on ImageNet and the same on MNIST, with no count, blinding or score; the layer, the
+  side of the ReLU and the distribution of v are not given. In their printed AlexNet figures, 2 of the 4 random
+  directions each show 2 of the 5 images of one printed unit (pixel-identical tiles). The table above is a blind,
+  quantified version of their test on another model, with a held-out check, and it agrees for pre-ReLU directions.
+- Bau et al. (Network Dissection, CVPR 2017, arXiv 1704.05796, Sec. 3.2, Fig. 4) find the opposite with another metric:
+  a random rotation of the 256 conv5 units of an AlexNet trained on Places205 (the number of draws is not given) cuts
+  the number of unique detectors from 79 to 16. Their statistic counts the distinct labelled concepts (Broden, IoU > 0.04 at each unit's top 0.5% of
+  activations) matched anywhere in the layer, with a fixed vocabulary and pixel masks; ours rates each direction's top
+  tail with an open vocabulary. Both can hold: rotated directions can each have a coherent top tail while matching fewer
+  distinct labelled concepts, or concepts outside the vocabulary.
+- Fong and Vedaldi (Net2Vec, CVPR 2018, arXiv 1801.03454) find that learned combinations of filters match or beat the
+  best single filter on 76 to 92% of concepts for segmentation and 85 to 90% for classification (AlexNet conv1 to conv5);
+  they draw no random directions.
+- Elhage et al. (Toy Models of Superposition, 2022) define a privileged basis (an elementwise nonlinearity makes the
+  coordinates special) and add that "having a privileged basis doesn't guarantee that features will be basis-aligned".
+
+What this means for the essay. The essay's headline numbers (about 50% of InceptionV1 mixed5b and about 99% of the
+medium ConvNeXt's last layer easy to interpret) come from reading dataset examples, as here. Under this protocol a high
+share does not show that the units are clean as units: InceptionV1's random pre-ReLU directions read as well as its
+units, and E1's random directions read better than its units. The share measures how coherent the top tails of a
+layer's directions are. The essay's comparison between models (which our pilot reproduces, 40 of 40 against 50 of 80)
+stays a statement about units, but the step from it to "the neurons are clean" needs a control the essay does not
+report. For the medium model the control needs its weights, which are not served; our own medium runs carry random
+directions in their microscopes.
+
+Limits: Haiku raters only; 40 items per set; the random directions are Gaussian over channels whose scales differ
+(branch outputs differ in size), so a few large channels weigh more; dataset examples only (no feature visualisation);
+the 'one job' call is generous for any direction with a coherent top tail, which is the point tested, and the strict
+count with the held-out test is the sharper measure.
+
 ## 8. Status of E1 and infrastructure notes (2026-10-16)
 
 - Pipeline: `experiments/molab_e1.sh <run> [trainer args]` downloads the validation set, packs the training set into RAM
