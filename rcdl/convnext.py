@@ -34,6 +34,18 @@ SIZES = {   # parameter counts without the classifier, as published (see the mod
   # tiny with a 16-wide residual stream in stage 1 (the stage-1 reversal test: is it a property of the 8-wide stream?);
   # the essay's tiny count does not fix the widths (docs/NEURON_DEVELOPMENT.md, stage-1 section)
   'tiny_s1w16': dict(dims=(8, 16, 24, 28), units=(64, 64, 64, 64), depths=(3, 3, 9, 3)),
+  # medium variants (the crush and the narrow residual stream at the essay's medium size). The crush is the essay's own
+  # 1,024 -> 13 (no residual connection, as tiny_crush13); _skip keeps the residual connection and layer scale (routing
+  # against pressure), crush64 a milder crush. w4 / w8: the residual stream 4x / 8x narrower, units unchanged.
+  # Same seed, different size: no shared initial weights (every module is built before init), only data order and crops
+  'medium_crush13': dict(dims=(48, 96, 192, 384), units=(128, 256, 512, 1024), depths=(3, 3, 9, 3), last_units=13,
+                         last_skip=False),                                                     # 5,890,698
+  'medium_crush13_skip': dict(dims=(48, 96, 192, 384), units=(128, 256, 512, 1024), depths=(3, 3, 9, 3),
+                              last_units=13),                                                  # 5,891,082
+  'medium_crush64': dict(dims=(48, 96, 192, 384), units=(128, 256, 512, 1024), depths=(3, 3, 9, 3), last_units=64,
+                         last_skip=False),                                                     # 5,949,552
+  'medium_w4': dict(dims=(12, 24, 48, 96), units=(128, 256, 512, 1024), depths=(3, 3, 9, 3)),     # 1,705,116
+  'medium_w8': dict(dims=(6, 12, 24, 48), units=(128, 256, 512, 1024), depths=(3, 3, 9, 3)),      # 855,342
 }
 
 

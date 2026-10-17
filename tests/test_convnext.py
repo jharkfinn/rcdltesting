@@ -12,6 +12,21 @@ def test_sizes_match_published_counts():
   assert n_params(build_convnext('large')) == 28_597_960                  # essay: about 28.6M
 
 
+def test_medium_variant_counts():
+  """The medium crush and narrow-stream sizes (without, with the classifier)."""
+  want = {'medium': (7_057_776, 7_442_776), 'medium_crush13': (5_890_698, 6_275_698),
+          'medium_crush13_skip': (5_891_082, 6_276_082), 'medium_crush64': (5_949_552, 6_334_552),
+          'medium_w4': (1_705_116, 1_802_116), 'medium_w8': (855_342, 904_342)}
+  models = {s: build_convnext(s) for s in want}
+  for size, (body, full) in want.items():
+    assert (n_params(models[size], head=False), n_params(models[size])) == (body, full), size
+  last = {s: dict(m.blocks())['stage3.block2'] for s, m in models.items()}
+  assert [last[s].pw_down.in_features for s in want] == [1024, 13, 13, 64, 1024, 1024]
+  assert [last[s].skip for s in want] == [True, False, True, False, True, True]
+  assert last['medium_crush13'].gamma is None and last['medium_crush13_skip'].gamma is not None
+  assert dict(models['medium_crush13'].blocks())['stage3.block1'].pw_down.in_features == 1024
+
+
 def test_forward_and_swiglu_units():
   m = build_convnext('tiny', stem=2)
   x = torch.randn(2, 3, 64, 64)
