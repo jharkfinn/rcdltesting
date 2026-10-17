@@ -796,6 +796,36 @@ while for example 5 / 16 / 22 / 28 and 3 / 14 / 21 / 35 match it within one). Wh
 medium size (widths inferred in Sec. 2 as 48 / 96 / 192 / 384) is untested, as is a regime of higher accuracy (these
 runs reach 18.5 to 19.5% top-1).
 
+**Width test (run `e1w16_tiny_s1w16`, 2026-10-17).** The E1 recipe and seed with stage 1's residual width doubled to 16
+(`--size tiny_s1w16`: widths 8 / 16 / 24 / 28; 99,180 parameters without the classifier; top-1 21.07% against E1's
+18.52%), all maps tracked, analysed with the same scripts (`docs/data/` holds no copy yet; files on the HF results
+dataset under `neuron-dev/e1w16_tiny_s1w16/`).
+
+| | stage 0 block 0 | stage 1 block 0 | stage 1 block 1 | stage 1 block 2 |
+|---|---|---|---|---|
+| exact writes of the top 20, median from step 1,000 (E1) | -0.80 (+0.20) | -0.49 (-0.71) | -0.58 (-0.51) | +0.82 (-0.54) |
+| probe pole effect at 20,000: all / true-class term / LayerNorm at fixed sigma / scale path | -0.68 / -1.06 / -1.24 / +0.56 | -0.41 / -0.62 / -0.45 / +0.03 | -0.47 / -0.80 / -0.98 / +0.51 | +0.61 / +0.93 / +1.32 / -0.71 |
+| ablation at 20,000, CE change of the top 20 / of 20 others | -7.0e-3 / +2.6e-3 | -2.4e-3 / +7.1e-4 | -2.3e-3 / +2.7e-3 | +8.8e-3 / +1.4e-3 |
+| write space at 20,000: effective rank of 16 (8 in stage 0) / share of units with a partner at abs(cos) > 0.9 | | 11.6 / 0.03 | 11.9 / 0.08 | 12.0 / 0.06 |
+| stream along e where the unit is active on its top classes: s_in / s_out / share with the M4 geometry | | -0.28 / +0.01 / 0.58 | -0.30 / -0.02 / 0.55 | +0.01 / +1.00 / 0.05 |
+| readout offset, top 20 minus rest at matched s_out (r-based) | | +0.16 | +0.23 | -0.71 |
+
+- The reversal survives the doubled width in two of the three stage-1 blocks, with E1's signature: it forms between
+  steps 1,000 and 2,000, sits in the true-class term and in the LayerNorm path at fixed sigma, and removing a unit
+  lowers the loss of its own top classes. It also appears in stage 0 block 0 (still 8 wide; E1 +0.20, E1r -0.31).
+- It does not need a collapsed write space: at the late step the reversed blocks have effective rank 11.6 to 11.9 of 16
+  and almost no near-parallel partners. This removes M1 (overshoot by same-direction partners) as a necessary cause.
+- Within this one model, the blocks separate cleanly by the stream state where their units are active on their top
+  classes. In the reversed blocks the incoming component along e is negative and the unit's write cancels it to about 0
+  (55 to 58% of (unit, class) pairs show the M4 geometry), and the rest of the network reads e against the top
+  classes (+0.16, +0.23). In the non-reversed block 2 there is no incoming component, the output is positive, M4 holds
+  for 5% of pairs and the readout favours the top classes (-0.71). This is the M4 picture (a unit's write cancels a
+  component that arrives along its own direction), now without collapse; it is a correlation across three blocks of
+  one model, and the causal test (X4 and a replay that removes the incoming component) is open.
+- Bearing on the essay's clean residual stream: at twice the width, units still write against a component that
+  arrives along their direction on their own top classes and leave it near zero. Whether that is interference being
+  undone or ordinary computation is still not decided here; the essay's medium stage 1 is 96 wide.
+
 Bearing on the essay. (a) Its account of growth gives a unit already on for a class the first claim on that class's
 error (a head start). The late blocks are consistent with it (their top classes push the unit up; E3 did not test the
 essay's milder head start); in stage 1 after about step 2,000 the strongest classes act as a brake and the bulk of the
