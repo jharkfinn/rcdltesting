@@ -1416,9 +1416,7 @@ def cmd_compare(a):
         if r is not None and q is not None:
           D.append(r - q)
           D0.append((o - q) if o is not None else None)
-      if not D:
-        continue
-      pairs = [(x, y) for x, y in zip(D, D0) if y is not None]
+      pairs = [(x, y) for x, y in zip(D, D0) if y is not None]          # every key is written (n = 0: not measured)
       res[f'rare_minus_C0_{name}'] = bootstrap_median(D)
       res[f'rare_minus_C0_{name}']['floor_wilcoxon'] = wilcoxon([x - y for x, y in pairs]) if pairs else None
     # S5 crossover: rare run against the other set's run (where c is common)
@@ -1429,8 +1427,8 @@ def cmd_compare(a):
       res[f'S5_rare_minus_other_{name}'] = bootstrap_median(d)
 
     # S1: builders beyond pole membership, intercept of RBp^x on (RPp - 0.5) over classes, bootstrap interval; on K(c)
-    # and weighted by own effect (RBpx_w on RPp_w, A8)
-    def s1(xk, yk):
+    # and weighted by own effect (RBpx_w on RPp_w, A8). xn, yn: output names (the K version keeps its original keys)
+    def s1(xk, yk, xn, yn):
       pts = [(get(rr[c], f'S1.{xk}'), get(rr[c], f'S1.{yk}')) for c in prim]
       pts = np.array([p for p in pts if None not in p], np.float64).reshape(-1, 2)
       if len(pts) <= 3:
@@ -1441,11 +1439,12 @@ def cmd_compare(a):
       rng = np.random.default_rng(0)
       boot = [icept(pts[rng.integers(len(pts), size=len(pts))]) for _ in range(2000)]
       return {'n': len(pts), 'intercept': icept(pts), 'ci95': np.percentile(boot, [2.5, 97.5]).tolist(),
-              f'median_{yk}': float(np.median(pts[:, 1])), f'median_{xk}': float(np.median(pts[:, 0])),
-              f'median_{yk}_C0': med([get(cc[c], f'S1.{yk}') for c in prim if c in cc
+              f'median_{yn}': float(np.median(pts[:, 1])), f'median_{xn}': float(np.median(pts[:, 0])),
+              f'median_{yn}_C0': med([get(cc[c], f'S1.{yk}') for c in prim if c in cc
                                       and get(cc[c], f'S1.{yk}') is not None])}
-    for key, xk, yk in (('S1_RBpx_at_RPp_half', 'RPp_K', 'RBpx_K'), ('S1_RBpx_w_at_RPp_w_half', 'RPp_w', 'RBpx_w')):
-      r = s1(xk, yk)
+    for key, xk, yk, xn, yn in (('S1_RBpx_at_RPp_half', 'RPp_K', 'RBpx_K', 'RPp', 'RBpx'),
+                                ('S1_RBpx_w_at_RPp_w_half', 'RPp_w', 'RBpx_w', 'RPp_w', 'RBpx_w')):
+      r = s1(xk, yk, xn, yn)
       if r is not None:
         res[key] = r
     # S2: per-image memorization, rare - C0 on the same images, per stage and head, with the floor (A7)
@@ -1493,6 +1492,7 @@ def cmd_compare(a):
     nF = [r['F'] for r in noise if r.get('F') is not None]
     state = noise_state(fit, npi, real)
     res['noise_control'] = {'n': len(noise), 'fit_T': fit, 'informative': bool(fit and np.median(fit) >= 0.5),
+                            'cls': [r['cls'] for r in noise if r.get('top1') is not None],     # the order of fit_T
                             'n_defined': len(npi), 'median_PI': med(npi), 'median_PI_real': med(real),
                             'median_PI_raw': med([r['PI'] for r in noise if r.get('PI') is not None]),
                             'median_PI_real_raw': med([rr[c]['PI'] for c in prim if rr[c].get('PI') is not None]),
@@ -1506,7 +1506,7 @@ def cmd_compare(a):
     diff = [stat(rr[c]) for c in rel]
     D = [(stat(rr[c]) - stat(cc[c]), stat(other[c]) - stat(cc[c]) if c in other and stat(other[c]) is not None
           else None) for c in rel if c in cc and stat(cc[c]) is not None]
-    res['relabel_control'] = {'n': len(diff), 'F_src_minus_F_label': diff,
+    res['relabel_control'] = {'n': len(diff), 'F_src_minus_F_label': diff, 'cls': rel,
                               'passes': bool(diff and np.median(diff) > 0),
                               'state': ('pass' if np.median(diff) > 0 else 'fail') if diff else 'uninformative',
                               'sign_test_p': binom_sf(sum(v > 0 for v in diff), sum(v != 0 for v in diff), 0.5)

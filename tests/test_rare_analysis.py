@@ -826,3 +826,131 @@ def test_compare_amendment_1(tmp_path):
   # the result does not depend on the order of the files
   cr.cmd_compare(argparse.Namespace(rare=[deep, fo], **{**args, 'c0': [c0fo]}))
   assert json.load(open(out))['seed0'] == res['seed0']
+
+
+# keys of the pre-amendment compare output (rare_compare_seed0.json); amendment 1 only adds keys
+PRE_AMENDMENT_KEYS = {
+  '': ['seed0', 'holm_seed0', 'floor_instrumentation_C0_minus_E1', 'floor_seed_E1r_minus_E1',
+       'floor_seed_C1_minus_C0', 'decision'],
+  'seed0': ['P1', 'P2', 'P3', 'P3_own_minus_mis', 'rare_minus_C0_PI', 'rare_minus_C0_F', 'rare_minus_C0_O',
+            'rare_minus_C0_lambda3', 'rare_minus_C0_R_own', 'rare_minus_C0_auroc_far', 'rare_minus_C0_own_share',
+            'S5_rare_minus_other_PI', 'S5_rare_minus_other_F', 'S5_rare_minus_other_lambda3',
+            'S5_rare_minus_other_auroc_far', 'S1_RBpx_at_RPp_half', 'S2_rare_minus_C0', 'universality', 'cells',
+            'noise_control', 'relabel_control', 'C0_calibration'],
+  'seed0.P1': ['n', 'median', 'ci95', 'p_two_sided', 'p_pos', 'p_neg', 'n_no_route'],
+  'seed0.P2': ['n', 'median', 'ci95', 'p_two_sided', 'p_pos', 'p_neg', 'floor_wilcoxon', 'median_lambda3_rare',
+               'frac_lambda3_gt_half'],
+  'seed0.P3': ['n', 'median', 'ci95', 'p_two_sided', 'p_pos', 'p_neg', 'delta', 'n_excluded'],
+  'seed0.S1_RBpx_at_RPp_half': ['n', 'intercept', 'ci95', 'median_RBpx', 'median_RPp'],
+  'seed0.universality': ['n', 'signatures', 'pseudo_signatures', 'p_excess'],
+  'seed0.noise_control': ['n', 'fit_T', 'informative', 'median_PI', 'median_PI_real', 'auroc_noise_below_real',
+                          'median_F', 'R_own_minus_mis', 'passes'],
+  'seed0.relabel_control': ['n', 'F_src_minus_F_label', 'passes'],
+  'seed0.C0_calibration': ['median_O_whole_C0', 'median_O_rare'],
+  'decision': ['against_essay', 'against_pending_seed1', 'against_candidates', 'support_for_essay', 'controls_pass',
+               'replicated', 'rule', 'note']}
+
+
+def test_compare_amendment_1_gates_contrasts_and_controls(tmp_path):
+  import argparse
+  import json
+  rng = np.random.default_rng(2)
+  ids = range(20)
+
+  def sel(c, cond, run):
+    """A primary class: PI defined for even c in rare and other-set runs, for c % 4 == 0 in C0; lambda_3 undefined for
+    c >= 18 in the rare run; P3 undefined for c < 2 in the rare run. Undefined values are wild, so a missing gate
+    shows."""
+    pdef = c % 4 == 0 if run == 'c0' else c % 2 == 0
+    l3def, p3def = run != 'rare' or c < 18, run != 'rare' or c >= 2
+    return {'cls': c, 'kind': 'selected', 'stratum': 'dense', 'level': 10, 'condition': cond, 'set': 'A',
+            'defined': pdef, 'PI': -0.9 + 0.001 * rng.normal() if pdef else 0.8, 'F_pct': 0.01 if pdef else 0.5,
+            'F': -20.0 if pdef else 1.0, 'O': 0.01, 'F_gate': -2.0 if pdef else 1.0, 'F_value': 3.0, 'O_gate': 0.5,
+            'F_lin_pct': 0.8, 'O_lin_pct': 0.5, 'O_whole': 20.0 if c < 5 else 2.0, 'def_threshold': 15.0,
+            'auroc_far': 0.8, 'auroc_near': 0.7 if run == 'rare' else 0.9, 'own_share': 0.1, 'top1': 0.1,
+            'fit_T': 0.4 if run == 'rare' else 0.9, 'signature': False, 'pseudo_signature': False,
+            'S1': {'RBpx_K': 0.6 + 0.01 * rng.normal(), 'RPp_K': 0.5, 'RBpx_w': 0.45, 'RPp_w': 0.5},
+            'S2': {'sigma_stage0': 1.0 + 0.1 * rng.normal()},
+            'P2': {'lambda3': 0.6 if run == 'rare' else 0.5, 'defined': True} if l3def
+            else {'lambda3': 0.0, 'defined': False},
+            'P2_whole': {'lambda3': 0.5}, 'P2_whole_fo': {'lambda3': 0.5},
+            'P3': {'defined': p3def, 'R_own': 0.3 if p3def else 5.0, 'R_mis': 0.1, 'R_flow': 0.2, 'Delta_flow': 0.1}}
+
+  def ctl(c, cond, kind, **kw):
+    return {'cls': c, 'kind': kind, 'stratum': kind, 'level': None, 'condition': cond, 'set': 'A', **kw}
+
+  def write(name, recs):
+    path = str(tmp_path / f'{name}.json')
+    json.dump({'run': name, 'classes': recs}, open(path, 'w'))
+    return path
+
+  def runs(rel_diff, c0_fit=True):
+    absent = [{**sel(50 + k, 'rare', 'rare'), 'level': 0, 'F': 3.0} for k in range(2)]
+    noise = [ctl(200 + k, 'rare', 'noise', top1=float(k < 3), defined=k < 2, PI=-0.95 if k < 2 else 0.9,
+                 F=-1.0 if k < 2 else 1.0) for k in range(4)]
+    rel = [ctl(300 + k, 'rare', 'relabel', F=0.0, F_src=v, PI=0.0) for k, v in enumerate(rel_diff)]
+    rel_c = lambda cond, v: [ctl(300 + k, cond, 'relabel', F=0.0, F_src=v, PI=0.0) for k in range(len(rel_diff))]
+    rare = [sel(c, 'rare', 'rare') for c in ids] + absent + noise + rel
+    c0 = [sel(c, 'common', 'c0') for c in ids] + rel_c('common', 1.0)
+    if not c0_fit:
+      c0 = [{k: v for k, v in r.items() if k != 'fit_T'} for r in c0]
+    other = [sel(c, 'common', 'other') for c in ids] + rel_c('common', 2.0)
+    return write('rare', rare), write('rare_rev', rare[::-1]), write('c0', c0), write('other', other)
+  rare, rare_rev, c0, other = runs([5.0, 6.0, 7.0, -1.0])
+  out = str(tmp_path / 'cmp.json')
+  args = dict(c0=[c0], rare1=[], c1=[], e1=[], e1r=[], out=out)
+  cr.cmd_compare(argparse.Namespace(rare=[rare, other], **args))
+  res = json.load(open(out))
+  s0, dec = res['seed0'], res['decision']
+  # every pre-amendment key is still written
+  for path, keys in PRE_AMENDMENT_KEYS.items():
+    node = cr.get(res, path) if path else res
+    assert set(keys) <= set(node), (path, set(keys) - set(node))
+  # gates (A5): PI where defined in both conditions, lambda_3 where P2 is defined, R_own where P3 is defined
+  assert s0['rare_minus_C0_PI']['n'] == 5 and s0['S5_rare_minus_other_PI']['n'] == 10
+  assert s0['rare_minus_C0_lambda3']['n'] == 18 and s0['rare_minus_C0_lambda3']['median'] == pytest.approx(0.1)
+  assert s0['S5_rare_minus_other_lambda3']['n'] == 18 and s0['rare_minus_C0_R_own']['n'] == 18
+  assert s0['P3_own_minus_mis']['n'] == 18 and s0['P3_own_minus_mis']['median'] == pytest.approx(0.2)
+  cell = s0['cells']['selected/dense/10']
+  assert cell['n_defined'] == 10 and cell['median_PI'] == pytest.approx(-0.9, abs=0.01)
+  # P1 secondaries and the protocol's other versions (A4, B7)
+  assert s0['P1']['n'] == 10 and s0['P1']['n_no_route'] == 10
+  assert s0['P1_secondary']['raw_all']['n'] == 20 and s0['P1_secondary']['no_route_as_zero']['median'] < 0
+  v = s0['P1_versions']
+  assert v['F_gate']['all']['median'] == pytest.approx(-0.5) and v['F_gate']['defined']['median'] == -2.0
+  assert v['F_lin_pct_minus_half']['all']['median'] == pytest.approx(0.3)
+  assert v['F_gate_minus_O_gate']['defined']['median'] == -2.5
+  assert (v['F_absent']['n'], v['F_absent']['median']) == (2, 3.0)
+  # the common run's P1 and P3 (A10), the new contrasts (A9), S1 on K keeps its keys (A8)
+  assert s0['common']['P1']['n'] == 5 and s0['common']['P3']['n'] == 20
+  fit = s0['rare_minus_C0_fit_T']
+  assert fit['median'] == pytest.approx(-0.5) and fit['floor_wilcoxon']['z'] < 0
+  assert s0['rare_minus_C0_auroc_near']['median'] == pytest.approx(-0.2)
+  assert s0['S1_RBpx_at_RPp_half']['median_RPp'] == 0.5 and 'median_RBpx_C0' in s0['S1_RBpx_at_RPp_half']
+  assert s0['S1_RBpx_w_at_RPp_w_half']['intercept'] == pytest.approx(0.45)
+  # controls: noise informative (median top-1 0.5), gated PI below the real classes' -> pass; relabel by its median,
+  # with a one-sided sign test, the rare - C0 differences and their floor; calibration fraction (B3)
+  nc = s0['noise_control']
+  assert nc['state'] == 'pass' and nc['passes'] and nc['n_defined'] == 2 and nc['median_PI'] == -0.95
+  assert nc['median_PI_raw'] == pytest.approx(-0.025) and nc['n_F_negative'] == 2 and nc['cls'] == [200, 201, 202, 203]
+  rl = s0['relabel_control']
+  assert rl['state'] == 'pass' and rl['cls'] == [300, 301, 302, 303] and rl['F_src_minus_F_label'] == [5, 6, 7, -1]
+  assert rl['sign_test_p'] == pytest.approx(5 / 16) and rl['rare_minus_C0'] == [4, 5, 6, -2]
+  assert rl['floor_wilcoxon']['n'] == 4 and s0['C0_calibration']['frac_O_whole_above_C0_threshold'] == 0.25
+  assert dec['controls_state'] == {'seed0': 'pass'} and dec['controls_pass'] and dec['note'] is None
+  # the order of the records inside a file does not matter (C4)
+  cr.cmd_compare(argparse.Namespace(rare=[rare_rev, other], **args))
+  assert json.load(open(out)) == res
+  # seed 1 with C1: a replicated count stays a count; that it also holds in the common runs is only a flag
+  cr.cmd_compare(argparse.Namespace(rare=[rare, other], **{**args, 'rare1': [rare, other], 'c1': [c0]}))
+  dec = json.load(open(out))['decision']
+  assert dec['against_essay'] == ['median PI < 0'] and dec['controls_state'] == {'seed0': 'pass', 'seed1': 'pass'}
+  assert dec['against_candidates'][0]['also_in_common'] == {'seed0': True, 'seed1': True}
+  assert len(dec['secondary_flags']) == 2 and dec['note_seed1'] is None
+  # a relabel control whose median is <= 0 fails, and 'fail' outranks 'pass'; fit_T unmeasured in C0: n = 0
+  rare, _, c0, other = runs([-5.0, -6.0, 1.0, -1.0], c0_fit=False)
+  cr.cmd_compare(argparse.Namespace(rare=[rare, other], **args))
+  res = json.load(open(out))
+  assert res['seed0']['relabel_control']['state'] == 'fail' and res['decision']['controls_state']['seed0'] == 'fail'
+  assert res['decision']['note'] == cr.CONTROL_NOTES['fail'] and not res['decision']['controls_pass']
+  assert res['seed0']['rare_minus_C0_fit_T'] == {'n': 0, 'floor_wilcoxon': None}
