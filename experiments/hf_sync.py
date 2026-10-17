@@ -57,14 +57,14 @@ def running_syncs(proc: str = '/proc') -> list:
 
 
 def sync_status(path: str, proc: str = '/proc') -> str:
-  """'none' if no running hf_sync has `path` under its root, 'ok' if every one that has ignores it, else 'bad:<pids>'
-  (comma-separated) for those that would upload it."""
+  """'none' if no running hf_sync has `path` under its root, 'ignored' if every one that has leaves it out, else
+  'uploaded:<pids>' (comma-separated) for those that would upload it."""
   from huggingface_hub.utils import filter_repo_objects
   path = os.path.realpath(path)
   covering = [(pid, a) for pid, _, a in running_syncs(proc) if path.startswith(a.root.rstrip('/') + '/')]
-  bad = [pid for pid, a in covering
-         if list(filter_repo_objects([os.path.relpath(path, a.root)], ignore_patterns=ignore_patterns(a)))]
-  return 'none' if not covering else f'bad:{",".join(map(str, bad))}' if bad else 'ok'
+  up = [pid for pid, a in covering
+        if list(filter_repo_objects([os.path.relpath(path, a.root)], ignore_patterns=ignore_patterns(a)))]
+  return 'none' if not covering else f'uploaded:{",".join(map(str, up))}' if up else 'ignored'
 
 
 def main():
