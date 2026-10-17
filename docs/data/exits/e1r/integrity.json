@@ -1,0 +1,22 @@
+{
+ "snapshots": {},
+ "usable": [],
+ "checked": [],
+ "dropped_no_full": [
+  1000,
+  3000,
+  5000,
+  7500,
+  9000,
+  11000,
+  13000,
+  15000,
+  17500,
+  19000,
+  21000,
+  23000,
+  24000
+ ],
+ "history": "/marimo/work/hf_exits/neuron-dev/e1r_tiny_adamw_s1/history",
+ "full": null
+}
