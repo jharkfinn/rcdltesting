@@ -1,6 +1,6 @@
 """Stage-1 reversal: the residual stream along a unit's write direction where the unit is active, and how the network
 reads that direction (X1); the unit's pole push when its same-direction partners or the stream along its direction are
-changed (X2).
+changed (X2); which part of the downstream network reads the direction (X4).
 
 convnext_bias_paths.py finds that from about step 1,000 on, a stage-1 unit's 20 strongest classes push its response down
 (late blocks: up), and convnext_unit_roles.py that most stage-1 units have a partner whose write direction is nearly
@@ -108,26 +108,75 @@ Readings: M1: the reversal (top20 < 0) shrinks for splus and splus_e (d_e_vs_per
 alpha = 0) and for beta < 1 when the level s_out_act is positive, deepens for sminus; M4, M5: flat in beta, sets and
 controls alike.
 
-Both start from each block's input, computed once for all probe images (as convnext_unit_roles.py does). Raw arrays
-(X1 class-level and role-level accumulators, bin edges, regression coefficients; X2 per-unit rows) go to
-stage1_mech_raw_{step}.pt next to the JSON. --geometry_only reports the block geometry alone (no probe images), e.g. on
-replay checkpoints (X3).
+X4 (--x4_blocks, blocks of one stage, e.g. stage1.block0,stage1.block1,stage1.block2): which reader downstream of x_out
+reads e against the top classes. Stage 1 here; any stage i works the same way (stage1 -> stage{i}, stage2, stage3 ->
+the later stages). x_j: the stream after stage-1 block j (x_b = x_out, the unit's block b; S the stage's last block);
+y_k after stage-2 block k, y_0 = D1(x_S) (D1: the stage-2 downsample, LayerNorm2d then 2x2 stride-2 conv); z_l after
+stage-3 block l, z_0 = D2(y_K); then the head (mean pool, final LayerNorm, linear) on z_L. g_j = dL/dx_j,
+h_k = dL/dy_k, zeta_l = dL/dz_l (one torch.autograd.grad call per loss over all streams). A residual block
+x_j = x_{j-1} + f_j(x_{j-1}) gives g_{j-1} - g_j = J_{f_j}^T g_j: the paths whose first block after x_b is f_j (pure
+skips before it). With D^T the downsample's vector-Jacobian product at the forward point (linear in its argument),
+g_b = sum over the readers R of term_R, exactly:
+  stage1.block{j}, j > b    g_{j-1} - g_j
+  stage2.block{k}           D1^T (h_{k-1} - h_k)
+  stage3.block{l}           D1^T D2^T (zeta_{l-1} - zeta_l)
+  head                      D1^T D2^T zeta_L            (skips all the way to the pool)
+(a last block without a residual connection, tiny_crush13's, is entered by every path that reaches it: its term is
+D1^T D2^T zeta_{L-1}, and head is 0). The later stages' terms do not depend on b (pure skips inside stage 1), so they
+are pulled back once per batch for all blocks. Per position and unit: r_R = e . term_R (sum over R: r, X1's readout);
+groups: stage1_later (the stage-1 readers after b; none for the stage's last block), stage2, stage3 (sums over their
+blocks), head; total: r itself (e . g_b, from the autograd call, not the sum); perp: the control e_perp . g_b, with
+e_perp a random unit vector orthogonal to e (per unit; seeded by --seed and the block; raw e_perp). Losses (summary
+keys): ce (L = CE), true (L = -z[k], the true-class term; ce - true is the logsumexp term); with --x4_sigma also
+ce_fixed and true_fixed (every LayerNorm's 1 / sigma held fixed in the backward, convnext_bias_paths.fixed_sigma;
+ce - ce_fixed is the path through the normalisers' scale). Live units, roles, |kappa| weights and the s_out bins are
+X1's (the same edges from the same --n_sample positions per image, --seed, --edges and --batch), and every quantity is
+accumulated as X1's r_by bins (class sums of |kappa| r, each class weighted by 1 / its images, per role, unit and bin),
+so ce's total is X1's readout. Per loss (summary[loss]) and R in the readers, groups, total and perp:
+  r_{R}_by_sout_bin_{role}    as X1's r_by_sout_bin_{role}, from r_R: per unit and bin the |kappa|-weighted mean of r_R
+                              times the positions per image, mean over live units
+  role_offset_r_{R}_by_sout   as X1's role_offset_r_by_sout: per unit, top20 minus rest in the same s_out bin, weighted
+                              by the top20 |kappa| mass in the bin, mean over live units
+  r0_{R}_{role}               per unit the |kappa|-weighted mean of r_R over all positions of the role's images (classes
+                              weighted equally) times the positions per image, mean over live units (not X1's
+                              regression intercept r0)
+  role_offset_abs_r_{R}_by_sout   (total and perp) the mean over live units of |the per-unit offset|; e_perp has no sign
+                              of its own, so its signed offset averages to about 0 over units whatever the readout,
+                              and the per-unit size is the comparison
+These (but the abs keys) are linear in r with weights shared by all R, so the readers add up to the total and the
+groups to the same: sum_err_{loss} is the largest |sum over the readers - total| over the offset, r0 and bin keys,
+relative to the largest |value| (asserted < 1e-3). Also: units, positions, edges_weight, readers, groups. Raw
+(raw['x4'][block]): bin_w (3, U, N_BINS) the |kappa| mass per role, unit and s_out bin, bin_rw_{loss} {R: (3, U,
+N_BINS)} the |kappa| r_R sums (roles in ROLES order), edges_sout, e_perp, live, top, pa_v, pa_g, P.
+Readings: the group (and block) carrying role_offset_r_total_by_sout is where e is read against the top classes; true
+against ce: whether more e lowers the true-class logit or raises the competitors' (ce - true); ce_fixed: whether the
+normalisers' scale carries it; perp: an offset of similar per-unit size along a direction the unit does not write
+(role_offset_abs_r_perp_by_sout against _total) means the class-specific readout is not specific to e.
+
+X1 and X2 start from each block's input, X4 from the stage's input, computed once for all probe images (as
+convnext_unit_roles.py does). Raw arrays (X1 class-level and role-level accumulators, bin edges, regression
+coefficients; X2 per-unit rows; X4 role-level bins) go to stage1_mech_raw_{step}.pt next to the JSON (keys x1, x2,
+x4; the JSON has x4 only with --x4_blocks; the raw file is named by step alone, so a run of X4 alone needs an --out in
+its own directory to keep an earlier run's files). --geometry_only reports the block geometry alone (no probe images),
+e.g. on replay checkpoints (X3).
 
   python3 -m experiments.convnext_stage1_mech --run results/e1_tiny_adamw --steps 1000,2000,12500
+  python3 -m experiments.convnext_stage1_mech --run results/e1_tiny_adamw --steps 12500 --blocks '' --x2_blocks '' \\
+    --x4_blocks stage1.block0,stage1.block1,stage1.block2 --x4_sigma --out results/e1_tiny_adamw/x4/stage1_mech.json
 """
 
 import argparse
 import json
 import os
 import warnings
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from experiments.convnext_atlas import probe_set
-from experiments.convnext_bias_paths import dsilu, pole_coefs, spearman
+from experiments.convnext_bias_paths import dsilu, fixed_sigma, pole_coefs, spearman
 from experiments.convnext_unit_roles import block_inputs, block_out, block_units, write_dir
 from rcdl.convnext import build_convnext
 
@@ -141,6 +190,7 @@ QUADS = ('kp_dp', 'kn_dn', 'kp_dn', 'kn_dp')
 ROLES = ('top20', 'relatives', 'rest')
 BIN_T = ('push', 'cnt', 'rw', 'w')              # binned: push, positions, |kappa| r, |kappa| (all class-weighted)
 X2_SETS = ('splus', 'sminus', 'later')
+X4_LOSSES = ('ce', 'true')
 
 
 def parse_block(name):
@@ -742,6 +792,189 @@ def x2_block(model, name, X, y, rel=None, stats=None, alphas=(0.0, 0.5), betas=(
   return out, rows
 
 
+def _logits_dtype(z):
+  return z.to(torch.promote_types(z.dtype, torch.float32))
+
+
+X4_LOSS = {'ce': lambda z, y: F.cross_entropy(_logits_dtype(z), y, reduction='sum'),
+           'true': lambda z, y: -_logits_dtype(z).gather(1, y[:, None]).sum(),          # the true-class term -z[k]
+           'lse': lambda z, y: torch.logsumexp(_logits_dtype(z), 1).sum()}              # ce = true + lse
+
+
+def x4_streams(model, i, j0, x):
+  """The streams from block (i, j0)'s output x: [x_j0, ..., x_S] of stage i, per later stage [y_0 (after its
+  downsample), y_1, ..., y_K] (after each block), and the logits."""
+  xs = [x]
+  for blk in model.stages[i][j0 + 1:]:
+    xs.append(blk(xs[-1]))
+  later, h = [], xs[-1]
+  for down, stage in zip(model.downsample[i + 1:], model.stages[i + 1:]):
+    ys = [down(h)]
+    for blk in stage:
+      ys.append(blk(ys[-1]))
+    later.append(ys)
+    h = ys[-1]
+  return xs, later, model.head(model.norm(h.mean((2, 3))))
+
+
+def x4_terms(model, i, j0, x, y, losses=('ce', 'true'), sigma=False):
+  """X4's split of dL/dx for one batch (see the module docstring). x: block (i, j0)'s output (B, d, H, W); losses: keys
+  of X4_LOSS (summed over the batch); sigma: forward (and so backward) with every LayerNorm's 1 / sigma held fixed.
+  Returns {loss: (g, T)}: g = [dL/dx_j0, ..., dL/dx_S] (one autograd call over all streams), T = {reader: term pulled
+  back to x_S} for the readers in the later stages ('stage{t}.block{l}': D^T (zeta_{l-1} - zeta_l)) and 'head'."""
+  stage = model.stages[i]
+  assert all(b.skip for b in stage[j0:]), 'X4: residual blocks in the unit\'s stage'
+  with torch.enable_grad():
+    x = x.detach().requires_grad_(True)
+    with fixed_sigma() if sigma else nullcontext():
+      xs, later, z = x4_streams(model, i, j0, x)
+    flat = xs + [t for ys in later for t in ys]
+    out = {}
+    for loss in losses:
+      grads = torch.autograd.grad(X4_LOSS[loss](z, y), flat, retain_graph=True)
+      g, pos = list(grads[:len(xs)]), len(flat)
+      T = {} if later else {'head': g[-1]}
+      for t in reversed(range(len(later))):                     # last stage first; then pulled back through D_t
+        ys, st = later[t], model.stages[i + 1 + t]
+        gy, pos = grads[pos - len(ys):pos], pos - len(ys)
+        for l, blk in enumerate(st):                            # only the network's last block may lack the skip
+          assert blk.skip or (t == len(later) - 1 and l == len(st) - 1), 'X4: a block without skip inside'
+          T[f'stage{i + 1 + t}.block{l}'] = gy[l] - gy[l + 1] if blk.skip else gy[l]
+        if t == len(later) - 1:
+          T['head'] = gy[-1] if st[-1].skip else torch.zeros_like(gy[-1])
+        prev = later[t - 1][-1] if t else xs[-1]
+        T = {R: torch.autograd.grad(ys[0], prev, v, retain_graph=True)[0] for R, v in T.items()}
+      out[loss] = (g, T)
+  return out
+
+
+def _reader_key(R):
+  return (1, 0, 0) if R == 'head' else (0,) + parse_block(R)
+
+
+def x4_readers(i, j, j0, g, T):
+  """{reader: term at x_j} for block (i, j)'s output (j >= j0; g, T from x4_terms with j0): the stage's later blocks
+  j2 (g_{j2-1} - g_{j2}: pure skips from x_j), then T, in network order. They add up to g[j - j0]."""
+  out = {f'stage{i}.block{j2}': g[j2 - 1 - j0] - g[j2 - j0] for j2 in range(j + 1, j0 + len(g))}
+  out.update({R: T[R] for R in sorted(T, key=_reader_key)})
+  return out
+
+
+def _x4_sum_err(d, readers, roles):
+  """Largest |sum over the readers - total| over X4's linear keys, relative to the largest |value| (inf: the NaN
+  patterns differ)."""
+  err, scale = 0.0, 1e-30
+  for f in ['role_offset_r_{}_by_sout'] + [p + role for role in roles for p in ('r0_{}_', 'r_{}_by_sout_bin_')]:
+    tot = np.asarray(d[f.format('total')], float)
+    parts = np.array([d[f.format(R)] for R in readers], float).reshape((len(readers),) + tot.shape)
+    if (np.isnan(parts.sum(0)) != np.isnan(tot)).any():
+      return float('inf')
+    err = max(err, np.nanmax(np.r_[0.0, np.abs(parts.sum(0) - tot).ravel()]))
+    scale = max(scale, np.nanmax(np.r_[0.0, np.abs(parts).ravel(), np.abs(tot).ravel()]))
+  return float(err / scale)
+
+
+def x4_block(model, names, X, y, rel=None, stats=None, batch=100, n_sample=16, edges='kappa', seed=0, top_n=20,
+             sigma=False, tol=1e-3):
+  """X4 for the blocks names, all of one stage i, in one pass (the later stages' reader terms are shared). X: the
+  stage's input (block (i, 0)'s input) for all probe images (on the device), y: labels (same device); stats: optional
+  {name: (R, G, V)} as class_stats. Live units, roles, |kappa| and s_out bins as x1_block with the same batch,
+  n_sample, edges, seed and top_n. Returns {name: (summary, raw)}."""
+  ij = sorted({parse_block(b) for b in names})
+  i, js = ij[0][0], [j for _, j in ij]
+  assert all(t[0] == i for t in ij), 'X4: blocks of one stage'
+  stage, j0, dev = model.stages[i], js[0], X.device
+  C = int(y.max()) + 1
+  n_img_t = torch.bincount(y, minlength=C).double()
+  losses = X4_LOSSES + (tuple(f'{k}_fixed' for k in X4_LOSSES) if sigma else ())
+  inputs = lambda j: (stage[:j](X[s:s + batch]) for s in range(0, len(X), batch))      # block (i, j)'s input
+  later = [f'stage{t}.block{l}' for t in range(i + 1, len(model.stages)) for l in range(len(model.stages[t]))]
+  f64 = lambda *s: torch.zeros(*s, dtype=torch.float64, device=dev)
+  proj = lambda t, E: t.permute(0, 2, 3, 1).flatten(1, 2) @ E.T                            # (B, P, U)
+  S = {}
+  with torch.no_grad():
+    for j in js:
+      name, blk = f'stage{i}.block{j}', stage[j]
+      U = blk.pw_gate.out_features
+      st = stats[name] if stats and name in stats else class_stats(model, name, torch.cat(list(inputs(j))), y, C,
+                                                                     batch)
+      top, pa_v, pa_g, live = pole_coefs(*st, top_n)
+      pv, pg = (torch.from_numpy(a).float().to(dev) for a in (pa_v, pa_g))
+      geo = write_geometry(blk)
+      edg, _, n_pos = bin_edges(blk, inputs(j), geo, pv, pg, n_sample, edges, seed)
+      roles = roles_of(top, C, rel)
+      ridx = np.select([roles['top20'], roles.get('relatives', np.zeros_like(roles['top20']))], [0, 1], 2)
+      E = geo['E']
+      Z = torch.from_numpy(np.random.default_rng([seed, i, j]).standard_normal(tuple(E.shape))).to(E)
+      Z = Z - (Z * E).sum(1, keepdim=True) * E                                              # e_perp: random, _|_ e
+      readers = [f'stage{i}.block{j2}' for j2 in range(j + 1, len(stage))] + later + ['head']
+      S[j] = dict(name=name, blk=blk, top=top, pa_v=pa_v, pa_g=pa_g, live=live, pv=pv, pg=pg, E=E,
+                  Ep=Z / Z.norm(dim=1, keepdim=True), edg=edg['sout'], P=n_pos // len(X), roles=roles,
+                  ridx=torch.from_numpy(ridx).to(dev), readers=readers, w=f64(3, U, N_BINS),
+                  rw={k: {R: f64(3, U, N_BINS) for R in readers + ['total', 'perp']} for k in losses})
+  # one pass: the streams once, the reader terms per loss, then each block's bins (role sums of class means)
+  with no_param_grads(model):
+    for s in range(0, len(X), batch):
+      yb = y[s:s + batch]
+      with torch.no_grad():
+        xin = [X[s:s + batch]]                                    # xin[j]: block j's input, xin[j + 1]: its output
+        for blk in stage[:js[-1] + 1]:
+          xin.append(blk(xin[-1]))
+      terms = x4_terms(model, i, j0, xin[j0 + 1], yb, X4_LOSSES)
+      if sigma:
+        terms.update({f'{k}_fixed': t for k, t in x4_terms(model, i, j0, xin[j0 + 1], yb, X4_LOSSES, True).items()})
+      with torch.no_grad():
+        wimg = 1 / n_img_t[yb]
+        for j in js:
+          st = S[j]
+          g, v, u = block_guv(st['blk'], xin[j])
+          ka = _kappa(g, v, st['pv'], st['pg']).flatten(1, 2).abs()
+          s_out = proj(block_out(st['blk'], xin[j], u), st['E'])
+          B, P, U = s_out.shape
+          ix = torch.searchsorted(st['edg'], s_out.permute(2, 0, 1).reshape(U, -1).contiguous()).reshape(U, B, P) \
+              .permute(1, 0, 2).contiguous()                                                 # (B, U, P)
+          oh = F.one_hot(st['ridx'][yb], 3).double() * wimg[:, None, None]                  # (B, U, 3)
+          def add(acc, t):                                                                  # t (B, P, U)
+            acc += torch.einsum('bur,bun->run', oh, f64(B, U, N_BINS).scatter_add_(2, ix, t.double().permute(0, 2, 1)))
+          add(st['w'], ka)
+          for k, (gl, T) in terms.items():
+            for R, t in {**x4_readers(i, j, j0, gl, T), 'total': gl[j - j0]}.items():
+              add(st['rw'][k][R], ka * proj(t, st['E']))
+            add(st['rw'][k]['perp'], ka * proj(gl[j - j0], st['Ep']))
+  out = {}
+  for j in js:
+    st = S[j]
+    live, P, roles, readers = st['live'], st['P'], st['roles'], st['readers']
+    bw = st['w'].cpu().numpy()
+    groups = {f'stage{i}_later': [R for R in readers if R.startswith(f'stage{i}.')],
+              **{f'stage{t}': [R for R in readers if R.startswith(f'stage{t}.')]
+                 for t in range(i + 1, len(model.stages))}, 'head': ['head']}
+    um = lambda M: _nanmean(M[live], 0)
+    summ = {'units': int(live.sum()), 'positions': P, 'edges_weight': edges, 'readers': readers, 'groups': groups}
+    raw = {'top': st['top'], 'pa_v': st['pa_v'], 'pa_g': st['pa_g'], 'live': live, 'P': P, 'roles': ROLES,
+           'edges_sout': st['edg'].cpu().numpy(), 'e_perp': st['Ep'].cpu().numpy(), 'bin_w': bw}
+    for k in losses:
+      brw = {R: a.cpu().numpy() for R, a in st['rw'][k].items()}
+      for gname, mem in groups.items():
+        brw.setdefault(gname, sum((brw[m] for m in mem), np.zeros_like(bw)))
+      raw[f'bin_rw_{k}'] = brw
+      d = {}
+      for R, a in brw.items():
+        rr = _div(a, bw) * P                                                                # (3, U, N_BINS)
+        for role in roles:
+          ri = ROLES.index(role)
+          d[f'r_{R}_by_sout_bin_{role}'] = [float(x) for x in um(rr[ri])]
+          d[f'r0_{R}_{role}'] = float(_nanmean((_div(a[ri].sum(-1), bw[ri].sum(-1)) * P)[live]))
+        d[f'role_offset_r_{R}_by_sout'] = _offset(rr[0] - rr[2], bw[0], live)
+        if R in ('total', 'perp'):
+          d[f'role_offset_abs_r_{R}_by_sout'] = float(_nanmean(np.abs(_unit_offsets(rr[0] - rr[2], bw[0]))[live]))
+      summ[k] = d
+      summ[f'sum_err_{k}'] = err = _x4_sum_err(d, readers, roles)
+      assert err < tol, f'X4 {st["name"]} {k}: the readers do not add up to the total (relative error {err:.2e})'
+    out[st['name']] = (summ, raw)
+  return out
+
+
 def main():
   p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
   p.add_argument('--run', required=True, help='run directory with config.json and model_{step}.pt')
@@ -751,6 +984,9 @@ def main():
   p.add_argument('--alphas', default='0,0.5', help='X2 scales of the partner sets')
   p.add_argument('--betas', default='0.8,0.9,1.1', help='X2 scales of the stream along e at the block output')
   p.add_argument('--no_later', action='store_true', help='X2: leave out the later blocks\' partners')
+  p.add_argument('--x4_blocks', default='', help="X4 blocks, all of one stage (e.g. 'stage1.block0,stage1.block1,"
+                 "stage1.block2'; '' to skip X4)")
+  p.add_argument('--x4_sigma', action='store_true', help='X4: also the pass with every LayerNorm\'s 1 / sigma fixed')
   p.add_argument('--val', default='/marimo/work/data/imagenet/data')
   p.add_argument('--probe_cache', default='/dev/shm/probe_8.pt')
   p.add_argument('--wordnet', default='docs/data/imagenet_wordnet.npz')
@@ -773,6 +1009,7 @@ def main():
   steps = [int(t) for t in a.steps.split(',')]
   b1 = [b for b in a.blocks.split(',') if b]
   b2 = [b for b in a.x2_blocks.split(',') if b]
+  b4 = sorted({b for b in a.x4_blocks.split(',') if b}, key=parse_block)
   blocks = sorted(set(b1) | set(b2), key=parse_block)
   if a.geometry_only:
     res = {}
@@ -801,10 +1038,11 @@ def main():
   for s in steps:
     model.load_state_dict(torch.load(os.path.join(a.run, f'model_{s:05d}.pt'), map_location=dev))
     res[s], raw = {'x1': {}, 'x2': {}}, {'x1': {}, 'x2': {}}
+    cache = {}
     for b in blocks:
       i, j = parse_block(b)
       X = block_inputs(model, xs, i, j, a.batch, dev)
-      stats = class_stats(model, b, X, y, C, a.batch)
+      stats = cache[b] = class_stats(model, b, X, y, C, a.batch)
       if b in b1:
         res[s]['x1'][b], raw['x1'][b] = x1_block(model, b, X, y, rel, stats, a.batch, a.n_sample, a.edges, a.seed,
                                                  active=a.active)
@@ -822,6 +1060,18 @@ def main():
                            if k in ('units', 'top20_base', 'size_splus', 'size_later', 'ds_e_splus', 's_out_act')
                            or k.startswith(('d_', 'top20_beta', 'top20_splus_e', 'top20_splus_perp'))}, flush=True)
       del X
+    if b4:
+      X = block_inputs(model, xs, parse_block(b4[0])[0], 0, a.batch, dev)          # the stage's input
+      r4 = x4_block(model, b4, X, y, rel, cache, a.batch, a.n_sample, a.edges, a.seed, sigma=a.x4_sigma)
+      del X
+      res[s]['x4'], raw['x4'] = {b: r[0] for b, r in r4.items()}, {b: r[1] for b, r in r4.items()}
+      for b, (r, _) in r4.items():
+        losses = [k for k in X4_LOSSES + tuple(f'{k}_fixed' for k in X4_LOSSES) if k in r]
+        print(s, b, 'X4 role_offset_r_by_sout', {k: {R: round(r[k][f'role_offset_r_{R}_by_sout'], 3)
+                                                     for R in ['total', *r['groups'], 'perp']} for k in losses},
+              'abs total/perp', {k: (round(r[k]['role_offset_abs_r_total_by_sout'], 3),
+                                     round(r[k]['role_offset_abs_r_perp_by_sout'], 3)) for k in losses},
+              'sum_err', max(r[f'sum_err_{k}'] for k in losses), flush=True)
     torch.save(raw, os.path.join(odir, f'stage1_mech_raw_{s:05d}.pt'))
     json.dump(res, open(out, 'w'), indent=1)
   print('STAGE1_MECH_DONE', flush=True)
