@@ -141,6 +141,21 @@ def test_attr_steps_and_resume_at_ckpts(run):
   assert _files(dflt, 'attr') == [0, 50]
 
 
+def test_attr_steps_leaves_the_parts_bit_identical(run):
+  """--attr_steps changes which files are written, not the parts: GroupAttribution defers the parts' weight decay and
+  compact_state applies it, so a checkpoint without attr files still applies it (the fp32 rounding of the default)."""
+  args = ('--track', 'all', '--rand_groups', '--steps', 60, '--resume_at_ckpts', 0)
+  dflt, lim = run('d', *args), run('l', *args, '--attr_steps', 60)
+  assert _files(dflt, 'attr') == [0, 50, 60] and _files(lim, 'attr') == _files(lim, 'attrR') == [60]
+  a, b = _load(dflt / 'resume.pt'), _load(lim / 'resume.pt')
+  for k in ('attr', 'attr_r'):
+    assert a[k].keys() == b[k].keys() and len(a[k]) == 10
+    assert all(torch.equal(a[k][n]['C'], b[k][n]['C']) and torch.equal(a[k][n]['m'], b[k][n]['m']) for n in a[k])
+  for f in ('attr_00060.pt', 'attrR_00060.pt'):
+    a, b = _load(dflt / f), _load(lim / f)
+    assert all(torch.equal(a[n]['C'], b[n]['C']) and torch.equal(a[n]['R'], b[n]['R']) for n in a)
+
+
 def test_bad_track_and_attr_steps_are_errors(run):
   for args in (('--track', 'stage3.block2'), ('--track', 'none', '--attr_steps', '55')):
     with pytest.raises(SystemExit) as e:
