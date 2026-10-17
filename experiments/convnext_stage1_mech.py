@@ -817,13 +817,52 @@ def x4_streams(model, i, j0, x):
   return xs, later, model.head(model.norm(h.mean((2, 3))))
 
 
+@contextmanager
+def no_tf32():
+  """TF32 off while inside (the flags are restored after): X4 pulls each reader's term back through a downsample in its
+  own conv backward, and TF32 (cuDNN's default for convolutions) rounds each cotangent separately, so the readers would
+  add up to the total only to about 1e-3."""
+  flags = torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32
+  torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = False
+  try:
+    yield
+  finally:
+    torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32 = flags
+
+
+def x4_check(model, names):
+  """(i, sorted js) for the X4 blocks names, or ValueError: existing blocks, all of one stage i, residual blocks from
+  the first of them on (only the network's last block may lack the skip)."""
+  try:
+    ij = sorted({parse_block(b) for b in names})
+  except ValueError:
+    raise ValueError(f'X4 blocks are named stage{{i}}.block{{j}}: {names}') from None
+  if not ij:
+    raise ValueError('X4: no blocks')
+  i = ij[0][0]
+  if any(t != i for t, _ in ij):
+    raise ValueError(f'X4: blocks of one stage: {names}')
+  if not 0 <= i < len(model.stages) or any(not 0 <= j < len(model.stages[i]) for _, j in ij):
+    raise ValueError(f'X4: no such block in {names} (stage depths {[len(st) for st in model.stages]})')
+  last = model.stages[-1][-1]
+  if any(not b.skip for b in model.stages[i][ij[0][1]:]) or \
+     any(not b.skip and b is not last for st in model.stages[i + 1:] for b in st):
+    raise ValueError(f'X4: a block without skip after {ij[0]}')
+  return i, [j for _, j in ij]
+
+
 def x4_terms(model, i, j0, x, y, losses=('ce', 'true'), sigma=False):
   """X4's split of dL/dx for one batch (see the module docstring). x: block (i, j0)'s output (B, d, H, W); losses: keys
   of X4_LOSS (summed over the batch); sigma: forward (and so backward) with every LayerNorm's 1 / sigma held fixed.
-  Returns {loss: (g, T)}: g = [dL/dx_j0, ..., dL/dx_S] (one autograd call over all streams), T = {reader: term pulled
-  back to x_S} for the readers in the later stages ('stage{t}.block{l}': D^T (zeta_{l-1} - zeta_l)) and 'head'."""
+  Returns {loss: (g, T, T1)}: g = [dL/dx_j0, ..., dL/dx_S] (one autograd call over all streams), T = {reader: term
+  pulled back to x_S} for the readers in the later stages ('stage{t}.block{l}': D^T (zeta_{l-1} - zeta_l)) and 'head';
+  T1 = {block: its single path, pulled back to x_S} for the stage's blocks after j0 and the later stages' blocks:
+  D^T (J_f^T c), c the head's skip-only cotangent at the block's output (the head term there; zeta_L at z_L)."""
   stage = model.stages[i]
   assert all(b.skip for b in stage[j0:]), 'X4: residual blocks in the unit\'s stage'
+  def single(o, x_, c, skip=True):                              # J_f^T c of the block x_ -> o
+    gc, = torch.autograd.grad(o, x_, c, retain_graph=True)
+    return gc - c if skip else gc
   with torch.enable_grad():
     x = x.detach().requires_grad_(True)
     with fixed_sigma() if sigma else nullcontext():
@@ -833,7 +872,7 @@ def x4_terms(model, i, j0, x, y, losses=('ce', 'true'), sigma=False):
     for loss in losses:
       grads = torch.autograd.grad(X4_LOSS[loss](z, y), flat, retain_graph=True)
       g, pos = list(grads[:len(xs)]), len(flat)
-      T = {} if later else {'head': g[-1]}
+      T, T1 = ({}, {}) if later else ({'head': g[-1]}, {})
       for t in reversed(range(len(later))):                     # last stage first; then pulled back through D_t
         ys, st = later[t], model.stages[i + 1 + t]
         gy, pos = grads[pos - len(ys):pos], pos - len(ys)
@@ -842,9 +881,15 @@ def x4_terms(model, i, j0, x, y, losses=('ce', 'true'), sigma=False):
           T[f'stage{i + 1 + t}.block{l}'] = gy[l] - gy[l + 1] if blk.skip else gy[l]
         if t == len(later) - 1:
           T['head'] = gy[-1] if st[-1].skip else torch.zeros_like(gy[-1])
+          T1[f'stage{i + 1 + t}.block{len(st) - 1}'] = T[f'stage{i + 1 + t}.block{len(st) - 1}']   # its only path
+        for l in range(len(st) - (t == len(later) - 1)):
+          T1[f'stage{i + 1 + t}.block{l}'] = single(ys[l + 1], ys[l], T['head'])
         prev = later[t - 1][-1] if t else xs[-1]
-        T = {R: torch.autograd.grad(ys[0], prev, v, retain_graph=True)[0] for R, v in T.items()}
-      out[loss] = (g, T)
+        pull = lambda D: {R: torch.autograd.grad(ys[0], prev, v, retain_graph=True)[0] for R, v in D.items()}
+        T, T1 = pull(T), pull(T1)
+      for j2 in range(j0 + 1, j0 + len(xs)):
+        T1[f'stage{i}.block{j2}'] = single(xs[j2 - j0], xs[j2 - 1 - j0], T['head'])
+      out[loss] = (g, T, T1)
   return out
 
 
@@ -858,6 +903,29 @@ def x4_readers(i, j, j0, g, T):
   out = {f'stage{i}.block{j2}': g[j2 - 1 - j0] - g[j2 - j0] for j2 in range(j + 1, j0 + len(g))}
   out.update({R: T[R] for R in sorted(T, key=_reader_key)})
   return out
+
+
+def x4_single(i, j, T1):
+  """{'{block}>head': single path at x_j} for block (i, j)'s output (T1 from x4_terms): the blocks after it, in network
+  order."""
+  return {f'{R}>head': T1[R] for R in sorted(T1, key=_reader_key) if parse_block(R) > (i, j)}
+
+
+@torch.no_grad()
+def head_static(model, i):
+  """(C, d_i) float64: the true-class cotangent -W_head[k] pulled back to stage i's stream along the head's path (pure
+  skips), every LayerNorm's 1 / sigma left out and the downsample convs averaged over their 2x2 phases (see the module
+  docstring); None without that path (a last block without skip)."""
+  if not model.stages[-1][-1].skip:
+    return None
+  def ln_back(c, ln):                                           # gain, then centering over the channels
+    c = c * ln.weight.double() if ln.weight is not None else c
+    return c - c.mean(-1, keepdim=True)
+  c = ln_back(-model.head.weight.double(), model.norm)
+  for t in reversed(range(i + 1, len(model.stages))):
+    ln, conv = model.downsample[t]
+    c = ln_back(c @ conv.weight.double().mean((2, 3)), ln)
+  return c
 
 
 def _x4_sum_err(d, readers, roles):
