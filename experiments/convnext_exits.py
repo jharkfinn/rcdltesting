@@ -585,7 +585,8 @@ def cmd_integrity(a, run: Run):
   fp16 tensors bitwise (same scale), and a, ab, t are equal. I3: the remainder max |W - a W0 - sum_k C_k| / max |W| of
   every snapshot (recorded; it is never assumed to be 0). Snapshots failing I1 or I2 are not usable. integrity.json is
   always written (also without snapshots), with the snapshots checked and those dropped for want of a full state."""
-  log = {r['step']: r for r in json.load(open(os.path.join(run.dir, 'log.json')))}
+  lp = os.path.join(run.dir, 'log.json')
+  log = {r['step']: r for r in json.load(open(lp))} if os.path.exists(lp) else {}
   out = {'snapshots': {}, 'usable': [], 'checked': list(run.snaps), 'dropped_no_full': list(run.snaps_no_full),
          'history': run.history, 'full': run.full_dir}
   hist = os.path.join(run.history, 'history.json') if run.history else ''

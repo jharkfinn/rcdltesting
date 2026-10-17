@@ -34,7 +34,7 @@ def fp16_pair(K=7, U=3, d=5, seed=0):
     init = {'W0': W0, 'b0': b0}
     pts = []
     for a, ab, sc in ((0.9, 0.97, 0.05), (0.8, 0.95, 0.07)):
-      C, Cb = r(K, U, d) * sc, r(K, U) * sc
+      C, Cb = (r(K, U, d) * sc).float().double(), (r(K, U) * sc).float().double()    # fp32 values, as the trainer's
       W, bb = a * W0 + C.sum(0) + r(U, d) * 1e-5, ab * b0 + Cb.sum(0) + r(U) * 1e-5
       true = load_parts({'C': C, 'Cb': Cb, 'a': a, 'ab': ab, 'W0': W0, 'b0': b0}, W=W, b=bb, bounds=False)
       q, s = to_fp16_scaled(C.float())
@@ -120,7 +120,7 @@ def test_bias_push_bounds_contain_the_fp32_push():
   for s, ab in ((0, 1.0), (10, 0.97), (20, 0.95)):
     true[s], recs[s] = {}, {}
     for M in MAPS:
-      Cb = torch.randn(K, U, generator=g, dtype=DT) * 0.03
+      Cb = (torch.randn(K, U, generator=g, dtype=DT) * 0.03).float().double()
       q, sc = to_fp16_scaled(Cb.float())
       true[s][M] = Cb
       recs[s][f'{b}.pw_{M}'] = {'Cb': q, 'Cb_scale': sc, 'ab': ab}
@@ -133,7 +133,7 @@ def test_bias_push_bounds_contain_the_fp32_push():
     for M in MAPS:
       exact = (true[s2][M] - rho * true[s1][M]).numpy()
       err = np.abs(bp['push'][(j, M)] - exact)
-      assert (err <= bp['pushb'][(j, M)] + 1e-18).all() and err.max() > 0
+      assert (err <= bp['pushb'][(j, M)] * (1 + 1e-9)).all() and err.max() > 0
 
 
 # --------------------------------------------------------------------------------------------- X3 S1 C1 band
@@ -175,30 +175,57 @@ def test_x3_population_uses_the_leave_one_out_fractions_and_reports_the_random_b
   assert out['n_low_sd'] == 1 and out['nC1'] == {4: 30} and out['flips']['n'] == 30
 
 
+def test_x3_block_uses_the_c1_band_in_every_run_and_skips_low_sd_units():
+  """x3_block: the S1 labels come from the C1 band (s1_c1_band) with and without a random split (the random band is an
+  extra result), need m >= 3 C1 members, and a unit below the sd floor on the selection half is skipped."""
+  b, g, U, K = 'stage2.block0', [0, 10, 20, 30], 2, 6
+  rng = np.random.default_rng(4)
+  push = {(j, M): rng.standard_normal((K, U)) for j in (1, 2, 3) for M in MAPS}
+  pushR = {k: rng.standard_normal((K, U)) for k in push}
+  bp = {'push': push, 'pushb': {k: np.full((K, U), 1e-6) for k in push}, 'med': {k: np.ones(U) for k in push},
+        'sign': {j: {M: np.ones((2, U, K)) for M in MAPS} for j in (1, 2, 3)}}
+  e = dict(b=b, n=1, c=0, pk=1, out=3, anchored=True, rep=False, C1=[1, 2, 3, 4])
+  ev = [e, dict(e, c=5, C1=[1, 2]), dict(e, n=0)]
+  ctx = SimpleNamespace(run=SimpleNamespace(g16=g, snaps=[]), events={'directions': {d: {'exits': ev} for d in X.DIRS}},
+                        sd=lambda s, bb: np.array([[1e-12, 1.0]] * 2), floor=lambda s, h: 1e-3,
+                        prm={'band_min': 3}, n_c=np.ones(K), n_r=np.ones(K))
+  for pr in (None, pushR):
+    out = X.x3_block(ctx, b, dict(bp, pushR=pr))
+    r, few, low = out[:3]
+    want = sum(0.5 * (push[(j, 'gate')][0, 1] + push[(j, 'value')][0, 1]) for j in (1, 2, 3))
+    assert r['push'] == pytest.approx(want)
+    lb = X.s1_c1_band(r['push'], r['push_C1'])
+    assert r['band'] == 'C1' and r['label_frac'] == lb['label_frac'] and r['labels_C1'] == lb['labels_C1']
+    assert r['push_bound'] == pytest.approx(3e-6) and not r['flip_fp16']
+    assert 'label_frac' not in few and low['skip'] == 'low_sd'
+    assert ('label_rand' in r) == (pr is not None) and ('label_rand' in few) == (pr is not None)
+
+
 # ----------------------------------------------------------------------------------- events: floor and censoring
 
 def test_find_events_drops_low_sd_units_and_counts_left_censored_entries():
   """A unit with the same ranks as another but a near-zero sd (dead) gives the same events without the floor and none
   with it (counted); entries in Top_n from the first checkpoint on are counted, not dropped silently."""
   rng = np.random.default_rng(1)
-  T, C = 8, 40
+  T, U, C = 8, 6, 40
   steps = list(range(0, 80, 10))
   prm = X.defaults() | dict(P=3, best=2, gone=5, est_step=10, anchor_k=2, anchor_min=1)
-  base = rng.standard_normal((T, 1, C)).cumsum(0)
-  base[:, 0, :2] += 50                                              # two classes on top from step 0 to T
-  Rs = np.concatenate([base, 1e-9 * base], 1)                        # unit 1: same ranks, dead
+  base = rng.standard_normal((T, U, C)).cumsum(0)
+  base[:, :, 0] += 50                                               # class 0 on top from step 0 to T
+  Rs = np.concatenate([base, 1e-9 * base], 1)                        # units U..2U-1: the same ranks, dead
   ex0, pe0, info0 = X.find_events(Rs, Rs, steps, prm)
-  e = lambda L, n: [(x['c'], x['pk']) for x in L if x['n'] == n]
-  assert e(ex0, 0) and e(ex0, 0) == e(ex0, 1) and e(pe0, 0) == e(pe0, 1)
+  e = lambda L, ns: [(x['n'] % U, x['c'], x.get('pk', x.get('first'))) for x in L if x['n'] in ns]
+  live, dead = range(U), range(U, 2 * U)
+  assert e(ex0, live) and e(ex0, live) == e(ex0, dead) and e(pe0, live) == e(pe0, dead)
   low = X.low_sd({'b': Rs}, prm['sd_floor'])['b']
-  assert low[:, 1].all() and not low[:, 0].any()
+  assert low[:, U:].all() and not low[:, :U].any()
   ex, pe, info = X.find_events(Rs, Rs, steps, prm, low)
-  assert not e(ex, 1) and e(ex, 0) == e(ex0, 0)
-  assert info['low_sd_exits'] == len(e(ex0, 1))
-  top = X.rank_desc(Rs[:, 0]) <= prm['P']
+  assert not e(ex, dead) and e(ex, live) == e(ex0, live) and not e(pe, dead)
+  assert info['low_sd_exits'] == len(e(ex0, dead)) and info0['low_sd_exits'] == 0
+  top = X.rank_desc(Rs[:, :U]) <= prm['P']
   from0 = int(top.all(0).sum())
-  assert from0 == 2 and info['entries_from_step0']['persistent'] == 2 * from0        # both units, before the floor
-  assert info['low_sd_entries']['persistent'] == len(e(pe0, 1))
+  assert from0 >= U and info['entries_from_step0']['persistent'] == 2 * from0        # both halves, before the floor
+  assert info['low_sd_entries']['persistent'] == len(e(pe0, dead))
   assert info['entries_from_step0']['dropped'] == sum(x['entry'] is None for x in ex)
   assert X.sum_info([info, info])['low_sd_exits'] == 2 * info['low_sd_exits']
 
@@ -453,7 +480,7 @@ def test_toy_outputs_record_the_fixes(toy):
   res = json.load(open(root / 'exits' / 'exits_tests.json'))
   assert res['has_random'] and res['band_source']['X3_S1_primary'] == 'C1' and res['snapshots_dropped_no_full'] == []
   assert res['class_counts']['source'].endswith('rand_groups.npy') and res['class_counts']['kind'] == 'labels'
-  assert res['checks']['n_c_equal'] is False
+  assert res['checks']['n_c_equal'] is True                        # the toy trains 16 images per class
   late = res['pooled']['late']['s0m1']
   sh = late['X1']['anchored_all']['excess_vs_C1'].get('shares')
   if sh:                                                           # the primary: selection-half population
@@ -468,7 +495,8 @@ def test_toy_outputs_record_the_fixes(toy):
   s1 = res['pooled']['all']['s0m1']['X3_S1']
   assert s1['band'] == 'C1' and 'nC1' in s1 and 'n_labelled_randband' in s1
   x4 = res['X4']['s0m1']
-  assert x4['stage']['all']['F2']['n'] * (len(res['steps']) - 1) <= x4['stage']['all']['F1']['n'] * (len(res['steps']) - 2)
+  n_iv = len(res['steps']) - 1                                    # F2 has no rows at t1 = 0 (the first interval)
+  assert x4['stage']['all']['F2']['n'] * n_iv == x4['stage']['all']['F1']['n'] * (n_iv - 1)
   assert x4['own_within_bound'] and 'F1_fp16' in x4['stage']['all']
   assert 'own_within_bound' in res['X5'] and 'n_low_sd' in res['X3_S2']['s0m1']
   for p in res['primary']['p'].values():
@@ -496,17 +524,14 @@ def test_toy_f2_columns_are_zero_at_step_0(toy):
   assert np.isnan(coef[:, 2:5]).all() and np.isfinite(coef[:, [0, 1, 5]]).all()
 
 
-def test_toy_integrity_refuses_history_without_full_states(toy, tmp_path):
+def test_toy_integrity_refuses_history_without_full_states(toy, tmp_path, monkeypatch):
   root, common = toy
   argv = [x if x != str(root / 'full') else str(tmp_path) for x in common]
   argv[argv.index('--out') + 1] = str(tmp_path / 'out')
-  sys.argv = ['convnext_exits', 'integrity'] + argv
-  try:
-    with pytest.raises(SystemExit, match='full_00010.pt'):
-      X.main()
-    sys.argv = sys.argv + ['--no_full']
+  monkeypatch.setattr(sys, 'argv', ['convnext_exits', 'integrity'] + argv)
+  with pytest.raises(SystemExit, match='full_00010.pt'):
     X.main()
-  finally:
-    sys.argv = sys.argv[:1]
+  monkeypatch.setattr(sys, 'argv', sys.argv + ['--no_full'])
+  X.main()
   integ = json.load(open(tmp_path / 'out' / 'integrity.json'))
   assert integ['usable'] == [] and integ['dropped_no_full'] == [10, 25, 40, 55]
