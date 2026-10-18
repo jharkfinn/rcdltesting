@@ -69,9 +69,11 @@ bit-identical.
 | E3 | Head start: did the neuron already fire on a class before that class wrote into it? | circuit racing | tiny AdamW and Muon done (Sec. 7): strict head start not seen; the essay's milder one not tested |
 | E4 | Muon against AdamW against SGD | optimizer as an intervention on circuit racing | Muon done (Sec. 7, E4); SGD not run |
 | E5 | RCDL head (growing table) as a memory store | do offshoots come from captured residual error? | |
-| E6 | Umbrella = bee with exact attribution, parametric against RCDL head | off-ramp claim | |
-| E7 | Crush where packing is predicted (long-tail classes, 13-unit last layer) | rare facts ride related circuits | 13-unit crush done (Sec. 7, E7); long-tail classes as the rare-class experiment (`EXACT_HISTORY.md` 4.3), running |
+| E6 | Umbrella = bee with exact attribution, parametric against RCDL head | off-ramp claim | ran on molab-G (about 140 jobs) until the sandbox was reclaimed; no analysed result (`EXACT_HISTORY.md` 4.2) |
+| E7 | Crush where packing is predicted (long-tail classes, 13-unit last layer) | rare facts ride related circuits | 13-unit crush done (Sec. 7, E7); rare classes seed 0 done, no primary validated (Sec. 7, 'Rare classes, seed 0'); seed 1 not run |
 | E8 | Toy: relatedness against anticorrelation as the cause of shared neurons | gap 2 above | done, 160 runs (Sec. 6) |
+| Audits | Blind Haiku audits of the essay's microscopes, E1 and T90, with random-direction controls | 99% / 50% legibility, legible at every scale | done (Sec. 7): the audit cannot tell InceptionV1 units from pre-ReLU random directions |
+| Exits | Exits, entries and first in line from the exact record (`EXACT_HISTORY.md` 4.1) | first in line, unknown pressure | E1 and E1r done (Sec. 7); E4 lost |
 
 ## 5. E0 results: the canonical InceptionV1 neurons on all 50,000 validation images
 
