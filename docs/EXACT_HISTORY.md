@@ -142,7 +142,11 @@ point (it is up to 8e-5 of the weights, not 0); trajectory checks before a snaps
 version is bit-identical to its final checkpoint). X1 (why a class leaves) is exploratory: no outcome of it refutes
 the essay, because the essay says the pressure is unknown.
 
-Status: implementation and adversarial review running; runs on E1, E1r and E4 data need no training.
+Status (2026-10-18): code reviewed (27 of 31 findings fixed) and run on E1 and E1r; E4 was lost with its sandbox.
+Results in `NEURON_DEVELOPMENT.md` ("Exits, entries and first in line"): the exit events fail the pre-registered
+validity gate in both runs (25 to 27% of anchored exits replicate, against 50% required), so X1 to X3 are not read as
+mechanism; first in line (X4 F2) reverses after step 2,500 in both seeds (+0.03 early, -0.09 to -0.15 later); the
+own-gain loop (X5) is present in both.
 
 ### 4.2 Umbrella = bee (short fine-tunes from E1)
 
@@ -166,7 +170,9 @@ best-recognized class unrelated to bee as the source (jack-o'-lantern, 90% top-1
 close to the essay's 44%); umbrella with its 10 recognized training images is a secondary, weak-route arm.
 
 Status: the fine-tune script passed its GPU smoke test (interval buckets add up to the weight change to 8e-7; the frozen
-parameters do not move; the photo's group is non-zero only in taught runs). Analysis and arm queue being implemented.
+parameters do not move; the photo's group is non-zero only in taught runs). 2026-10-18: the arm queue ran on molab-G
+and had finished about 140 jobs with none failed when the sandbox was reclaimed; outputs written after the storage limit
+of 2026-10-17 were not uploaded, so E6 has no analysed result yet.
 
 ### 4.3 Rare classes ride related machinery (four to six training runs)
 

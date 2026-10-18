@@ -1351,6 +1351,82 @@ Seed 0 shows they are needed before a replication means what the protocol intend
 Data: `docs/data/rare/seed0/` (compare output, per-class measures, go/no-go, logs) and the list of suspected bugs and
 protocol deviations, `docs/data/rare/seed0/bugs_and_questions.md`.
 
+### Exits, entries and first in line (EXACT_HISTORY 4.1): E1 and its replication E1r (2026-10-18)
+
+Question. The essay says a related input finds the unit that is "first in line", that established routes "get there
+first and starve the packed circuit of gradient", and that "some pressure keeps branches from overgrowing. We don't
+know what it is". Only the exact record can split a unit's response change over an interval into the writes of each
+class, the decay of earlier writes, input drift and a change of position.
+
+Setup. `experiments/convnext_exits.py` after its adversarial review (27 of 31 findings fixed, dfc3bc2; E1r with the
+class-count fix 7274271). Grid: E1's 16 checkpoints only. The fp32 history snapshots were lost with molab-F, so the run
+used `--no_full`: no refinement between checkpoints, no snapshot preconditioner, and the X5 chains are the four
+2,500-step intervals from step 2,500 to 12,500. Per class, validation images 1 to 25 select (half H1) and images 26 to
+50 measure (half H2); the swapped direction is reported as a check. E1r adds its random-group split as the null band.
+Exactness: the parts of every response change add up to the measured change to 2.1e-8 (E1) and 2.5e-8 (E1r), relative,
+over all blocks and intervals; the view, provenance and event checks are below 1e-7.
+
+Definitions. For unit n and class c, R_c(t) is the unit's mean response on c's measurement images at checkpoint t;
+Top_n(t) the unit's 20 strongest classes. An exit of c: c in Top_n at 2 or more checkpoints from step 1,000, best rank
+10 or better, rank above 40 at the end. Anchored: 2 or more of the unit's 5 final strongest classes were already in
+Top_n at the exit's peak. Replicated: the same exit is found on the other half. C1 controls: classes of the same rank
+at the peak. Capture O_n,k = T_k(k) / sd_n: class k's own writes into unit n over an interval, measured on k, in units
+of the spread sd_n of the unit's class responses.
+
+| | E1 | E1r |
+|---|---|---|
+| exits / anchored / anchored and replicated | 15,079 / 4,901 / 1,313 | 15,145 / 4,844 / 1,197 |
+| persistent entries | 22,837 | 22,994 |
+| replication rate of anchored exits (relaxed rule) | 0.27 (0.35) | 0.25 (0.31) |
+
+Validity gate (pre-registered): fewer than 50% of anchored exits replicate, so the exit events are noise-dominated in
+both runs. With 25 images per half, a change of rank around 20 to 40 is mostly sampling noise. X1, X2 and X3 rest on
+these events and are reported below but not read as mechanism.
+
+| primary (Holm over five) | E1 | E1r | status |
+|---|---|---|---|
+| X1, own share of the excess margin fall at exits, against C1 | 0.78 [0.22, 1.45], p 0.014 | 0.84 [0.37, 1.51], p 0.005 | not interpretable (gate) |
+| X2, own share of the rise: dropped minus persistent entries | -1.23 [-1.61, -0.90], p 0.005 | -1.38 [-1.82, -0.94], p 0.005 | not interpretable (gate) |
+| X3 S1, withdrawn teaching signal: exits minus C1 | +0.012 [-0.019, +0.043], p 0.48 | +0.006 [-0.027, +0.038], p 0.72 | no effect |
+| X4 F2, capture on the relatives' part of the on-ness | -0.029 [-0.033, -0.026], p 0.005 | -0.025 [-0.029, -0.021], p 0.005 | replicated |
+| X5, own-gain loop (coefficient against permutation null) | 0.77 against 0.59, p 0.005 | 0.84 against 0.66, p 0.005 | replicated |
+
+- X1 is not a statement that own writes dominate exits. Its shares sum to 1 over a small total: in E1 (late anchored
+  exits) the company's share is +5.3 and the other classes' -9.9 next to the own 0.78. On the replicated anchored exits
+  alone the own share is 0.19 (E1) and 0.08 (E1r), 0.39 and 0.38 late.
+- First in line (X4 F2, which does not depend on exit events). Within a class and interval, the rank regression of a
+  unit's capture of the class's own writes on the part of the unit's on-ness that the class's relatives wrote, given
+  the on-ness z and z^2. By phase of training, E1 / E1r:
+
+  | phase | before step 2,500 | 2,500 to 10,000 | after 10,000 |
+  |---|---|---|---|
+  | F2 | +0.033 / +0.039 | -0.089 / -0.096 | -0.135 / -0.147 |
+
+  The swapped halves give -0.030 / -0.025 pooled. Early, on-ness built by relatives comes with slightly more capture,
+  as the essay's head start says. From step 2,500 on the sign reverses and the effect grows: a unit made "on" for a
+  class by its relatives captures less of that class's own error than a unit equally on for other reasons. Stage 3
+  gives -0.077 in both runs.
+- The leader (the unit most on for a class at the start of an interval) captures more than the median unit of its stage
+  in stages 2 and 3 (F1 0.76 and 0.83 in E1, 0.75 and 0.85 in E1r) and less in stage 1 (0.39 and 0.45), the stage where
+  a unit's strongest classes also push its bias down (the stage-1 reversal above). Pooled F1 is 0.62 and 0.66, above the
+  pre-registered 'counts against' bound of 0.55. Any gradient account predicts that an active unit receives more
+  gradient, so F1 alone does not single out the essay's mechanism.
+- X5: a unit's own-write gain on a class in one interval predicts its gain in the next beyond a within-row permutation
+  (0.77 against 0.59, 0.84 against 0.66; 1.14 and 1.15 million rows). The other classes' gain enters with a small
+  negative coefficient (-0.06, -0.03). Capture is self-reinforcing, which again is expected of gradient descent with
+  gating.
+
+Bearing on the essay. The head start holds only in the first 2,500 steps; afterwards relatives' on-ness predicts less
+capture, in two seeds and both half-directions, so "first in line" is not supported as a lasting mechanism. Starvation
+of the teaching signal at exits is not seen, but the exit events themselves do not pass the validity gate, so the
+"unknown pressure" stays open; a larger probe (more images per class) or fewer, sharper events is needed before X1 to X3
+can answer it.
+
+Limits: two AdamW seeds of the tiny model; the 16 checkpoints only; E4 (Muon) and the formal compare stage were
+running when the sandboxes were reclaimed (the replication judgement above is by inspection of the two runs'
+primaries); exits X4 is unrelated to the stage-1 readout split also called X4 above. Data: `docs/data/exits/e1/`,
+`docs/data/exits/e1r/`.
+
 ### Blind audit of the essay's own last-layer neurons (pilot, Haiku raters, 2026-10-17)
 
 The essay puts the share of easily interpretable last-layer neurons at about 50% for InceptionV1 mixed5b "with better
@@ -1620,3 +1696,13 @@ count with the held-out test is the sharper measure.
   notebook session: a sandbox opened by a script that then closed its browser was recycled within about 10 minutes.
   Sandboxes are now held open by a long-lived cloud browser tab, which also reads the pairing URL and token from inside
   that tab; runs resume from `resume.pt` on Hugging Face when a sandbox is lost anyway.
+- 2026-10-17: the private Hugging Face dataset reached the account's storage limit ("set up automatic credit
+  recharge"); from then on every upload from both sandboxes failed, while downloads still worked. Small results were
+  pulled through the notebook channel in checksummed pieces and kept in git (`docs/data/`). Making the dataset public
+  (115.7 GB: model weights, attribution parts, optimizer snapshots, logs and about 140 MB of microscope crop sheets of
+  validation images; no secrets found in a scan of its 215 text files) would free the private quota; that needs the
+  owner.
+- 2026-10-18: both sandboxes (D and G) returned HTTP 410. Lost with them, because uploads were failing: T90 at about
+  step 50,000 of 225,180 (only its 10-epoch microscope was pulled), the E6 umbrella queue after about 140 finished jobs
+  (outputs written after the storage limit), the exits run on E4 and the E1-against-E1r compare stage. Everything in
+  `docs/data/` is safe.
