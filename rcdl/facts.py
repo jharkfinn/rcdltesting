@@ -236,15 +236,17 @@ def tangent_spectrum(J, h, mean_free: bool = True):
   The pre-norm ignores the scale of h (and, for LayerNorm, a shift along the ones vector), so J h = h (and J 1 = 1): these
   directions are eigenvectors with eigenvalue 1 by construction. With P the projector onto their orthogonal complement,
   spec(P J P) = {0}^m U spec(J restricted to the complement), m = 2 (LayerNorm) or 1 (RMSNorm); the m smallest values
-  are dropped. Returns (n, d - m), sorted ascending."""
+  are dropped. Returns (n, d - m), sorted ascending, on the CPU (small dense eigenproblems are much faster there than
+  on the GPU path, which also leans on the CPU)."""
+  J, h = J.detach().double().cpu(), h.detach().double().cpu()
   n, d = h.shape
   v = h - h.mean(-1, keepdim=True) if mean_free else h
   U = [v / v.norm(dim=-1, keepdim=True)]
   if mean_free:
     U.append(torch.full_like(h, d ** -0.5))
-  U = torch.stack(U, -1).double()                                  # (n, d, m), orthonormal
-  P = torch.eye(d, dtype=torch.float64, device=h.device) - U @ U.transpose(1, 2)
-  ev = torch.linalg.eigvals(P @ J.double() @ P).abs().sort(-1).values
+  U = torch.stack(U, -1)                                           # (n, d, m), orthonormal
+  P = torch.eye(d, dtype=torch.float64) - U @ U.transpose(1, 2)
+  ev = torch.linalg.eigvals(P @ J @ P).abs().sort(-1).values
   return ev[:, U.shape[-1]:]
 
 
@@ -305,9 +307,10 @@ def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int =
     step = lambda v, k=k: v + a * model.pass_block(k, v[None, None])[0, 0]
     with torch.enable_grad():
       J = vmap(jacrev(step))(h).detach()                           # (n, d, d)
-    rad = torch.linalg.eigvals(J.double()).abs().amax(-1)
-    nrm = torch.linalg.matrix_norm(J.double(), ord=2)
-    dev = torch.linalg.matrix_norm((J - eye).double(), ord=2)
+    Jc = J.double().cpu()                                          # dense eigenproblems on the CPU (see tangent_spectrum)
+    rad = torch.linalg.eigvals(Jc).abs().amax(-1)
+    nrm = torch.linalg.matrix_norm(Jc, ord=2)
+    dev = torch.linalg.matrix_norm(Jc - eye.double().cpu(), ord=2)
     tan = tangent_spectrum(J, h)
     with torch.no_grad():
       nxt = vmap(step)(h)
@@ -325,7 +328,7 @@ def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int =
       tn = tangent_spectrum(Jn, hn)
       out['jacobian_noisy'] = {'noise': 0.25, 'pass': 1, 'tangent_radius_median': float(tn[:, -1].median()),
                                'tangent_contracting_share_median': float((tn < 1).double().mean(-1).median()),
-                               'spectral_norm_median': float(torch.linalg.matrix_norm(Jn.double(), ord=2).median())}
+                               'spectral_norm_median': float(torch.linalg.matrix_norm(Jn.double().cpu(), ord=2).median())}
     h = nxt
   out['jacobian_by_pass'] = per_pass
   out['probe_version'] = 2

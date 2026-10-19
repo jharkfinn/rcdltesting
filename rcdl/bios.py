@@ -703,9 +703,10 @@ def loop_probe(model: GemmaBios, data, seen=None, amp: bool = False, n_jac: int 
   for k in range(K0):
     J = vmap(jacrev(step))(h).detach()                                     # (n, d, d)
     with torch.no_grad():
-      rad = torch.linalg.eigvals(J.double()).abs().amax(-1)
-      nrm = torch.linalg.matrix_norm(J.double(), ord=2)
-      dev = torch.linalg.matrix_norm((J - eye).double(), ord=2)
+      Jc = J.double().cpu()                                                # dense eigenproblems on the CPU
+      rad = torch.linalg.eigvals(Jc).abs().amax(-1)
+      nrm = torch.linalg.matrix_norm(Jc, ord=2)
+      dev = torch.linalg.matrix_norm(Jc - eye.double().cpu(), ord=2)
       tan = tangent_spectrum(J, h, mean_free=False)
       nxt = step(h)
     per_pass.append({'pass': k + 1, 'spectral_radius_median': float(rad.median()),
