@@ -63,6 +63,12 @@ class FactsConfig:
   cos_train: bool = False  # cos: also train W and b (a trained cosine MLP with the kernel-scaled initialisation)
   ffn_zero_init: bool = False  # geglu / relu: zero-initialise the output weight, as the cos and rfrelu readouts are (at
                                # initialisation the block then writes only its output bias)
+  loop_mode: str = 'residual'  # 'residual': h <- h + a f(LN(h)); 'infiloop': the next state is a content-weighted,
+                               # decayed average of all candidates z_t = h_t-1 + a f(LN(h_t-1)) (Li et al. 2026, arXiv
+                               # 2610.11570): h_t = N_t / D_t, N_t = b N_t-1 + e_t z_t, D_t = b D_t-1 + e_t, e_t = exp(clamp(q .
+                               # RMSNorm(z_t), -8, 8)), z_0 = h_0; q (zero-initialised) and b = exp(-softplus(r)) (b = 0.55
+                               # at initialisation) are learned
+  lr_schedule: str = 'constant'  # 'constant' | 'cosine' (to 0 at the end of the first phase, `steps`)
   rbf_layers: str = 'all'  # 'all' | 'last': which FFNs are growing RBF layers (others GeGLU)
   rbf_temperature: float = 1.0
   rbf_eta: float = 1.0     # value learning rate of the growing layer
@@ -138,6 +144,22 @@ class ReLUFeatures(nn.Module):
     return self.o(self.scale * F.relu(x @ self.W.T))
 
 
+def infiloop(h, K, candidate, q, r):
+  """Loop-native attention residual (Li et al. 2026, arXiv 2610.11570, eq. 2-4): z_0 = h, z_t = candidate(t - 1, h_t-1),
+  h_t = N_t / D_t with N_t = b N_t-1 + e_t z_t, D_t = b D_t-1 + e_t, e_t = exp(clamp(q . RMSNorm(z_t), -8, 8)) and
+  b = exp(-softplus(r)). Scores and sums in fp32."""
+  dtype = h.dtype
+  b = torch.exp(-F.softplus(r.float()))
+  score = lambda z: torch.exp((z.float() * torch.rsqrt(z.float().pow(2).mean(-1, keepdim=True) + 1e-6) @ q.float()).clamp(-8, 8))
+  e = score(h)
+  N, D = e[..., None] * h.float(), e
+  for k in range(K):
+    z = candidate(k, (N / D[..., None]).to(dtype))
+    e = score(z)
+    N, D = b * N + e[..., None] * z.float(), b * D + e
+  return (N / D[..., None]).to(dtype)
+
+
 def make_ffn(cfg, gen):
   if cfg.ffn == 'cos':
     return CosFeatures(cfg.d, cfg.width, cfg.cos_sigma, gen, cfg.cos_train)
@@ -188,6 +210,11 @@ class FactsModel(nn.Module):
     self.ln_f = nn.LayerNorm(cfg.d)
     self.head = nn.Linear(cfg.d, cfg.n_values)
     self.register_buffer('mask', torch.triu(torch.ones(S, S, dtype=torch.bool), 1))
+    if cfg.loop_mode not in ('residual', 'infiloop'):
+      raise ValueError(f'unknown loop_mode {cfg.loop_mode!r}')
+    if cfg.loop_mode == 'infiloop':                  # parameters only, no random draws: the rest of the model is unchanged
+      self.loop_q = nn.Parameter(torch.zeros(cfg.d))
+      self.loop_r = nn.Parameter(torch.tensor(math.log(math.expm1(-math.log(0.55)))))
     if cfg.loops > 1 and not cfg.loop_tied:          # built last, with their own generator, so the tied model and the
       g2 = torch.Generator().manual_seed(cfg.seed + 7919)   # data drawn after it from `gen` stay the same
       self.extra_ln = nn.ModuleList([nn.LayerNorm(cfg.d) for _ in range(cfg.loops - 1)])
@@ -227,6 +254,8 @@ class FactsModel(nn.Module):
     K, a = loops or self.cfg.loops, self.cfg.loop_alpha if alpha is None else alpha
     if not self.cfg.loop_tied and K != self.cfg.loops:
       raise ValueError('a model with untied passes runs exactly cfg.loops passes')
+    if self.cfg.loop_mode == 'infiloop':
+      return infiloop(h, K, lambda k, v: v + a * self.pass_block(k, v), self.loop_q, self.loop_r)
     for k in range(K):
       h = h + a * self.pass_block(k, h)
     return h
@@ -293,8 +322,12 @@ def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int =
       h0 = torch.cat(rows)[:, 0]
       h, prev_pred, prev_step = h0, None, None
       for k in range(1, k_max + 1):
-        step = a * model.block(model.cfg.layers - 1, h[:, None])[:, 0]
-        nxt = h + step
+        if model.cfg.loop_mode == 'infiloop':          # the state depends on the whole history: rerun from h_0
+          nxt = model.loop(h0[:, None], k)[:, 0]
+          step = nxt - h
+        else:
+          step = a * model.block(model.cfg.layers - 1, h[:, None])[:, 0]
+          nxt = h + step
         pred = model.head(model.ln_f(nxt)).argmax(-1)
         rec = {'pass': k, 'acc': float((pred == targets).float().mean()),
                'norm_ratio_median': float((nxt.norm(dim=-1) / h0.norm(dim=-1)).median()),
@@ -309,7 +342,7 @@ def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int =
     h = model.last_state(tokens[:n_jac])[:, 0]                     # (n, d)
   eye = torch.eye(h.shape[-1], device=h.device)
   per_pass = []
-  for k in range(K):
+  for k in range(K if model.cfg.loop_mode == 'residual' else 0):  # with infiloop a pass depends on the history: skipped
     step = lambda v, k=k: v + a * model.pass_block(k, v[None, None])[0, 0]
     with torch.enable_grad():
       J = vmap(jacrev(step))(h).detach()                           # (n, d, d)
@@ -352,6 +385,8 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
   model = FactsModel(cfg, gen).to(device)
   params = [p for p in model.parameters() if p.requires_grad]
   opt = torch.optim.Adam(params, lr=cfg.lr)
+  if cfg.lr_schedule not in ('constant', 'cosine'):
+    raise ValueError(f'unknown lr_schedule {cfg.lr_schedule!r}')
 
   R, T, L = name_region(cfg), cfg.name_tokens, cfg.n_filler
   if T == 1:
@@ -412,6 +447,9 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
             flush=True)
     if step == total:
       break
+    if cfg.lr_schedule == 'cosine' and step < cfg.steps:
+      for g in opt.param_groups:
+        g['lr'] = 0.5 * cfg.lr * (1.0 + math.cos(math.pi * step / cfg.steps))
     lo, hi = (0, N) if step < cfg.steps else (N, N + M)   # phase 2: only the M new individuals
     i = torch.randint(lo, hi, (cfg.batch_size,), generator=gen).to(device)
     a = torch.randint(0, A, (cfg.batch_size,), generator=gen).to(device)

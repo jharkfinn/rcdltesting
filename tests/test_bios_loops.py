@@ -119,3 +119,20 @@ def test_probe_alpha_and_tangent_measures():
   p = out['jacobian_by_pass'][0]
   assert p['tangent_radius_max'] >= p['tangent_radius_median'] > 0 and 0 <= p['tangent_contracting_share_median'] <= 1
   assert out['probe_version'] == 2 and p['norm_ratio_median'] > 0
+
+
+def test_infiloop_last_ffn_matches_the_facts_rule_and_probe_runs():
+  from rcdl.facts import infiloop
+  cfg, world, m = _model(ffn='cos', ffn_loops=3, ffn_loop_mode='infiloop')
+  blk = m.blocks[-1]
+  assert blk.loop_mode == 'infiloop' and m.blocks[0].loop_mode == 'residual'
+  with torch.no_grad():
+    blk.loop_q.normal_()
+    x, _, _, _, route = _tokens(world)
+    h = m.loop_input(x, route)
+    want = infiloop(h, 3, lambda k, v: v + blk.post_ffn_norm(blk.ffn(blk.pre_ffn_norm(v))), blk.loop_q, blk.loop_r)
+    torch.testing.assert_close(m(x, route), m.final_norm(want) @ m.embed.weight.T)
+  out = loop_probe(m, _tokens(world, 8), None, n_jac=3)
+  assert out['jacobian_by_pass'] == [] and set(out['acc_by_K']) == {'1', '2', '3', '4', '6', '8', '12', '16'}
+  with pytest.raises(ValueError):
+    _model(ffn_loops=2, ffn_loop_mode='gated')

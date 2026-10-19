@@ -132,6 +132,9 @@ class BiosConfig:
   ffn_loops: int = 1            # K: passes of the last block's FFN with tied weights, x <- x + a post_ffn_norm(FFN(
                                 # pre_ffn_norm(x))) (1 = the plain model; 'geglu' and 'cos' only)
   ffn_loop_alpha: float = 1.0   # a: step size of each pass
+  ffn_loop_mode: str = 'residual'  # 'residual' | 'infiloop': the last FFN's passes are combined by the loop-native
+                                  # attention residual of Li et al. 2026 (rcdl.facts.infiloop; candidates z_t = x_t-1 + a
+                                  # post_ffn_norm(FFN(pre_ffn_norm(x_t-1))), learned q and decay, per position)
   rbf_T: float = 2.0            # kernel exp(-||q - k||^2 / (2 T sqrt(d)))
   rbf_eta: float = 1.0          # η: v_i = -η dℓ_i/ds_i
   rbf_capacity: int = 4_000_000  # ring-buffer rows
@@ -562,6 +565,14 @@ class Block(nn.Module):
     self.loops, self.loop_alpha = (cfg.ffn_loops, cfg.ffn_loop_alpha) if i == cfg.layers - 1 else (1, 1.0)
     if self.loops > 1 and kind not in ('geglu', 'cos'):
       raise ValueError(f'ffn_loops > 1 needs a geglu or cos last layer, not {kind!r}')
+    if cfg.ffn_loop_mode not in ('residual', 'infiloop'):
+      raise ValueError(f'unknown ffn_loop_mode {cfg.ffn_loop_mode!r}')
+    self.loop_mode = cfg.ffn_loop_mode if i == cfg.layers - 1 else 'residual'
+    if self.loop_mode == 'infiloop':                 # no random draws: the rest of the model is unchanged
+      if kind not in ('geglu', 'cos'):
+        raise ValueError(f'ffn_loop_mode infiloop needs a geglu or cos last layer, not {kind!r}')
+      self.loop_q = nn.Parameter(torch.zeros(cfg.d_model))
+      self.loop_r = nn.Parameter(torch.tensor(math.log(math.expm1(-math.log(0.55)))))
     if kind == 'rbf':
       self.ffn = GrowingRBF(cfg, device)
     elif kind == 'cos':
@@ -586,6 +597,11 @@ class Block(nn.Module):
       return x + self.ffn(x, fact).to(x.dtype)
     if self.kind == 'geglu_fact':
       return x + self.post_ffn_norm(self.ffn(self.pre_ffn_norm(x), fact))
+    if self.loop_mode == 'infiloop':
+      from rcdl.facts import infiloop
+      a = self.loop_alpha
+      return infiloop(x, self.loops, lambda k, v: v + (self.ffn_step(v) if a == 1.0 else a * self.ffn_step(v)),
+                      self.loop_q, self.loop_r)
     for _ in range(self.loops):
       h = self.ffn_step(x)
       x = x + (h if self.loop_alpha == 1.0 else self.loop_alpha * h)
@@ -700,7 +716,7 @@ def loop_probe(model: GemmaBios, data, seen=None, amp: bool = False, n_jac: int 
   step = lambda v: v + a0 * blk.ffn_step(v)
   eye = torch.eye(h.shape[-1], device=h.device)
   per_pass = []
-  for k in range(K0):
+  for k in range(K0 if blk.loop_mode == 'residual' else 0):             # with infiloop a pass depends on the history
     J = vmap(jacrev(step))(h).detach()                                     # (n, d, d)
     with torch.no_grad():
       Jc = J.double().cpu()                                                # dense eigenproblems on the CPU

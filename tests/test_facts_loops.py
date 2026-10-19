@@ -243,3 +243,57 @@ def test_zero_init_only_zeroes_the_output_weight(ffn):
     h = b.last_state(x)
     i = b.cfg.layers - 1
     torch.testing.assert_close(b.block(i, h), b.ffn[i].o.bias.expand_as(h))
+
+
+def test_infiloop_streaming_equals_the_explicit_weighted_average():
+  from rcdl.facts import infiloop
+  torch.manual_seed(0)
+  d, K = 6, 5
+  h0 = torch.randn(3, d, dtype=torch.float64)
+  W = torch.randn(d, d, dtype=torch.float64) * 0.3
+  cand = lambda k, v: v + torch.tanh(v @ W) * (1 + 0.1 * k)
+  q, r = torch.randn(d, dtype=torch.float64), torch.tensor(0.3, dtype=torch.float64)
+  out = infiloop(h0, K, cand, q, r)
+  lam = torch.nn.functional.softplus(r)
+  s = lambda z: (z * torch.rsqrt(z.pow(2).mean(-1, keepdim=True) + 1e-6) @ q).clamp(-8, 8)
+  zs, h = [h0], h0
+  for k in range(K):                                 # eq. 2: h_t = sum_i alpha_t,i z_i, alpha ~ exp(s_i - lam (t - i))
+    zs.append(cand(k, h))
+    t = len(zs) - 1
+    w = torch.stack([torch.exp(s(z) - lam * (t - i)) for i, z in enumerate(zs)])        # (t + 1, n)
+    h = (w[..., None] * torch.stack(zs)).sum(0) / w.sum(0)[..., None]
+  torch.testing.assert_close(out, h, rtol=1e-5, atol=1e-6)    # infiloop keeps scores and sums in fp32 by design
+
+
+def test_infiloop_model_starts_at_equal_weights_and_probe_runs():
+  cfg = _cfg(ffn='cos', cos_sigma=2.0, loops=2, loop_mode='infiloop')
+  m = _model(cfg)
+  with torch.no_grad():
+    m.loop_q.zero_()
+    m.loop_r.fill_(math.log(math.expm1(-math.log(0.55))))
+    x = _tokens(cfg)
+    h0 = m.last_state(x)
+    i = cfg.layers - 1
+    z1 = h0 + m.block(i, h0)
+    h1 = (0.55 * h0 + z1) / 1.55                      # q = 0: every score is 1, b = 0.55
+    z2 = h1 + m.block(i, h1)
+    h2 = (0.55 * (0.55 * h0 + z1) + z2) / (0.55 * 1.55 + 1)
+    torch.testing.assert_close(m.loop(h0), h2)
+  y = torch.randint(0, cfg.n_values, (len(x),))
+  out = loop_probe(m, x, y, n_jac=2, k_max=4)
+  assert out['jacobian_by_pass'] == [] and len(out['trajectory']) == 4
+  assert out['trajectory'][1]['acc'] == pytest.approx(out['acc_by_K']['2'])
+  with pytest.raises(ValueError):
+    FactsModel(_cfg(loop_mode='gated'), torch.Generator().manual_seed(0))
+
+
+def test_cosine_schedule_reaches_zero_at_the_end(monkeypatch):
+  lrs = []
+  real = torch.optim.Adam.step
+  def spy(self, *a, **k):
+    lrs.append(self.param_groups[0]['lr'])
+    return real(self, *a, **k)
+  monkeypatch.setattr(torch.optim.Adam, 'step', spy)
+  run_facts(_cfg(steps=8, eval_every=4, lr=1e-3, lr_schedule='cosine'))
+  assert lrs[0] == pytest.approx(1e-3) and lrs[4] == pytest.approx(0.5e-3)
+  assert lrs[-1] == pytest.approx(0.5e-3 * (1 + math.cos(math.pi * 7 / 8))) and lrs == sorted(lrs, reverse=True)
