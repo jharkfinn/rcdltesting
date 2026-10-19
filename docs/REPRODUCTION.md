@@ -685,7 +685,7 @@ Status 2026-10-19 18:30 UTC: facts round 1 is complete (2 seeds). Facts round 2 
   - The Gemma post-norm adds a write of fixed RMS on each pass, so that map has no fixed point (Labovich 2604.15259).
   - Physics of Language Models 3.1 (2309.14316) ties wording memorization to data without augmentation. Our biographies already use 20 templates per attribute, so the Cos T = 1 wording memorization of §7.5b comes from the model or the optimizer.
 
-**Basis tests and width sweep** (interim, 2026-10-19 21:40 UTC; checked by a 3-agent verification workflow that recomputed every number and reviewed the claims; data `docs/data/loops/results/`, tables `docs/data/loops/interim_2110/`).
+**Basis tests and width sweep** (interim, 2026-10-19 21:25 UTC; checked by a 3-agent verification workflow that recomputed every number and reviewed the claims; data `docs/data/loops/results/`, tables `docs/data/loops/interim_2110/`).
 
 **Measures.**
 - **Gain:** the late accuracy at K = 4 minus the late accuracy at K = 1, same arm and seed, in points. This is the pre-registered measure.
@@ -774,7 +774,7 @@ The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
   - GeGLU at width 4,096, matched to it, trains well here: 0.962 late at K = 1, seed 1.
 - **Long runs** (60,000 steps, `facts_loops_long.json`, predictions C1–C3 in `predictions_long.md`) test whether the looping lead survives convergence.
 
-**Pending** (status 21:40 UTC: basis tests complete; width sweep seed 2 at K = 1 and 4 is running, then K = 2; the T-rule verdict waits for fixed-Cos seed 2 at D = 1,536 and 4,096). The account keeps at most 2 GPU sandboxes running, so all runs share one GPU (`docs/NEURON_DEVELOPMENT.md` §8). To speed up, on 2026-10-19 at 19:10 the queues were cut to the runs that answer the open questions. The configs keep every entry; the cut runs can be run later.
+**Pending** (status 21:25 UTC: basis tests complete; width sweep seed 2 at K = 1 and 4 is running, then K = 2; the T-rule verdict waits for fixed-Cos seed 2 at D = 1,536 and 4,096). The account keeps at most 2 GPU sandboxes running, so all runs share one GPU (`docs/NEURON_DEVELOPMENT.md` §8). To speed up, on 2026-10-19 at 19:10 the queues were cut to the runs that answer the open questions. The configs keep every entry; the cut runs can be run later.
 
 - **Width sweep** (`facts_loops_width.json`, predictions `predictions_width.md`): can looping let a small Cos-Bochner layer match the large one at equal parameters? Cos-Bochner σ = 4 at D = 256 … 8,192, K = 1, 2, 4, seeds 1 and 2. D = 1,536 has the trained parameters of GeGLU 512. Cut: K = 8, and σ = 8 at D = 512 and 2,048.
 - **Basis tests** (`facts_loops_basis.json`, predictions `predictions_basis.md`): is the gain a property of a fixed random basis or of the cosine? Arms at D = 1,536 and 4,096, K = 1 and 4, seeds 1 and 2:
