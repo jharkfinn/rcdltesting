@@ -730,6 +730,55 @@ Not run: biography seed 3, and the cuts listed under Pending. Data: `docs/data/l
   - Narrow-kernel Cos speeds up 1.33–1.53 times; zero-initialized MLPs 0.90–1.04 times. So the Cos-against-MLP contrast survives the initialization control. The size of the MLP losses was partly an initialization artifact.
 - **Related paper read end to end:** Li et al., InfiLoop, arXiv 2610.11570 (`docs/data/loops/papers/2610.11570_infiloop.md`). It reports "latent overthinking" in carry-last looped transformers: extra loops overwrite correct states. Our looped FFN shows the same thing. Trained at K = 4, accuracy peaks at pass 4 and falls to 0.34 by pass 16, with a relative step of 0.18–0.20 per pass. The paper's fix, a content-gated convex aggregation of loop outputs, suggests a direct test on our task (see the note).
 
+**Tests 1–3 after the verdict table** (2026-10-19 23:10 UTC; predictions in `predictions_zeroinit.md` and `predictions_gating_lr.md`, written before the runs; data in `docs/data/loops/results/`).
+
+- **Test 3, learning-rate decay** (D = 256, 60,000 steps, Adam rate decayed to 0 by a cosine, seeds 1 and 2):
+  - Every run reaches 100%. Late accuracy (last quarter):
+    - K = 1: 1.0000 / 0.9999;
+    - K = 4: 0.9997 / 0.9999;
+    - K = 8: 0.9999 / 0.9999.
+  - The standard deviation in the window is at most 0.11 points.
+  - **R1 holds:** the decay removes the late oscillation.
+  - **R2 is refuted:** K = 4 minus K = 1 is −0.03 / 0.00 points.
+  - So looping does not raise the level the small layer reaches. The earlier result ("looped D = 256 reaches 100%, unlooped never above 0.979") came from the constant rate. Unlooped runs oscillated below 100% and looped runs touched it. With the rate decayed, the unlooped 279,200-parameter model stores all 32,768 facts too.
+- **Test 2, InfiLoop gating, facts.**
+  - Speed-up is the step at which the residual K = 1 run reaches 20–50% accuracy, divided by the same step for the gated run.
+  - Overthinking is the probe accuracy at the trained K, then at twice the trained K.
+
+  | Arm | Residual K = 4: late gain / speed-up | Gated K = 4: late gain / speed-up | Residual K = 8 | Gated K = 8 | Overthinking, gated K = 4 |
+  |---|---|---|---|---|---|
+  | Cos σ = 4, D = 256 | +9.3 / +9.4; 1.31–1.40 | +7.9 / +8.6; 1.27–1.36 | +9.3 / +9.4; 1.37–1.51 | +8.3 / +8.1; 1.33–1.43 | 0.804 → 0.569 / 0.799 → 0.555 |
+  | Cos σ = 4, D = 1,536 | +2.6 / +3.4; 1.45–1.54 | +2.8 / +2.8; 1.41–1.49 | +2.7 / +2.8; 1.66–1.78 | +2.4 / +2.6; 1.58–1.68 | 0.955 → 0.729 / 0.942 → 0.721 |
+  | GeGLU 512 | −0.9 / −1.8; 0.85–0.89 | −0.6 / −0.8; 0.88–0.91 | −4.1 / −6.2; 0.53–0.69 | −1.2 / −1.5; 0.81–0.84 | 0.934 → 0.804 / 0.917 → 0.799 |
+
+  - **G1 is refuted.** Gating does not remove overthinking here. Accuracy at twice the trained pass count falls 12–25 points for every arm in both seeds, about as much as without gating. The paper's setting (Sudoku, nested loops, deep supervision) differs from ours: one tied FFN and fact recall.
+  - **G2 is refuted.** Gated GeGLU still loses at K = 4 (−0.6 / −0.8) and is still slower (0.88–0.91). Gating does cut GeGLU's K = 8 loss from −4.1 / −6.2 to −1.2 / −1.5 points.
+  - **G3 holds.** Under gating Cos still learns faster (1.27–1.68) and GeGLU slower (0.81–0.91).
+  - **Cos still amplifies a push of the state under gating; gated GeGLU barely does.** At noise 0.25, propagated against end-added accuracy:
+    - Cos D = 256: 0.43 against 0.75–0.76;
+    - Cos D = 1,536: 0.55 against 0.92–0.94;
+    - GeGLU: 0.85–0.88 against 0.91–0.93.
+- **Test 2, InfiLoop gating, biographies** (K = 4; late window, steps 4,500–6,000; held-out / seen / gap):
+
+  | Arm | Gated K = 4 | Residual K = 4 | Residual K = 1 |
+  |---|---|---|---|
+  | Cos T = 2, seed 1 | 0.999 / 1.000 / +0.001 | 0.836 / 0.980 / +0.144 | 0.976 / 1.000 / +0.024 |
+  | Cos T = 2, seed 2 | 0.972 / 0.999 / +0.027 | 0.886 / 0.999 / +0.113 | 0.999 / 1.000 / +0.001 |
+  | Cos T = 1, seed 1 | 0.572 / 0.957 / +0.385 | 0.586 / 0.998 / +0.412 | 0.655 / 0.998 / +0.343 |
+  | GeGLU, seed 1 | 0.999 / 1.000 / +0.001 | 1.000 / 1.000 / 0 | 1.000 / 1.000 / 0 |
+
+  - **G4 holds.** Gating removes most of the K = 4 wording memorization of Cos T = 2: held-out 0.84 / 0.89 becomes 0.999 / 0.972. The gap stays above 2 points in seed 2 (2.7), but the rule needs both seeds to refute.
+  - The gated biography model also tolerates extra passes. Held-out accuracy is 1.000 at the trained K = 4, 0.999 at 6 and 0.979 at 8 (seed 1), against a fall at 12 and 16.
+  - **G5 is refuted.** Gating does not fix Cos T = 1's wording memorization: held-out is 0.572 against 0.655 at residual K = 1. That memorization belongs to the narrow kernel, not to looping.
+
+**Where the question stands: does Cos-Bochner unlock something special with looping?**
+- **Learning speed: yes, robustly.**
+  - With a narrow kernel, a looped Cos-Bochner layer learns the facts 1.3 to 1.8 times faster than unlooped, with plain or gated passes.
+  - Every trained MLP learns slower when looped: GeGLU 512 and 4,096, the ReLU MLP, zero-initialized or gated.
+- **Reachable level: no.** With a decayed learning rate the small unlooped layer also stores every fact. The level gain seen with a constant rate was oscillation.
+- **Generalization: no gain, and plain looping can harm it.** Plain K = 4 looping made the wording-invariant Cos T = 2 memorize wording. Gating removes most of that harm. GeGLU is unaffected either way.
+- **Mechanism:** the looped Cos map is a fast learner that arrives at the answer at the trained pass count. It is not an attractor. It overshoots with more passes, and it amplifies noise in the state, with or without gating.
+
 **Basis tests and width sweep** (interim, 2026-10-19 21:25 UTC; checked by a 3-agent verification workflow that recomputed every number and reviewed the claims; data `docs/data/loops/results/`, tables `docs/data/loops/interim_2110/`).
 
 **Measures.**
