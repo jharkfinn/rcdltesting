@@ -685,47 +685,96 @@ Status 2026-10-19 18:30 UTC: facts round 1 is complete (2 seeds). Facts round 2 
   - The Gemma post-norm adds a write of fixed RMS on each pass, so that map has no fixed point (Labovich 2604.15259).
   - Physics of Language Models 3.1 (2309.14316) ties wording memorization to data without augmentation. Our biographies already use 20 templates per attribute, so the Cos T = 1 wording memorization of §7.5b comes from the model or the optimizer.
 
-**Basis tests and width sweep** (interim, 2026-10-19 21:15 UTC; data `docs/data/loops/results/`, tables `docs/data/loops/interim_2110/`).
+**Basis tests and width sweep** (interim, 2026-10-19 21:40 UTC; checked by a 3-agent verification workflow that recomputed every number and reviewed the claims; data `docs/data/loops/results/`, tables `docs/data/loops/interim_2110/`).
 
-Gain is the late accuracy at K = 4 minus the late accuracy at K = 1, same arm and seed, in points. Share of errors is the gain divided by the K = 1 error rate (1 − late accuracy at K = 1). It is an exploratory measure that corrects for headroom; the pre-registered rule uses points. The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
+**Measures.**
+- **Gain:** the late accuracy at K = 4 minus the late accuracy at K = 1, same arm and seed, in points. This is the pre-registered measure.
+- **Share of errors:** the gain divided by the K = 1 error rate (exploratory).
+- **Speed-up:** the step at which K = 1 first reaches 20%, 30%, 40% and 50% accuracy, divided by the same step for K = 4, linearly interpolated between evaluations. Above 1 means looping learns faster. Amendment 2 names time to accuracy as the secondary measure.
 
-| Arm (D = features or width) | Trained params | Late acc K = 1 | Gain, seed 1 / 2 (points) | Share of K = 1 errors removed, seed 1 / 2 |
-|---|---|---|---|---|
-| Fixed Cos σ = 4, D = 256 | 279,200 | 0.679 | +9.3 / – | 29% / – |
-| D = 512 | 344,736 | 0.776 | +8.9 / – | 39% |
-| D = 1,024 | 475,808 | 0.866 | +5.6 / – | 42% |
-| D = 1,536 (matched to GeGLU 512) | 606,880 | 0.914 | +2.6 / – | 31% |
-| D = 2,048 | 737,952 | 0.930 | +2.6 / – | 38% |
-| D = 4,096 | 1,262,240 | 0.962 | +0.8 / – | 20% |
-| D = 8,192 | 2,310,816 | 0.976 | +0.4 / – | 16% |
-| D = 16,384 | 4,407,968 | 0.982 | +0.7 / +0.3 | 35% / 16% |
-| T1: ReLU random features (frozen), D = 1,536 | 606,880 | 0.431 | +5.8 / +6.7 | 10% / 12% |
-| T1: same, D = 4,096 | 1,262,240 | 0.442 | +7.4 / +6.5 | 13% / 12% |
-| T2: Cos σ = 4 with W trained, D = 1,536 | 1,003,168 | 0.954 | −0.4 / +0.7 | −8% / 14% |
-| T2: same, D = 4,096 | 2,319,008 | 0.969 | +0.3 / +0.4 | 10% / 13% |
-| GeGLU 512 | 608,928 | 0.924 | −0.9 / −1.8 | −11% / −24% |
-| T3: trained ReLU MLP, width 768 | 608,416 | 0.840 | −7.6 / −8.9 | −46% / −57% |
-| T3: same, width 6,144 | 3,371,680 | 0.726 | −38.9 / −25.8 | −161% / −84% |
+**Why speed-up matters here.** Most arms are not converged at 10,000 steps. In the last quarter, accuracy still rises:
+- 4–6 points per 1,000 steps for fixed Cos D ≤ 512;
+- 4–9 for ReLU random features;
+- 3–14 for the trained ReLU MLP;
+- 0.6–1.5 for GeGLU 512 and for fixed Cos D = 1,536 at K = 1.
 
-- **Verdict on the pre-registered rule (`predictions_basis.md`).**
-  - T1 gains in both seeds at both widths.
-  - T2 gains less than fixed Cos at the same D in seed 1: −0.4 against +2.6 at D = 1,536, and +0.3 against +0.8 at D = 4,096. The seed 2 comparison waits for fixed-Cos seed 2.
-  - So reason 1 (a fixed random basis gains from looping, because looping composes features without new parameters) is supported on seed 1.
-  - The trained MLPs (GeGLU, ReLU MLP) lose, as both reasons predicted.
-- **The headroom view adds a second factor.**
-  - Fixed Cos removes 16–42% of its errors with K = 4, at every width. Fixed ReLU features remove only 10–13%.
-  - So among fixed bases the cosine gains more for the errors it has left. That is reason 2, which the pre-registered absolute rule could not see.
-  - Caveat: ReLU random features fit badly even at K = 1 (0.43). Their kernel, the arc-cosine kernel with no bias term, has low resolution, so this comparison mixes the nonlinearity with kernel resolution.
-- **Width (W2) holds on seed 1.** The gain in points shrinks with D: +9.3 at D = 256 down to +0.4 at D = 8,192. In the share of errors the gain is roughly flat (29–42% for D ≤ 2,048) and somewhat lower at large D. So most of the absolute trend is headroom.
-- **Equal parameters (W4) holds on seed 1.** Fixed Cos at D = 1,536 (606,880 trained parameters) reaches 0.941 at K = 4, against 0.924 for GeGLU 512 (608,928) at K = 1. At K = 1, Cos is behind (0.914). Looping, not the layer type, puts it ahead.
-- **W3 holds so far.** No D ≤ 2,048 reaches the large layer (0.982). The best is D = 2,048 at K = 4 with 0.956.
-- **The trained ReLU MLP is an unstable baseline** at Adam 1e-3.
-  - At width 6,144 it is worse than at width 768 even at K = 1 (0.73 against 0.84), and it collapses with looping.
-  - An earlier run showed the same at width 16,384: GeGLU did not train at this rate (§7.5).
-  - Its large losses may come from instability rather than from looping as such.
-- **Small layers are not converged at 10,000 steps.** At D = 256 accuracy still rises 5–6 points per 1,000 steps. The late accuracy of small layers therefore measures speed. Long runs (60,000 steps, `facts_loops_long.json`, predictions C1–C3 in `predictions_long.md`) test whether the looping lead survives convergence.
+For these arms the late accuracy, the gain in points and the share of errors measure where each learning curve stands at steps 7,500–10,000. The speed-up does not have this problem.
 
-**Pending** (status 19:15 UTC). The account keeps at most 2 GPU sandboxes running, so all runs share one GPU (`docs/NEURON_DEVELOPMENT.md` §8). To speed up, on 2026-10-19 at 19:10 the queues were cut to the runs that answer the open questions. The configs keep every entry; the cut runs can be run later.
+The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
+
+| Arm (D = features or width) | Trained params | Late acc K = 1 (mean of seeds) | Gain, seed 1 / 2 (points) | Share of K = 1 errors removed, seed 1 / 2 | Speed-up, seed 1 / 2 |
+|---|---|---|---|---|---|
+| Fixed Cos σ = 4, D = 256 | 279,200 | 0.679 | +9.3 / – | 29% / – | 1.33–1.36 / – |
+| D = 512 | 344,736 | 0.776 | +8.8 / – | 39% / – | 1.40–1.47 / – |
+| D = 1,024 | 475,808 | 0.866 | +5.6 / – | 42% / – | 1.44–1.50 / – |
+| D = 1,536 (matched to GeGLU 512) | 606,880 | 0.914 | +2.6 / – | 31% / – | 1.45–1.51 / – |
+| D = 2,048 | 737,952 | 0.930 | +2.6 / – | 38% / – | 1.38–1.53 / – |
+| D = 4,096 | 1,262,240 | 0.962 | +0.8 / – | 20% / – | 1.41–1.51 / – |
+| D = 8,192 | 2,310,816 | 0.976 | +0.4 / – | 16% / – | 1.42–1.45 / – |
+| D = 16,384 | 4,407,968 | 0.982 | +0.7 / +0.3 | 35% / 16% | 1.36–1.42 / 1.35–1.38 |
+| Fixed Cos σ = 8 (wide kernel), D = 16,384 | 4,407,968 | 0.981 | −0.0 / +0.4 | −2% / 18% | 1.09–1.20 / 1.06–1.16 |
+| T2: Cos σ = 4 with W and b trained, D = 1,536 | 1,003,168 | 0.954 | −0.4 / +0.7 | −8% / 14% | 1.35–1.45 / 1.32–1.41 |
+| T2: same, D = 4,096 | 2,319,008 | 0.969 | +0.3 / +0.4 | 10% / 13% | 1.36–1.40 / 1.33–1.40 |
+| T1: ReLU random features (frozen, no bias), D = 1,536 | 606,880 | 0.431 | +5.8 / +6.7 | 10% / 12% | 1.02–1.12 / 1.00–1.08 |
+| T1: same, D = 4,096 | 1,262,240 | 0.442 | +7.4 / +6.5 | 13% / 12% | 0.96–1.12 / 0.94–1.11 |
+| GeGLU 512 | 608,928 | 0.924 | −0.9 / −1.8 | −11% / −24% | 0.85–0.89 / 0.85–0.86 |
+| T3: trained ReLU MLP, width 768 | 608,416 | 0.840 | −7.6 / −8.9 | −46% / −57% | 0.89–0.90 / 0.85–0.87 |
+| T3: same, width 6,144 | 3,371,680 | 0.726 | −38.9 / −25.8 | −161% / −84% | 0.63–0.65 / 0.70–0.73 |
+
+**Main result: looping speeds up the narrow-kernel cosine layer, and other layers barely or not at all.**
+
+| Layer | Speed-up from K = 4 |
+|---|---|
+| Narrow cosine (σ = 4), fixed, every width from 256 to 16,384 | 1.33–1.53 |
+| Narrow cosine (σ = 4), W and b trained | 1.32–1.45 |
+| Wide cosine (σ = 8), fixed | 1.06–1.20 |
+| ReLU random features | 0.94–1.12 |
+| GeGLU | 0.85–0.89 (slower) |
+| Trained ReLU MLP | 0.63–0.90 (slower) |
+
+- **The kernel width is the factor that the data isolate.**
+  - σ = 4 and σ = 8 differ in nothing else, and the speed-up falls from about 1.4 to about 1.1.
+  - The ReLU random features also have a very broad kernel (the arc-cosine kernel with no bias), and they barely speed up.
+  - Training W and b (T2) keeps the speed-up.
+  - So neither explanation written before the tests fits. "A fixed basis gains" (reason 1) fails because a trained cosine basis gains as much and a fixed ReLU basis does not. "Smooth bounded features gain" (reason 2) fails because the σ = 8 cosine is just as smooth and bounded and gains little.
+  - The pattern is "a narrow-kernel cosine layer gains". This was not pre-registered and needs its own test.
+- **Verdict on the pre-registered rule (`predictions_basis.md`): pending.**
+  - The rule supports reason 1 if T1 gains and T2 gains less than fixed Cos, both in both seeds.
+  - In points, T1 gains in both seeds at both widths, and T2 gains less than fixed Cos in seed 1 (−0.4 against +2.6 at D = 1,536, +0.3 against +0.8 at D = 4,096). Fixed-Cos seed 2 at these widths has not run.
+  - Reason 2 is not supported under the rule, because T1 gains.
+  - The point gains of T1 and T2 are mostly timing:
+    - T1 is far from converged (late accuracy 0.43, final evaluation 0.48–0.53 and rising), so its gain in points is large while its speed-up is about 1.
+    - T2 starts nearer its plateau, so its gain in points is small while its speed-up is close to fixed Cos.
+- **Width (W2) holds on seed 1 in points, but the effect is timing.**
+  - The gain falls from +9.3 at D = 256 to +0.4 at D = 8,192, so every gain at D ≤ 2,048 is above +0.5.
+  - The speed-up is about the same at every width (1.33–1.53). The point gains differ because each K = 1 curve is at a different place in steps 7,500–10,000.
+  - At D ≥ 4,096 the gains (+0.3 to +0.8) are within the late-window noise (standard error about 0.3–0.6 points) and the seed spread, so the share of errors there is not resolved.
+- **W1 and W3 hold at K = 1 and 4.**
+  - Late accuracy rises with D at both K on seed 1.
+  - No D ≤ 2,048 reaches the large layer's 0.982; the best is 0.956 at D = 2,048, K = 4.
+  - Both predictions need both seeds to refute, so seed 2 cannot overturn them at these K. K = 2 is pending; K = 8 was cut.
+- **Equal parameters (W4) holds on seed 1 under the late measure, at 10,000 steps only.**
+  - Fixed Cos D = 1,536 (606,880 trained parameters) at K = 4 reaches 0.941, against 0.924 for GeGLU 512 (608,928) at K = 1. Cos at K = 1 is behind (0.914).
+  - But looped Cos is flat in the late window (evaluations 0.919–0.958). GeGLU still rises 0.6–1.2 points per 1,000 steps and is ahead at the last evaluation (0.944 / 0.931 against 0.928).
+  - The looped layer also uses about 8 times GeGLU's last-FFN compute: 2·128·1,536 multiply-adds per pass, 4 passes, against 3·128·512 once.
+  - The ordering at convergence is open. The long runs (C3) test it.
+- **GeGLU loses under looping but gains with untied passes.**
+  - Untied GeGLU gains +1.2 / +1.3 points at K = 2 and +1.9 / +1.8 at K = 4 (`facts_loops_ctrl`, with 1.3 and 2 times the trained parameters).
+  - So its loss comes from reusing one trained map, not from extra depth.
+  - The untied narrow Cos (D = 16,384) gains +0.6 / −0.1 at K = 2 and +1.0 / +0.5 at K = 4, against +0.7 / +0.3 for tied K = 4. Tying does not hurt it.
+- **Initialization is a confound for the trained MLPs.**
+  - Every fixed-feature and T2 arm has a zero-initialized readout on √(2/D)-scaled features. At initialization the looped block writes about 0.015 |h|, and one Adam step moves it by about 0.015 |h|.
+  - GeGLU and the ReLU MLP use the default initialization. They write 0.11–0.24 |h| at initialization and move 0.07–1.2 |h| per step (the verification workflow measured this).
+  - So their slowdown under looping may come partly from starting as a random map applied K times.
+  - Zero initialization does not explain the cosine speed-up: the ReLU-feature and σ = 8 arms also have it and barely speed up.
+- **The trained ReLU MLP learns slowly at Adam 1e-3, and looping slows it further.**
+  - Its curves are smooth and monotone with no loss spikes, so it is not unstable.
+  - At width 6,144 it leaves the plateau later than at width 768, and at step 10,000 it still climbs 5–6 points per 1,000 steps at K = 1 and 13–14 at K = 4.
+  - The −38.9 / −25.8 points are this delay, read mid-climb.
+  - GeGLU at width 4,096, matched to it, trains well here: 0.962 late at K = 1, seed 1.
+- **Long runs** (60,000 steps, `facts_loops_long.json`, predictions C1–C3 in `predictions_long.md`) test whether the looping lead survives convergence.
+
+**Pending** (status 21:40 UTC: basis tests complete; width sweep seed 2 at K = 1 and 4 is running, then K = 2; the T-rule verdict waits for fixed-Cos seed 2 at D = 1,536 and 4,096). The account keeps at most 2 GPU sandboxes running, so all runs share one GPU (`docs/NEURON_DEVELOPMENT.md` §8). To speed up, on 2026-10-19 at 19:10 the queues were cut to the runs that answer the open questions. The configs keep every entry; the cut runs can be run later.
 
 - **Width sweep** (`facts_loops_width.json`, predictions `predictions_width.md`): can looping let a small Cos-Bochner layer match the large one at equal parameters? Cos-Bochner σ = 4 at D = 256 … 8,192, K = 1, 2, 4, seeds 1 and 2. D = 1,536 has the trained parameters of GeGLU 512. Cut: K = 8, and σ = 8 at D = 512 and 2,048.
 - **Basis tests** (`facts_loops_basis.json`, predictions `predictions_basis.md`): is the gain a property of a fixed random basis or of the cosine? Arms at D = 1,536 and 4,096, K = 1 and 4, seeds 1 and 2:
