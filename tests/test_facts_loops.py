@@ -297,3 +297,112 @@ def test_cosine_schedule_reaches_zero_at_the_end(monkeypatch):
   run_facts(_cfg(steps=8, eval_every=4, lr=1e-3, lr_schedule='cosine'))
   assert lrs[0] == pytest.approx(1e-3) and lrs[4] == pytest.approx(0.5e-3)
   assert lrs[-1] == pytest.approx(0.5e-3 * (1 + math.cos(math.pi * 7 / 8))) and lrs == sorted(lrs, reverse=True)
+
+
+@pytest.mark.parametrize('mode', ['residual', 'infiloop'])
+def test_all_passes_reads_the_head_after_each_pass(mode):
+  cfg = _cfg(ffn='cos', cos_sigma=2.0, loops=3, loop_mode=mode)
+  m, x = _model(cfg), _tokens(cfg)
+  with torch.no_grad():
+    if mode == 'infiloop':
+      m.loop_q.normal_()                             # an active gate
+    per = m(x, all_passes=True)
+    assert per.shape == (3, len(x), cfg.n_values)
+    torch.testing.assert_close(per[-1], m(x), rtol=0, atol=0)
+    h0 = m.last_state(x)
+    for k in (1, 2):                                 # the state after pass k is the state of a k-pass loop (streaming)
+      torch.testing.assert_close(per[k - 1], m.head(m.ln_f(m.loop(h0, k)[:, -1])))
+
+
+def test_deep_supervision_trains_on_the_mean_loss_over_passes_and_is_inert_at_one_pass(monkeypatch):
+  import rcdl.facts as facts_mod
+  seen = []
+  real = facts_mod.F.cross_entropy
+  def spy(logits, target, *a, **k):
+    seen.append((tuple(logits.shape), tuple(target.shape)))
+    return real(logits, target, *a, **k)
+  monkeypatch.setattr(facts_mod.F, 'cross_entropy', spy)
+  run_facts(_cfg(ffn='cos', cos_sigma=2.0, loops=3, deep_supervision=True, steps=2, eval_every=10))
+  train = [s for s in seen if s[0][0] == 3 * 8]      # batch 8, K = 3: (K B, n_values) against (K B,)
+  assert train and all(t == (24,) for _, t in train)
+  monkeypatch.setattr(facts_mod.F, 'cross_entropy', real)
+  a = run_facts(_cfg(ffn='cos', cos_sigma=2.0, steps=6, eval_every=3))
+  b = run_facts(_cfg(ffn='cos', cos_sigma=2.0, steps=6, eval_every=3, deep_supervision=True))
+  strip = lambda log: [{k: v for k, v in r.items() if k != 'sec'} for r in log]
+  assert strip(a['log']) == strip(b['log'])          # K = 1: deep supervision is the plain loss
+
+
+def test_deep_supervision_loss_equals_the_mean_of_per_pass_losses():
+  cfg = _cfg(ffn='geglu', loops=3)
+  m, x = _model(cfg), _tokens(cfg, B=10)
+  y = torch.randint(0, cfg.n_values, (len(x),), generator=torch.Generator().manual_seed(3))
+  with torch.no_grad():
+    per = m(x, all_passes=True)
+    flat = F.cross_entropy(per.flatten(0, 1), y.repeat(3))
+    torch.testing.assert_close(flat, torch.stack([F.cross_entropy(per[k], y) for k in range(3)]).mean())
+
+
+@pytest.mark.parametrize('ffn', ['geglu', 'cos'])
+def test_train_probe_leaves_training_unchanged_and_matches_direct_computation(ffn):
+  base = dict(ffn=ffn, cos_sigma=2.0, loops=3, steps=6, eval_every=3, eval_facts=0)
+  a, b = run_facts(_cfg(**base)), run_facts(_cfg(**base, train_probe=True))
+  strip = lambda log: [{k: v for k, v in r.items() if k not in ('sec', 'pass_probe')} for r in log]
+  assert strip(a['log']) == strip(b['log'])
+  p = b['log'][-1]['pass_probe']
+  assert len(p['loss']) == len(p['acc']) == 4 and len(p['rel_step']) == len(p['descent_cos']) == 3
+  assert len(p['input_shift']) == len(p['overlap_prev']) == len(p['overlap_first']) == 2
+  assert p['acc'][-1] == pytest.approx(b['log'][-1]['acc'])      # 64 facts < 1,024: the probe sees every fact
+
+
+def test_pass_probe_measures_agree_with_direct_computation():
+  from rcdl.facts import pass_probe
+  cfg = _cfg(ffn='cos', cos_sigma=2.0, loops=2, loop_alpha=0.7)
+  m, x = _model(cfg), _tokens(cfg, B=30, seed=6)
+  y = torch.randint(0, cfg.n_values, (len(x),), generator=torch.Generator().manual_seed(4))
+  p = pass_probe(m, x, y)
+  i = cfg.layers - 1
+  h0 = m.last_state(x)[:, -1].detach()
+  with torch.no_grad():
+    h1 = h0 + 0.7 * m.ffn[i](m.ln2[i](h0))
+    h2 = h1 + 0.7 * m.ffn[i](m.ln2[i](h1))
+  v = h0.clone().requires_grad_(True)
+  loss0 = F.cross_entropy(m.head(m.ln_f(v)), y, reduction='sum')
+  g0, = torch.autograd.grad(loss0, v)
+  assert p['loss'][0] == pytest.approx(float(loss0) / len(y), rel=1e-5)
+  assert p['descent_cos'][0] == pytest.approx(float(F.cosine_similarity(h1 - h0, -g0, dim=-1).median()), rel=1e-4)
+  assert p['rel_step'][1] == pytest.approx(float(((h2 - h1).norm(dim=-1) / h1.norm(dim=-1)).median()), rel=1e-5)
+  with torch.no_grad():
+    x0, x1 = m.ln2[i](h0), m.ln2[i](h1)
+    phi = lambda u: math.sqrt(2 / cfg.width) * torch.cos(u @ m.ffn[i].W.T + m.ffn[i].b)
+    assert p['input_shift'][0] == pytest.approx(float((x1 - x0).norm(dim=-1).median()), rel=1e-5)
+    assert p['overlap_prev'][0] == pytest.approx(float(F.cosine_similarity(phi(x1), phi(x0), dim=-1).median()), rel=1e-5)
+  assert m.training                                  # the probe runs during training and leaves the model in train mode
+
+
+def test_gate_logging_weights_and_the_gate_off_probe():
+  from rcdl.facts import pass_probe
+  r = run_facts(_cfg(ffn='cos', cos_sigma=2.0, loops=2, loop_mode='infiloop', steps=4, eval_every=2, train_probe=True,
+                     final_probe=True, lr=1e-2))
+  first, last = r['log'][0], r['log'][-1]
+  assert first['gate_q_norm'] == 0 and first['gate_beta'] == pytest.approx(0.55)
+  assert last['gate_q_norm'] > 0                     # q trains
+  g = last['pass_probe']['gate']
+  assert sum(g['weight_median']) == pytest.approx(1, abs=0.2) and len(g['logit_sd']) == 3
+  assert first['pass_probe']['gate']['logit_sd'] == [0.0, 0.0, 0.0]   # q = 0: every score is 0, weights b^(K-t) / sum
+  w0 = first['pass_probe']['gate']['weight_median']
+  torch.testing.assert_close(torch.tensor(w0), torch.tensor([0.55 ** 2, 0.55, 1.0]) / (0.55 ** 2 + 0.55 + 1))
+  probe = r['loop_probe']
+  assert set(probe['acc_by_K_q0']) == {'1', '2', '4', '8', '16'} and probe['gate']['q_norm'] == pytest.approx(last['gate_q_norm'])
+  cfg = _cfg(ffn='cos', cos_sigma=2.0, loops=2, loop_mode='infiloop')
+  m, x = _model(cfg), _tokens(cfg, B=20)
+  y = torch.randint(0, cfg.n_values, (len(x),))
+  with torch.no_grad():
+    m.loop_q.normal_()
+    q = m.loop_q.clone()
+  out = loop_probe(m, x, y, n_jac=2, k_max=2)
+  assert torch.equal(m.loop_q, q)                    # the gate-off probe restores q
+  with torch.no_grad():
+    m.loop_q.zero_()
+    assert out['acc_by_K_q0']['2'] == pytest.approx(float((m(x).argmax(-1) == y).float().mean()))
+  pp = pass_probe(m, x, y)
+  assert pp['gate']['q_norm'] == 0

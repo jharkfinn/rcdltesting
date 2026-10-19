@@ -28,10 +28,12 @@ FFN variants (all pre-LayerNorm, residual):
   rbf    growing RBF layer (rcdl.layers.RCDLLayer, kind 'rbf'): one stored row per token per step.
 
 Looping (weight-tied recurrence of the last FFN block): with `loops` = K > 1 the last block h <- h + a f(LN(h)) runs K
-times with the same LayerNorm and FFN weights (a = `loop_alpha`); K = 1 is the plain model. `final_probe` adds, after
-training, the accuracy with other numbers of passes at test time, the accuracy with Gaussian noise of relative size e
-added to the state before the looped block (clean-up test), and the spectral radius and norm of each pass's Jacobian
-d(h + a f(LN(h)))/dh at the evaluation states (stability of the iteration). Not for the growing RBF layer.
+times with the same LayerNorm and FFN weights (a = `loop_alpha`); K = 1 is the plain model. `deep_supervision` trains
+the head read after every pass; `train_probe` records per-pass measures at every evaluation (pass_probe). `final_probe`
+adds, after training, the accuracy with other numbers of passes at test time, the accuracy with Gaussian noise of
+relative size e added to the state before the looped block (clean-up test), and the spectral radius and norm of each
+pass's Jacobian d(h + a f(LN(h)))/dh at the evaluation states (stability of the iteration). Not for the growing RBF
+layer.
 """
 
 import dataclasses as dc
@@ -90,6 +92,10 @@ class FactsConfig:
   final_probe: bool = False   # after training: accuracy at other K, under state noise, and per-pass Jacobian spectra
   loop_tied: bool = True   # False (control): each of the K passes has its own LayerNorm and FFN (new random features
                            # for cos); K_test must equal K
+  deep_supervision: bool = False  # K > 1: the loss is the mean over passes k = 1 .. K of the loss of the head read
+                                  # at the state after pass k (with infiloop the aggregated state)
+  train_probe: bool = False  # at every evaluation, per-pass measures of the looped block on 1,024 fixed evaluation
+                             # facts (pass_probe); no random draws, so training is unchanged
 
 
 class GeGLU(nn.Module):
@@ -97,8 +103,11 @@ class GeGLU(nn.Module):
     super().__init__()
     self.g, self.u, self.o = nn.Linear(d, w), nn.Linear(d, w), nn.Linear(w, d)
 
+  def hidden(self, x):
+    return F.gelu(self.g(x)) * self.u(x)
+
   def forward(self, x):
-    return self.o(F.gelu(self.g(x)) * self.u(x))
+    return self.o(self.hidden(x))
 
 
 class CosFeatures(nn.Module):
@@ -114,8 +123,11 @@ class CosFeatures(nn.Module):
     nn.init.zeros_(self.o.weight)
     self.scale = math.sqrt(2.0 / w)
 
+  def hidden(self, x):
+    return self.scale * torch.cos(x @ self.W.T + self.b)
+
   def forward(self, x):
-    return self.o(self.scale * torch.cos(x @ self.W.T + self.b))
+    return self.o(self.hidden(x))
 
 
 class ReLUMLP(nn.Module):
@@ -125,8 +137,11 @@ class ReLUMLP(nn.Module):
     super().__init__()
     self.i, self.o = nn.Linear(d, w), nn.Linear(w, d)
 
+  def hidden(self, x):
+    return F.relu(self.i(x))
+
   def forward(self, x):
-    return self.o(F.relu(self.i(x)))
+    return self.o(self.hidden(x))
 
 
 class ReLUFeatures(nn.Module):
@@ -140,23 +155,34 @@ class ReLUFeatures(nn.Module):
     nn.init.zeros_(self.o.weight)
     self.scale = math.sqrt(2.0 / w)
 
+  def hidden(self, x):
+    return self.scale * F.relu(x @ self.W.T)
+
   def forward(self, x):
-    return self.o(self.scale * F.relu(x @ self.W.T))
+    return self.o(self.hidden(x))
 
 
-def infiloop(h, K, candidate, q, r):
+def infiloop(h, K, candidate, q, r, trace=None):
   """Loop-native attention residual (Li et al. 2026, arXiv 2610.11570, eq. 2-4): z_0 = h, z_t = candidate(t - 1, h_t-1),
   h_t = N_t / D_t with N_t = b N_t-1 + e_t z_t, D_t = b D_t-1 + e_t, e_t = exp(clamp(q . RMSNorm(z_t), -8, 8)) and
-  b = exp(-softplus(r)). Scores and sums in fp32."""
+  b = exp(-softplus(r)). Scores and sums in fp32. trace (a dict, optional) receives 'states' (h_1 .. h_K) and 'logits'
+  (the clamped scores log e_0 .. log e_K)."""
   dtype = h.dtype
   b = torch.exp(-F.softplus(r.float()))
-  score = lambda z: torch.exp((z.float() * torch.rsqrt(z.float().pow(2).mean(-1, keepdim=True) + 1e-6) @ q.float()).clamp(-8, 8))
-  e = score(h)
+  logit = lambda z: (z.float() * torch.rsqrt(z.float().pow(2).mean(-1, keepdim=True) + 1e-6) @ q.float()).clamp(-8, 8)
+  s = logit(h)
+  e = torch.exp(s)
   N, D = e[..., None] * h.float(), e
+  if trace is not None:
+    trace['states'], trace['logits'] = [], [s]
   for k in range(K):
     z = candidate(k, (N / D[..., None]).to(dtype))
-    e = score(z)
+    s = logit(z)
+    e = torch.exp(s)
     N, D = b * N + e[..., None] * z.float(), b * D + e
+    if trace is not None:
+      trace['states'].append((N / D[..., None]).to(dtype))
+      trace['logits'].append(s)
   return (N / D[..., None]).to(dtype)
 
 
@@ -235,13 +261,18 @@ class FactsModel(nn.Module):
         return h[:, -1:]                           # there only (same output; the growing layer stores 1 row/example)
       h = h + self.block(i, h)
 
-  def forward(self, tokens, loops=None, noise=0.0, noise_gen=None, alpha=None):
+  def forward(self, tokens, loops=None, noise=0.0, noise_gen=None, alpha=None, all_passes=False):
     """tokens: (B, T + L + 1): distractors with the name, then the attribute. loops: passes of the last block (default
-    cfg.loops); noise: Gaussian noise of norm noise * |h| added to the state before the last block."""
+    cfg.loops); noise: Gaussian noise of norm noise * |h| added to the state before the last block. all_passes: return
+    (K, B, n_values), the head read at the state after each pass (deep supervision), instead of (B, n_values)."""
     h = self.last_state(tokens)
     if noise:
       z = torch.randn(h.shape, generator=noise_gen).to(h.device)
       h = h + noise * h.norm(dim=-1, keepdim=True) * z / z.norm(dim=-1, keepdim=True)
+    if all_passes:
+      trace = {}
+      self.loop(h, loops, alpha, trace)
+      return torch.stack([self.head(self.ln_f(s[:, -1])) for s in trace['states']])
     return self.head(self.ln_f(self.loop(h, loops, alpha)[:, -1]))
 
   def pass_block(self, k, h):
@@ -250,15 +281,33 @@ class FactsModel(nn.Module):
       return self.block(self.cfg.layers - 1, h)
     return self.extra_ffn[k - 1](self.extra_ln[k - 1](h))
 
-  def loop(self, h, loops=None, alpha=None):
+  def loop(self, h, loops=None, alpha=None, trace=None):
+    """K passes of the last block from the state h. trace (a dict, optional) receives 'states', the state after each
+    pass (with infiloop the aggregated state, plus the gate 'logits')."""
     K, a = loops or self.cfg.loops, self.cfg.loop_alpha if alpha is None else alpha
     if not self.cfg.loop_tied and K != self.cfg.loops:
       raise ValueError('a model with untied passes runs exactly cfg.loops passes')
     if self.cfg.loop_mode == 'infiloop':
-      return infiloop(h, K, lambda k, v: v + a * self.pass_block(k, v), self.loop_q, self.loop_r)
+      return infiloop(h, K, lambda k, v: v + a * self.pass_block(k, v), self.loop_q, self.loop_r, trace)
+    if trace is not None:
+      trace['states'] = []
     for k in range(K):
       h = h + a * self.pass_block(k, h)
+      if trace is not None:
+        trace['states'].append(h)
     return h
+
+  def pass_hidden(self, k, h):
+    """Hidden activations of the FFN of pass k (0-based) at the state h: for cos the random features, whose inner
+    products approximate the kernel."""
+    if k == 0 or self.cfg.loop_tied:
+      i = self.cfg.layers - 1
+      return self.ffn[i].hidden(self.ln2[i](h))
+    return self.extra_ffn[k - 1].hidden(self.extra_ln[k - 1](h))
+
+  def pass_input(self, k, h):
+    """The normalized input of the FFN of pass k (0-based) at the state h."""
+    return self.ln2[self.cfg.layers - 1](h) if k == 0 or self.cfg.loop_tied else self.extra_ln[k - 1](h)
 
   def rcdl_layers(self) -> Dict[str, RCDLLayer]:
     return {f'ffn_{i}': m for i, m in enumerate(self.ffn) if isinstance(m, RCDLLayer)}
@@ -285,6 +334,63 @@ def tangent_spectrum(J, h, mean_free: bool = True):
   return ev[:, U.shape[-1]:]
 
 
+def pass_probe(model: FactsModel, tokens, targets) -> Dict[str, Any]:
+  """Per-pass measures of the looped last block at the current weights (run at every evaluation with train_probe).
+
+  h_0 is the state before the looped block and h_k the state after pass k = 1 .. K (with infiloop the aggregated
+  state); x_k = LN(h_k-1) is the input of the FFN at pass k and phi(x) its hidden activations (for cos the random
+  features, whose inner products approximate the kernel). Medians are over the examples.
+    loss, acc (k = 0 .. K): the head read at h_k (k = 0: before any pass of the last block);
+    rel_step (passes 1 .. K): median |h_k - h_k-1| / |h_k-1|;
+    descent_cos (passes 1 .. K): median cos(h_k - h_k-1, -g_k-1), with g_k-1 the gradient of the loss of the head read
+      at h_k-1 with respect to h_k-1 (positive: the pass moves the state down the loss read before it);
+    input_shift (passes 2 .. K): median |x_k - x_k-1| (for cos the kernel between the two inputs is
+      exp(-shift^2 / (2 sigma^2)));
+    overlap_prev, overlap_first (passes 2 .. K, tied passes only): median cos(phi(x_k), phi(x_k-1)) and
+      cos(phi(x_k), phi(x_1));
+    gate (infiloop): |q|, b, and per candidate t = 0 .. K the median and the SD over examples of its weight
+      b^(K-t) e_t / sum_s b^(K-s) e_s in h_K, and the SD over examples of its clamped score log e_t (0 while q = 0)."""
+  model.eval()
+  K = model.cfg.loops
+  med = lambda v: float(v.float().median())
+  with torch.no_grad():
+    h0 = model.last_state(tokens)
+    trace = {}
+    model.loop(h0, K, None, trace)
+  states = [h[:, -1] for h in [h0] + trace['states']]           # (B, d) each
+  out, grads = {'loss': [], 'acc': [], 'rel_step': [], 'descent_cos': []}, []
+  for h in states:
+    v = h.detach().requires_grad_(True)
+    with torch.enable_grad():
+      logits = model.head(model.ln_f(v))
+      loss = F.cross_entropy(logits, targets, reduction='sum')
+      grads.append(torch.autograd.grad(loss, v)[0])
+    out['loss'].append(float(loss.detach()) / len(targets))
+    out['acc'].append(float((logits.argmax(-1) == targets).float().mean()))
+  for k in range(1, K + 1):
+    u = states[k] - states[k - 1]
+    out['rel_step'].append(med(u.norm(dim=-1) / states[k - 1].norm(dim=-1)))
+    out['descent_cos'].append(med(F.cosine_similarity(u, -grads[k - 1], dim=-1)))
+  with torch.no_grad():
+    if K > 1:
+      x = [model.pass_input(k, states[k]) for k in range(K)]
+      out['input_shift'] = [med((x[k] - x[k - 1]).norm(dim=-1)) for k in range(1, K)]
+      if model.cfg.loop_tied:
+        phi = [model.pass_hidden(k, states[k]) for k in range(K)]
+        out['overlap_prev'] = [med(F.cosine_similarity(phi[k], phi[k - 1], dim=-1)) for k in range(1, K)]
+        out['overlap_first'] = [med(F.cosine_similarity(phi[k], phi[0], dim=-1)) for k in range(1, K)]
+    if model.cfg.loop_mode == 'infiloop':
+      b = torch.exp(-F.softplus(model.loop_r.float()))
+      lg = torch.stack(trace['logits'], -1)[:, -1]                  # (B, K + 1): log e_0 .. log e_K
+      w = torch.softmax(lg + torch.arange(K, -1, -1, device=lg.device) * torch.log(b), -1)
+      out['gate'] = {'q_norm': float(model.loop_q.norm()), 'beta': float(b),
+                     'weight_median': [med(w[:, t]) for t in range(K + 1)],
+                     'weight_sd': [float(w[:, t].std()) for t in range(K + 1)],
+                     'logit_sd': [float(lg[:, t].std()) for t in range(K + 1)]}
+  model.train()
+  return out
+
+
 def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int = 0, k_max: int = 16) -> Dict[str, Any]:
   """End-of-run measures of the looped last block (h <- h + a f(LN(h)), K passes).
 
@@ -306,6 +412,12 @@ def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int =
   out = {'acc_by_K': {str(k): acc(loops=k) for k in ((1, 2, 4, 8, 16) if tied else (K,))}}
   if tied:
     out['acc_by_alpha'] = {str(t): acc(alpha=t) for t in (0.5, 0.75, 1.25, 1.5, 2.0)}
+  if model.cfg.loop_mode == 'infiloop':          # gate off: with q = 0 every candidate scores 1 (the convex-step loop)
+    q = model.loop_q.data.clone()
+    model.loop_q.data.zero_()
+    out['acc_by_K_q0'] = {str(k): acc(loops=k) for k in (1, 2, 4, 8, 16)}
+    model.loop_q.data.copy_(q)
+    out['gate'] = {'q_norm': float(q.norm()), 'beta': float(torch.exp(-F.softplus(model.loop_r.detach().float())))}
   out['acc_by_noise'], out['acc_by_noise_end'] = {}, {}
   with torch.no_grad():
     for e in (0.1, 0.25, 0.5, 1.0):
@@ -419,6 +531,7 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
     return sequences(people, attrs, eval_gen), facts[people, attrs]
 
   old_set, new_set = fact_set(0, N), (fact_set(N, N + M) if M else None)
+  probe_set = (old_set[0][:1024], old_set[1][:1024])          # a random subset: old_set is a random draw of facts
 
   @torch.no_grad()
   def evaluate(tokens, targets):
@@ -441,6 +554,11 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
       rec['loss'], rec['acc'] = evaluate(*old_set)
       if M:
         rec['loss_new'], rec['acc_new'] = evaluate(*new_set)
+      if cfg.loop_mode == 'infiloop':
+        rec['gate_q_norm'] = float(model.loop_q.detach().norm())
+        rec['gate_beta'] = float(torch.exp(-F.softplus(model.loop_r.detach().float())))
+      if cfg.train_probe:
+        rec['pass_probe'] = pass_probe(model, *probe_set)
       log.append(rec)
       print(f'[facts:{cfg.ffn}:N={N}] step={step} loss={rec["loss"]:.4f} (ln K={math.log(cfg.n_values):.3f}) '
             f'acc={rec["acc"]:.4f}' + (f' new_acc={rec["acc_new"]:.4f}' if M else '') + f' ({time.time() - t0:.0f}s)',
@@ -453,8 +571,12 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
     lo, hi = (0, N) if step < cfg.steps else (N, N + M)   # phase 2: only the M new individuals
     i = torch.randint(lo, hi, (cfg.batch_size,), generator=gen).to(device)
     a = torch.randint(0, A, (cfg.batch_size,), generator=gen).to(device)
-    logits = model(sequences(i, a, gen))
-    loss = F.cross_entropy(logits, facts[i, a])
+    if cfg.deep_supervision and cfg.loops > 1:
+      logits = model(sequences(i, a, gen), all_passes=True)          # (K, B, n_values): the head after each pass
+      loss = F.cross_entropy(logits.flatten(0, 1), facts[i, a].repeat(cfg.loops))
+    else:
+      logits = model(sequences(i, a, gen))
+      loss = F.cross_entropy(logits, facts[i, a])
     opt.zero_grad()
     loss.backward()
     opt.step()
