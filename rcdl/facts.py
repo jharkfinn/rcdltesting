@@ -161,14 +161,14 @@ class FactsModel(nn.Module):
         return h[:, -1:]                           # there only (same output; the growing layer stores 1 row/example)
       h = h + self.block(i, h)
 
-  def forward(self, tokens, loops=None, noise=0.0, noise_gen=None):
+  def forward(self, tokens, loops=None, noise=0.0, noise_gen=None, alpha=None):
     """tokens: (B, T + L + 1): distractors with the name, then the attribute. loops: passes of the last block (default
     cfg.loops); noise: Gaussian noise of norm noise * |h| added to the state before the last block."""
     h = self.last_state(tokens)
     if noise:
       z = torch.randn(h.shape, generator=noise_gen).to(h.device)
       h = h + noise * h.norm(dim=-1, keepdim=True) * z / z.norm(dim=-1, keepdim=True)
-    return self.head(self.ln_f(self.loop(h, loops)[:, -1]))
+    return self.head(self.ln_f(self.loop(h, loops, alpha)[:, -1]))
 
   def pass_block(self, k, h):
     """The FFN branch of pass k (0-based) of the last layer: the shared block, or with untied passes block k."""
@@ -176,12 +176,12 @@ class FactsModel(nn.Module):
       return self.block(self.cfg.layers - 1, h)
     return self.extra_ffn[k - 1](self.extra_ln[k - 1](h))
 
-  def loop(self, h, loops=None):
-    K = loops or self.cfg.loops
+  def loop(self, h, loops=None, alpha=None):
+    K, a = loops or self.cfg.loops, self.cfg.loop_alpha if alpha is None else alpha
     if not self.cfg.loop_tied and K != self.cfg.loops:
       raise ValueError('a model with untied passes runs exactly cfg.loops passes')
     for k in range(K):
-      h = h + self.cfg.loop_alpha * self.pass_block(k, h)
+      h = h + a * self.pass_block(k, h)
     return h
 
   def rcdl_layers(self) -> Dict[str, RCDLLayer]:
@@ -189,41 +189,112 @@ class FactsModel(nn.Module):
 
 
 @torch.no_grad()
-def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int = 0) -> Dict[str, Any]:
-  """Accuracy with K_test = 1, 2, 4, 8 passes of the last block; accuracy with state noise e = 0.1, 0.25, 0.5 at the
-  trained K (one fixed noise draw per e); and, on n_jac evaluation states, per pass k: the median spectral radius
-  (largest |eigenvalue|) and spectral norm of J_k = d(h + a f(LN(h)))/dh at the pass's input state, the median of
-  |J_k - I|_2, and the median relative step |a f| / |h|."""
+def tangent_spectrum(J, h, mean_free: bool = True):
+  """|eigenvalues| of the step Jacobian J (n, d, d) on the tangent space of the pre-norm at the states h (n, d).
+
+  The pre-norm ignores the scale of h (and, for LayerNorm, a shift along the ones vector), so J h = h (and J 1 = 1): these
+  directions are eigenvectors with eigenvalue 1 by construction. With P the projector onto their orthogonal complement,
+  spec(P J P) = {0}^m U spec(J restricted to the complement), m = 2 (LayerNorm) or 1 (RMSNorm); the m smallest values
+  are dropped. Returns (n, d - m), sorted ascending."""
+  n, d = h.shape
+  v = h - h.mean(-1, keepdim=True) if mean_free else h
+  U = [v / v.norm(dim=-1, keepdim=True)]
+  if mean_free:
+    U.append(torch.full_like(h, d ** -0.5))
+  U = torch.stack(U, -1).double()                                  # (n, d, m), orthonormal
+  P = torch.eye(d, dtype=torch.float64, device=h.device) - U @ U.transpose(1, 2)
+  ev = torch.linalg.eigvals(P @ J.double() @ P).abs().sort(-1).values
+  return ev[:, U.shape[-1]:]
+
+
+def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int = 0, k_max: int = 16) -> Dict[str, Any]:
+  """End-of-run measures of the looped last block (h <- h + a f(LN(h)), K passes).
+
+  acc_by_K: accuracy with K_test = 1, 2, 4, 8, 16 passes (tied only). acc_by_alpha: accuracy at the trained K with test
+  step size a_test (tied only). trajectory (tied only): per pass k = 1 .. k_max, the accuracy, the share of predictions
+  that change from pass k - 1, and the medians of |h_k| / |h_0|, |h_k - h_k-1| / |h_k-1| and the cosine between
+  consecutive steps. Noise: a push n of norm e |h_0| in a random direction (one fixed draw per e); acc_by_noise runs the
+  passes from h_0 + n (as before), acc_by_noise_end adds the same n after the clean passes (dilution control: a gain of
+  propagated over end-added noise means the passes remove part of the push). jacobian_by_pass, on n_jac states at the
+  trained K: median spectral radius, spectral norm, |J - I|_2 and relative step (as before; the radius is at least 1 by
+  construction, see tangent_spectrum), and the tangent-space radius (median, max) and the share of tangent eigenvalues
+  below 1 in modulus (contracting directions). jacobian_noisy: the same tangent measures for pass 1 at h_0 + n, e = 0.25."""
   from torch.func import jacrev, vmap
   model.eval()
-  acc = lambda **kw: float((torch.cat([model(tokens[i:i + 2048], **kw) for i in range(0, len(tokens), 2048)])
-                            .argmax(-1) == targets).float().mean())
-  out = {'acc_by_K': {str(k): acc(loops=k) for k in ((1, 2, 4, 8) if model.cfg.loop_tied else (model.cfg.loops,))}}
-  out['acc_by_noise'] = {str(e): acc(noise=e, noise_gen=torch.Generator().manual_seed(seed + int(e * 1000)))
-                         for e in (0.1, 0.25, 0.5)}
-  a = model.cfg.loop_alpha
-  h = model.last_state(tokens[:n_jac])[:, 0]                       # (n, d)
+  tied, K, a = model.cfg.loop_tied, model.cfg.loops, model.cfg.loop_alpha
+  chunks = [(tokens[i:i + 2048], targets[i:i + 2048]) for i in range(0, len(tokens), 2048)]
+  logits = lambda h: model.head(model.ln_f(h[:, -1]))
+  acc = lambda **kw: float((torch.cat([model(x, **kw) for x, _ in chunks]).argmax(-1) == targets).float().mean())
+  out = {'acc_by_K': {str(k): acc(loops=k) for k in ((1, 2, 4, 8, 16) if tied else (K,))}}
+  if tied:
+    out['acc_by_alpha'] = {str(t): acc(alpha=t) for t in (0.5, 0.75, 1.25, 1.5, 2.0)}
+  out['acc_by_noise'], out['acc_by_noise_end'] = {}, {}
+  with torch.no_grad():
+    for e in (0.1, 0.25, 0.5, 1.0):
+      g, hit_p, hit_e = torch.Generator().manual_seed(seed + int(e * 1000)), 0, 0
+      for x, y in chunks:                                          # same draws as model(x, noise=e, noise_gen=g)
+        h = model.last_state(x)
+        z = torch.randn(h.shape, generator=g).to(h.device)
+        n = e * h.norm(dim=-1, keepdim=True) * z / z.norm(dim=-1, keepdim=True)
+        hit_p += int((logits(model.loop(h + n)).argmax(-1) == y).sum())
+        hit_e += int((logits(model.loop(h) + n).argmax(-1) == y).sum())
+      out['acc_by_noise'][str(e)], out['acc_by_noise_end'][str(e)] = hit_p / len(tokens), hit_e / len(tokens)
+    if tied:
+      traj, rows = [], [model.last_state(x) for x, _ in chunks]
+      h0 = torch.cat(rows)[:, 0]
+      h, prev_pred, prev_step = h0, None, None
+      for k in range(1, k_max + 1):
+        step = a * model.block(model.cfg.layers - 1, h[:, None])[:, 0]
+        nxt = h + step
+        pred = model.head(model.ln_f(nxt)).argmax(-1)
+        rec = {'pass': k, 'acc': float((pred == targets).float().mean()),
+               'norm_ratio_median': float((nxt.norm(dim=-1) / h0.norm(dim=-1)).median()),
+               'rel_step_median': float((step.norm(dim=-1) / h.norm(dim=-1)).median())}
+        if prev_pred is not None:
+          rec['flips'] = float((pred != prev_pred).float().mean())
+          rec['step_cos_median'] = float(F.cosine_similarity(step, prev_step, dim=-1).median())
+        traj.append(rec)
+        h, prev_pred, prev_step = nxt, pred, step
+      out['trajectory'] = traj
+  with torch.no_grad():
+    h = model.last_state(tokens[:n_jac])[:, 0]                     # (n, d)
   eye = torch.eye(h.shape[-1], device=h.device)
   per_pass = []
-  for k in range(model.cfg.loops):
+  for k in range(K):
     step = lambda v, k=k: v + a * model.pass_block(k, v[None, None])[0, 0]
     with torch.enable_grad():
-      J = vmap(jacrev(step))(h)                                    # (n, d, d)
+      J = vmap(jacrev(step))(h).detach()                           # (n, d, d)
     rad = torch.linalg.eigvals(J.double()).abs().amax(-1)
     nrm = torch.linalg.matrix_norm(J.double(), ord=2)
     dev = torch.linalg.matrix_norm((J - eye).double(), ord=2)
-    nxt = vmap(step)(h)
+    tan = tangent_spectrum(J, h)
+    with torch.no_grad():
+      nxt = vmap(step)(h)
     per_pass.append({'pass': k + 1, 'spectral_radius_median': float(rad.median()),
                      'spectral_radius_max': float(rad.max()), 'spectral_norm_median': float(nrm.median()),
                      'jac_minus_I_norm_median': float(dev.median()),
-                     'rel_step_median': float(((nxt - h).norm(dim=-1) / h.norm(dim=-1)).median())})
+                     'rel_step_median': float(((nxt - h).norm(dim=-1) / h.norm(dim=-1)).median()),
+                     'tangent_radius_median': float(tan[:, -1].median()), 'tangent_radius_max': float(tan[:, -1].max()),
+                     'tangent_contracting_share_median': float((tan < 1).double().mean(-1).median())})
+    if k == 0:
+      z = torch.randn(h.shape, generator=torch.Generator().manual_seed(seed + 7)).to(h.device)
+      hn = h + 0.25 * h.norm(dim=-1, keepdim=True) * z / z.norm(dim=-1, keepdim=True)
+      with torch.enable_grad():
+        Jn = vmap(jacrev(step))(hn).detach()
+      tn = tangent_spectrum(Jn, hn)
+      out['jacobian_noisy'] = {'noise': 0.25, 'pass': 1, 'tangent_radius_median': float(tn[:, -1].median()),
+                               'tangent_contracting_share_median': float((tn < 1).double().mean(-1).median()),
+                               'spectral_norm_median': float(torch.linalg.matrix_norm(Jn.double(), ord=2).median())}
     h = nxt
   out['jacobian_by_pass'] = per_pass
+  out['probe_version'] = 2
   model.train()
   return out
 
 
-def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cpu') -> Dict[str, Any]:
+def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cpu',
+              model_path: Optional[str] = None) -> Dict[str, Any]:
+  """model_path: also save the trained model (cfg and state_dict) there as a chunked .py checkpoint (rcdl/ckpt.py)."""
   gen = torch.Generator().manual_seed(cfg.seed)
   torch.manual_seed(cfg.seed)
   N, M, A = cfg.n_people, cfg.finetune_people, cfg.n_attrs
@@ -309,6 +380,9 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
             'plateau_end_step': plateau_end, 'params': sum(p.numel() for p in params)}
   if cfg.final_probe:
     result['loop_probe'] = loop_probe(model, *old_set, seed=cfg.seed)
+  if model_path:
+    from rcdl import ckpt
+    ckpt.save(model_path, {'cfg': dc.asdict(cfg), 'model': {k: v.cpu() for k, v in model.state_dict().items()}}, cfg.steps)
   if M:
     phase2 = [r for r in log if r['step'] >= cfg.steps]
     result |= {'old_acc_min_during_finetune': min(r['acc'] for r in phase2), 'old_acc_after_finetune': log[-1]['acc'],

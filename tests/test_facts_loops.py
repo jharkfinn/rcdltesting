@@ -6,7 +6,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from rcdl.facts import FactsConfig, FactsModel, loop_probe, run_facts
+from rcdl import ckpt
+from rcdl.facts import FactsConfig, FactsModel, loop_probe, run_facts, tangent_spectrum
 
 
 def _cfg(**kw):
@@ -89,8 +90,8 @@ def test_jacobian_probe_matches_finite_differences(ffn):
       steps.append((step(v) - v).norm() / v.norm())
   assert out['jacobian_by_pass'][0]['spectral_radius_median'] == pytest.approx(float(torch.stack(rads).median()), rel=1e-5)
   assert out['jacobian_by_pass'][0]['rel_step_median'] == pytest.approx(float(torch.stack(steps).median()), rel=1e-6)
-  assert len(out['jacobian_by_pass']) == 2 and set(out['acc_by_K']) == {'1', '2', '4', '8'}
-  assert set(out['acc_by_noise']) == {'0.1', '0.25', '0.5'}
+  assert len(out['jacobian_by_pass']) == 2 and set(out['acc_by_K']) == {'1', '2', '4', '8', '16'}
+  assert set(out['acc_by_noise']) == set(out['acc_by_noise_end']) == {'0.1', '0.25', '0.5', '1.0'}
 
 
 def test_rbf_cannot_loop():
@@ -138,3 +139,63 @@ def test_untied_control_uses_its_own_block_per_pass_and_keeps_the_shared_model(f
     J = torch.autograd.functional.jacobian(lambda u: u + m.pass_block(1, u[None, None])[0, 0], v.detach())
     norms.append(torch.linalg.matrix_norm(J, ord=2))
   assert out['jacobian_by_pass'][1]['spectral_norm_median'] == pytest.approx(float(torch.stack(norms).median()), rel=1e-6)
+
+
+
+@pytest.mark.parametrize('ffn', ['geglu', 'cos'])
+def test_tangent_spectrum_drops_the_two_trivial_unit_eigenvalues(ffn):
+  m = _model(_cfg(ffn=ffn, cos_sigma=2.0)).double()
+  i = m.cfg.layers - 1
+  h = m.last_state(_tokens(m.cfg, B=3))[:, 0].detach()
+  step = lambda v: v + 0.7 * m.block(i, v[None, None])[0, 0]
+  J = torch.stack([torch.autograd.functional.jacobian(step, v) for v in h])
+  for v, Jv in zip(h, J):            # LayerNorm ignores scale and shift: J h = h, J 1 = 1 (up to its eps = 1e-5)
+    torch.testing.assert_close(Jv @ v, v, rtol=1e-3, atol=1e-4)
+    torch.testing.assert_close(Jv @ torch.ones_like(v), torch.ones_like(v), rtol=1e-6, atol=1e-6)
+  tan = tangent_spectrum(J, h)
+  assert tan.shape == (3, h.shape[1] - 2)
+  for Jv, t in zip(J, tan):
+    ev = torch.linalg.eigvals(Jv)
+    drop = (ev - 1).abs().argsort()[:2]                     # the two trivial eigenvalues
+    keep = torch.ones(len(ev), dtype=torch.bool)
+    keep[drop] = False
+    torch.testing.assert_close(ev[keep].abs().sort().values, t, rtol=1e-4, atol=1e-6)
+
+
+def test_probe_v2_measures_agree_with_direct_computation():
+  cfg = _cfg(ffn='cos', cos_sigma=2.0, loops=2, loop_alpha=0.8, eval_facts=0)
+  m = _model(cfg)
+  x = _tokens(cfg, B=40, seed=4)
+  y = torch.randint(0, cfg.n_values, (len(x),), generator=torch.Generator().manual_seed(2))
+  out = loop_probe(m, x, y, n_jac=4, seed=5, k_max=8)
+  acc = lambda logits: float((logits.argmax(-1) == y).float().mean())
+  with torch.no_grad():
+    for e in ('0.1', '0.5'):                                 # propagated noise: the same draws as forward(noise=e)
+      assert out['acc_by_noise'][e] == pytest.approx(acc(m(x, noise=float(e), noise_gen=torch.Generator().manual_seed(5 + int(float(e) * 1000)))))
+    g = torch.Generator().manual_seed(5 + 250)
+    h = m.last_state(x)
+    z = torch.randn(h.shape, generator=g)
+    n = 0.25 * h.norm(dim=-1, keepdim=True) * z / z.norm(dim=-1, keepdim=True)
+    assert out['acc_by_noise_end']['0.25'] == pytest.approx(acc(m.head(m.ln_f((m.loop(h) + n)[:, -1]))))
+    assert out['acc_by_alpha']['1.5'] == pytest.approx(acc(m(x, alpha=1.5)))
+    traj = {r['pass']: r for r in out['trajectory']}
+    for k in (1, 2, 4, 8):
+      assert traj[k]['acc'] == pytest.approx(out['acc_by_K'][str(k)])
+    h1, h2 = m.loop(h, 1)[:, 0], m.loop(h, 2)[:, 0]
+    s1, s2 = h1 - h[:, 0], h2 - h1
+    assert traj[2]['step_cos_median'] == pytest.approx(float(torch.nn.functional.cosine_similarity(s1, s2, dim=-1).median()), rel=1e-5)
+    assert traj[2]['flips'] == pytest.approx(float((m.head(m.ln_f(h2)).argmax(-1) != m.head(m.ln_f(h1)).argmax(-1)).float().mean()))
+  p = out['jacobian_by_pass'][0]
+  assert 1 <= p['spectral_radius_median'] and 0 <= p['tangent_contracting_share_median'] <= 1
+  assert out['jacobian_noisy']['pass'] == 1 and out['probe_version'] == 2
+
+
+def test_run_saves_a_model_that_reproduces_the_outputs(tmp_path):
+  cfg = _cfg(ffn='cos', cos_sigma=2.0, loops=2, steps=6, eval_every=3)
+  r = run_facts(cfg, model_path=str(tmp_path / 'model_t'))
+  st = ckpt.load(str(tmp_path / 'model_t'))
+  assert st['cfg'] == r['cfg']
+  m = FactsModel(FactsConfig(**st['cfg']), torch.Generator().manual_seed(99))  # other random features
+  assert not torch.equal(m.ffn[1].W, st['model']['ffn.1.W'])
+  m.load_state_dict(st['model'])                          # the fixed random features are buffers, so they are saved
+  assert torch.equal(m.ffn[1].W, st['model']['ffn.1.W']) and sorted(st['model']) == sorted(m.state_dict())

@@ -68,7 +68,9 @@ def test_probe_matches_finite_differences_and_restores_k(ffn):
   m = m.double()
   data = _tokens(world, 8)
   out = loop_probe(m, data, data, n_jac=5, seed=3)
-  assert m.blocks[-1].loops == 2 and set(out['acc_by_K']) == {'1', '2', '4', '8'}
+  assert m.blocks[-1].loops == 2 and m.blocks[-1].loop_alpha == 0.7
+  assert set(out['acc_by_K']) == {'1', '2', '3', '4', '6', '8', '12', '16'}
+  assert set(out['acc_by_alpha']) == {'0.5', '0.75', '1.25', '1.5', '2.0'}
   assert out['acc_by_K']['2']['attr_acc'] == evaluate(m, data)['attr_acc'] and 'seen_attr_acc' in out['acc_by_K']['8']
   inputs, _, scored, _, route = data
   blk = m.blocks[-1]
@@ -97,3 +99,23 @@ def test_tiny_run_reports_the_probe_only_when_asked():
   assert p['acc_by_K']['2']['attr_acc'] == r['final_attr_acc']
   assert math.isfinite(p['jacobian_by_pass'][1]['spectral_norm_median'])
   assert 'loop_probe' not in run_bios(BiosConfig(**(BASE | dict(steps=4, eval_every=2))))
+
+
+def test_probe_alpha_and_tangent_measures():
+  cfg, world, m = _model(ffn='cos', ffn_loops=2, ffn_loop_alpha=0.7)
+  m = m.double()
+  data = _tokens(world, 8)
+  out = loop_probe(m, data, None, n_jac=4, seed=1)
+  blk = m.blocks[-1]
+  blk.loop_alpha = 1.5
+  assert out['acc_by_alpha']['1.5']['attr_acc'] == evaluate(m, data)['attr_acc']
+  blk.loop_alpha = 0.7
+  inputs, _, scored, _, route = data
+  with torch.no_grad():
+    x = m.loop_input(inputs, route)[scored]
+  v = x[torch.randperm(len(x), generator=torch.Generator().manual_seed(1))[:4]][0]
+  J = torch.autograd.functional.jacobian(lambda u: u + 0.7 * blk.ffn_step(u), v)
+  torch.testing.assert_close(J @ v, v, rtol=1e-3, atol=1e-4)    # RMSNorm ignores scale: J x = x (up to its eps)
+  p = out['jacobian_by_pass'][0]
+  assert p['tangent_radius_max'] >= p['tangent_radius_median'] > 0 and 0 <= p['tangent_contracting_share_median'] <= 1
+  assert out['probe_version'] == 2 and p['norm_ratio_median'] > 0

@@ -655,51 +655,70 @@ def evaluate(model: GemmaBios, data, batch: int = 256, amp: bool = False) -> Dic
 
 
 def loop_probe(model: GemmaBios, data, seen=None, amp: bool = False, n_jac: int = 256, seed: int = 0) -> Dict[str, Any]:
-  """Held-out (and seen-template) attribute accuracy and loss with K_test = 1, 2, 4, 8 passes of the last FFN; and, at
-  n_jac value-predicting positions of the held-out set (drawn with `seed`), per trained pass k: the median spectral
-  radius (largest |eigenvalue|) and spectral norm of J_k = d(x + a post_ffn_norm(FFN(pre_ffn_norm(x))))/dx at the pass's
-  input, the median of |J_k - I|_2 and the median relative step |x_k+1 - x_k| / |x_k|. The Jacobians are taken in fp32
-  (evaluation uses bf16 autocast on CUDA)."""
+  """End-of-run measures of the looped last FFN, x <- x + a post_ffn_norm(FFN(pre_ffn_norm(x))).
+
+  acc_by_K: held-out (and seen-template) attribute accuracy and loss with K_test = 1, 2, 3, 4, 6, 8, 12, 16 passes.
+  acc_by_alpha: the same at the trained K with test step size a_test = 0.5, 0.75, 1.25, 1.5, 2. On n_jac value-predicting
+  positions of the held-out set (drawn with `seed`), per trained pass k: the median spectral radius (largest
+  |eigenvalue|) and spectral norm of J_k = dx_k+1/dx_k, the median |J_k - I|_2, the median relative step, the median
+  |x_k| / |x_0|, and the tangent-space radius (median, max) and share of tangent eigenvalues below 1 in modulus. The
+  pre-norm (RMSNorm) ignores the scale of x, so J x = x by construction and the plain radius is at least 1; the tangent
+  measures project x out (rcdl.facts.tangent_spectrum). Jacobians are taken in fp32 (evaluation uses bf16 autocast)."""
   from torch.func import jacrev, vmap
-  blk, K0 = model.blocks[-1], model.blocks[-1].loops
+  from rcdl.facts import tangent_spectrum
+  blk, K0, a0 = model.blocks[-1], model.blocks[-1].loops, model.blocks[-1].loop_alpha
   if blk.kind not in ('geglu', 'cos'):
     raise ValueError(f'loop_probe needs a geglu or cos last layer, not {blk.kind!r}')
-  out = {'acc_by_K': {}}
+
+  def scores():
+    r = evaluate(model, data, amp=amp)
+    rec = {'attr_acc': r['attr_acc'], 'attr_loss': r['attr_loss']}
+    if seen is not None:
+      r = evaluate(model, seen, amp=amp)
+      rec |= {'seen_attr_acc': r['attr_acc'], 'seen_attr_loss': r['attr_loss']}
+    return rec
+
+  out = {'acc_by_K': {}, 'acc_by_alpha': {}}
   try:
-    for k in (1, 2, 4, 8):
+    for k in (1, 2, 3, 4, 6, 8, 12, 16):
       blk.loops = k
-      r = evaluate(model, data, amp=amp)
-      rec = {'attr_acc': r['attr_acc'], 'attr_loss': r['attr_loss']}
-      if seen is not None:
-        r = evaluate(model, seen, amp=amp)
-        rec |= {'seen_attr_acc': r['attr_acc'], 'seen_attr_loss': r['attr_loss']}
-      out['acc_by_K'][str(k)] = rec
-  finally:
+      out['acc_by_K'][str(k)] = scores()
     blk.loops = K0
+    for t in (0.5, 0.75, 1.25, 1.5, 2.0):
+      blk.loop_alpha = t
+      out['acc_by_alpha'][str(t)] = scores()
+  finally:
+    blk.loops, blk.loop_alpha = K0, a0
   inputs, _, scored, _, route = data
   rows = torch.arange(min(len(inputs), 64), device=inputs.device)
   model.eval()
   with torch.no_grad():
     x = model.loop_input(inputs[rows], route[rows])[scored[rows]]          # (n_scored, d), fp32
   pick = torch.randperm(len(x), generator=torch.Generator().manual_seed(seed))[:n_jac].to(x.device)
-  h, a = x[pick], blk.loop_alpha
-  step = lambda v: v + a * blk.ffn_step(v)
+  h = x[pick]
+  h0 = h
+  step = lambda v: v + a0 * blk.ffn_step(v)
   eye = torch.eye(h.shape[-1], device=h.device)
   per_pass = []
   for k in range(K0):
-    J = vmap(jacrev(step))(h)                                              # (n, d, d)
+    J = vmap(jacrev(step))(h).detach()                                     # (n, d, d)
     with torch.no_grad():
       rad = torch.linalg.eigvals(J.double()).abs().amax(-1)
       nrm = torch.linalg.matrix_norm(J.double(), ord=2)
       dev = torch.linalg.matrix_norm((J - eye).double(), ord=2)
+      tan = tangent_spectrum(J, h, mean_free=False)
       nxt = step(h)
     per_pass.append({'pass': k + 1, 'spectral_radius_median': float(rad.median()),
                      'spectral_radius_max': float(rad.max()), 'spectral_norm_median': float(nrm.median()),
                      'jac_minus_I_norm_median': float(dev.median()),
-                     'rel_step_median': float(((nxt - h).norm(dim=-1) / h.norm(dim=-1)).median())})
+                     'rel_step_median': float(((nxt - h).norm(dim=-1) / h.norm(dim=-1)).median()),
+                     'norm_ratio_median': float((nxt.norm(dim=-1) / h0.norm(dim=-1)).median()),
+                     'tangent_radius_median': float(tan[:, -1].median()), 'tangent_radius_max': float(tan[:, -1].max()),
+                     'tangent_contracting_share_median': float((tan < 1).double().mean(-1).median())})
     h = nxt
   out['jacobian_by_pass'] = per_pass
   out['n_jac'] = len(pick)
+  out['probe_version'] = 2
   model.train()
   return out
 

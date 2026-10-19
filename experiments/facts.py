@@ -20,6 +20,7 @@ def main():
   p.add_argument('--only', nargs='*', default=None)
   p.add_argument('--out', default='results/facts')
   p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+  p.add_argument('--save_model_dir', default=None, help='also save each trained model as <dir>/model_<name>_*.py')
   args = p.parse_args()
   spec = json.load(open(args.config))['experiments']
   rows = []
@@ -28,7 +29,8 @@ def main():
     if os.path.exists(os.path.join(out_dir, 'result.json')):
       r = json.load(open(os.path.join(out_dir, 'result.json')))
     else:
-      r = run_facts(FactsConfig(**spec[name]), out_dir, args.device)
+      r = run_facts(FactsConfig(**spec[name]), out_dir, args.device,
+                    os.path.join(args.save_model_dir, f'model_{name}') if args.save_model_dir else None)
     rows.append((name, r['plateau_end_step'], r['final_acc'], r['params']))
   for name, plateau, acc, params in rows:
     print(f'{name}: plateau_end={plateau} final_acc={acc:.4f} trained_params={params:,}', flush=True)
