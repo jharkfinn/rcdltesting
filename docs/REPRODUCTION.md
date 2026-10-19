@@ -685,21 +685,27 @@ Status 2026-10-19 18:30 UTC: facts round 1 is complete (2 seeds). Facts round 2 
   - The Gemma post-norm adds a write of fixed RMS on each pass, so that map has no fixed point (Labovich 2604.15259).
   - Physics of Language Models 3.1 (2309.14316) ties wording memorization to data without augmentation. Our biographies already use 20 templates per attribute, so the Cos T = 1 wording memorization of §7.5b comes from the model or the optimizer.
 
-**Pending.**
-- Facts round 2: 3 seeds of the main arms, a σ sweep 2 / 3 / 6, and probe v2 with:
-  - the tangent spectrum;
-  - the dilution control;
-  - the trajectory to 16 passes;
-  - test-time step size.
-- 24 controls:
-  - untied K = 2, 4 for σ = 4 and GeGLU;
-  - compute-matched width;
-  - GeGLU 4096;
-  - N = 16,384.
-- 27 biography runs: GeGLU, Cos 4k at T = 1 and Cos 4k at T = 2, at K = 1, 2, 4 and seeds 1–3. They test L4 (looping widens Cos T = 1's seen / held-out gap) and L5 (Cos T = 2 stays wording-invariant). The 3 K = 1 runs of seed 1 reproduce §7.5b and §7.5c at step 4,000–6,000:
-  - GeGLU: 99.98%.
-  - Cos T = 1: 65.3% held-out.
-  - Cos T = 2: 97.6%.
+**Pending** (status 19:15 UTC). The account keeps at most 2 GPU sandboxes running, so all runs share one GPU (`docs/NEURON_DEVELOPMENT.md` §8). To speed up, on 2026-10-19 at 19:10 the queues were cut to the runs that answer the open questions. The configs keep every entry; the cut runs can be run later.
+
+- **Width sweep** (`facts_loops_width.json`, predictions `predictions_width.md`): can looping let a small Cos-Bochner layer match the large one at equal parameters? Cos-Bochner σ = 4 at D = 256 … 8,192, K = 1, 2, 4, seeds 1 and 2. D = 1,536 has the trained parameters of GeGLU 512. Cut: K = 8, and σ = 8 at D = 512 and 2,048.
+- **Basis tests** (`facts_loops_basis.json`, predictions `predictions_basis.md`): is the gain a property of a fixed random basis or of the cosine? Arms at D = 1,536 and 4,096, K = 1 and 4, seeds 1 and 2:
+  - ReLU random features (frozen first layer);
+  - Cos-Bochner with W trained;
+  - a trained ReLU MLP matched to GeGLU 512 and 4,096.
+
+  Cut: the D = 16,384 rows.
+- **Controls** (`facts_loops_ctrl.json`):
+  - untied passes for σ = 4 and GeGLU, K = 2 and 4;
+  - GeGLU 4,096 at K = 1 and 4.
+
+  Cut: N = 16,384, Cos-Bochner 32k / 64k at K = 1, and GeGLU 4,096 at K = 2.
+- **Facts round 2** (`facts_loops_v2.json`, probe v2: tangent spectrum, dilution control, trajectory to 16 passes, test-time step size): seed 3 of the main arms. Cut: the σ sweep 2 / 3 / 6, and the repeats of seeds 1 and 2 (2 already done).
+- **Biographies** (`bios_loops.json`): GeGLU, Cos 4k at T = 1 and T = 2, K = 1, 2, 4, seeds 1 and 2. They test L4 (looping widens Cos T = 1's seen / held-out gap) and L5 (Cos T = 2 stays wording-invariant). Cut for now: seed 3.
+
+The K = 1 biography runs of seed 1 reproduce §7.5b and §7.5c:
+- GeGLU: 99.98%.
+- Cos T = 1: 65.3% held-out.
+- Cos T = 2: 97.6% at step 4,100.
 
 ### 7.6 Cost (article: RCDL "matches but does not beat" strong baselines at much higher cost)
 
