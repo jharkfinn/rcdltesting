@@ -78,6 +78,8 @@ class FactsConfig:
   loops: int = 1           # K: passes of the last FFN block with tied weights (1 = the plain model)
   loop_alpha: float = 1.0  # a: step size of each pass of the last block, h <- h + a f(LN(h))
   final_probe: bool = False   # after training: accuracy at other K, under state noise, and per-pass Jacobian spectra
+  loop_tied: bool = True   # False (control): each of the K passes has its own LayerNorm and FFN (new random features
+                           # for cos); K_test must equal K
 
 
 class GeGLU(nn.Module):
@@ -138,6 +140,11 @@ class FactsModel(nn.Module):
     self.ln_f = nn.LayerNorm(cfg.d)
     self.head = nn.Linear(cfg.d, cfg.n_values)
     self.register_buffer('mask', torch.triu(torch.ones(S, S, dtype=torch.bool), 1))
+    if cfg.loops > 1 and not cfg.loop_tied:          # built last, with their own generator, so the tied model and the
+      g2 = torch.Generator().manual_seed(cfg.seed + 7919)   # data drawn after it from `gen` stay the same
+      self.extra_ln = nn.ModuleList([nn.LayerNorm(cfg.d) for _ in range(cfg.loops - 1)])
+      self.extra_ffn = nn.ModuleList([CosFeatures(cfg.d, cfg.width, cfg.cos_sigma, g2) if cfg.ffn == 'cos'
+                                      else GeGLU(cfg.d, cfg.width) for _ in range(cfg.loops - 1)])
 
   def block(self, i, h):
     """The FFN branch f(LN(h)) of layer i."""
@@ -163,10 +170,18 @@ class FactsModel(nn.Module):
       h = h + noise * h.norm(dim=-1, keepdim=True) * z / z.norm(dim=-1, keepdim=True)
     return self.head(self.ln_f(self.loop(h, loops)[:, -1]))
 
+  def pass_block(self, k, h):
+    """The FFN branch of pass k (0-based) of the last layer: the shared block, or with untied passes block k."""
+    if k == 0 or self.cfg.loop_tied:
+      return self.block(self.cfg.layers - 1, h)
+    return self.extra_ffn[k - 1](self.extra_ln[k - 1](h))
+
   def loop(self, h, loops=None):
-    i, K = self.cfg.layers - 1, loops or self.cfg.loops
-    for _ in range(K):
-      h = h + self.cfg.loop_alpha * self.block(i, h)
+    K = loops or self.cfg.loops
+    if not self.cfg.loop_tied and K != self.cfg.loops:
+      raise ValueError('a model with untied passes runs exactly cfg.loops passes')
+    for k in range(K):
+      h = h + self.cfg.loop_alpha * self.pass_block(k, h)
     return h
 
   def rcdl_layers(self) -> Dict[str, RCDLLayer]:
@@ -183,15 +198,15 @@ def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int =
   model.eval()
   acc = lambda **kw: float((torch.cat([model(tokens[i:i + 2048], **kw) for i in range(0, len(tokens), 2048)])
                             .argmax(-1) == targets).float().mean())
-  out = {'acc_by_K': {str(k): acc(loops=k) for k in (1, 2, 4, 8)}}
+  out = {'acc_by_K': {str(k): acc(loops=k) for k in ((1, 2, 4, 8) if model.cfg.loop_tied else (model.cfg.loops,))}}
   out['acc_by_noise'] = {str(e): acc(noise=e, noise_gen=torch.Generator().manual_seed(seed + int(e * 1000)))
                          for e in (0.1, 0.25, 0.5)}
-  i, a = model.cfg.layers - 1, model.cfg.loop_alpha
-  step = lambda v: v + a * model.block(i, v[None, None])[0, 0]
+  a = model.cfg.loop_alpha
   h = model.last_state(tokens[:n_jac])[:, 0]                       # (n, d)
   eye = torch.eye(h.shape[-1], device=h.device)
   per_pass = []
   for k in range(model.cfg.loops):
+    step = lambda v, k=k: v + a * model.pass_block(k, v[None, None])[0, 0]
     with torch.enable_grad():
       J = vmap(jacrev(step))(h)                                    # (n, d, d)
     rad = torch.linalg.eigvals(J.double()).abs().amax(-1)

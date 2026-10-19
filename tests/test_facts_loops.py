@@ -104,3 +104,37 @@ def test_tiny_run_reports_the_probe():
   assert 0 <= p['acc_by_K']['2'] <= 1 and len(p['jacobian_by_pass']) == 2
   assert math.isfinite(p['jacobian_by_pass'][1]['spectral_norm_median'])
   assert 'loop_probe' not in run_facts(_cfg(ffn='geglu', steps=4, eval_every=2))
+
+
+@pytest.mark.parametrize('ffn', ['geglu', 'cos'])
+def test_untied_control_uses_its_own_block_per_pass_and_keeps_the_shared_model(ffn):
+  torch.manual_seed(0)
+  tied = FactsModel(_cfg(ffn=ffn, cos_sigma=2.0, loops=3), torch.Generator().manual_seed(0))
+  torch.manual_seed(0)
+  m = FactsModel(_cfg(ffn=ffn, cos_sigma=2.0, loops=3, loop_tied=False), torch.Generator().manual_seed(0))
+  sd = m.state_dict()
+  for k, v in tied.state_dict().items():                 # shared modules identical to the tied model
+    torch.testing.assert_close(sd[k], v, rtol=0, atol=0)
+  assert len(m.extra_ffn) == 2 and not hasattr(tied, 'extra_ffn')
+  with torch.no_grad():
+    for p in m.parameters():
+      p.add_(0.1 * torch.randn_like(p))
+  m.eval()
+  x, i = _tokens(m.cfg), m.cfg.layers - 1
+  with torch.no_grad():
+    h = m.last_state(x)
+    h = h + m.ffn[i](m.ln2[i](h))
+    for j in range(2):
+      h = h + m.extra_ffn[j](m.extra_ln[j](h))
+    torch.testing.assert_close(m(x), m.head(m.ln_f(h[:, -1])))
+    with pytest.raises(ValueError):
+      m(x, loops=2)
+  y = torch.randint(0, m.cfg.n_values, (len(x),))
+  out = loop_probe(m.double(), x, y, n_jac=3)
+  assert set(out['acc_by_K']) == {'3'} and len(out['jacobian_by_pass']) == 3
+  norms = []
+  for v in m.last_state(x[:3])[:, 0].detach():           # pass 2 runs the first extra block at the state after pass 1
+    v = v + m.pass_block(0, v[None, None])[0, 0]
+    J = torch.autograd.functional.jacobian(lambda u: u + m.pass_block(1, u[None, None])[0, 0], v.detach())
+    norms.append(torch.linalg.matrix_norm(J, ord=2))
+  assert out['jacobian_by_pass'][1]['spectral_norm_median'] == pytest.approx(float(torch.stack(norms).median()), rel=1e-6)
