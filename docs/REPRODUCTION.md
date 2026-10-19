@@ -774,6 +774,30 @@ The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
   - GeGLU at width 4,096, matched to it, trains well here: 0.962 late at K = 1, seed 1.
 - **Long runs** (60,000 steps, `facts_loops_long.json`, predictions C1–C3 in `predictions_long.md`) test whether the looping lead survives convergence.
 
+**Long runs: does looping let D = 256 converge?** (seed 1, 60,000 steps, about 235 exposures per fact; 2026-10-19 21:35 UTC; data `docs/data/loops/results/facts_loops_long/`)
+
+Learning curves (accuracy / loss) at selected steps, with late-window measures (the 16 evaluations at steps 45,000–60,000):
+
+| D = 256 | 10k | 20k | 30k | 40k | 50k | 60k | Late acc (sd) | Late loss | Evals ≥ 0.99 in window | Lowest eval in window |
+|---|---|---|---|---|---|---|---|---|---|---|
+| K = 1 | 0.752 / 0.86 | 0.907 / 0.29 | 0.947 / 0.17 | 0.956 / 0.14 | 0.978 / 0.08 | 0.976 / 0.083 | 0.960 (1.5) | 0.123 | 0 of 16 (max 0.979) | 0.932 |
+| K = 4 | 0.828 / 0.58 | 0.919 / 0.25 | 0.937 / 0.20 | 0.972 / 0.09 | 0.983 / 0.05 | 1.000 / 0.006 | 0.974 (2.2) | 0.087 | 4 of 16 | 0.929 |
+| K = 8 | 0.812 / 0.62 | 0.910 / 0.28 | 0.926 / 0.23 | 0.968 / 0.10 | 0.995 / 0.02 | 1.000 / 0.0015 | 0.957 (7.0) | 0.153 | 8 of 16 | 0.769 |
+
+- **Looped D = 256 does reach 100%. Without looping it does not, within 60,000 steps.**
+  - K = 4 reaches ≥ 0.99 from step 55,000, and K = 8 from step 50,000. At step 60,000 they reach 1.000 with loss 0.006 and 0.0015.
+  - K = 1 never exceeds 0.979. At step 60,000 it has loss 0.083, which is 13 and 55 times higher.
+- **Averaged over the last quarter, the looped runs are not reliably better.**
+  - The constant Adam rate makes every run oscillate. The looped runs swing more: standard deviation 2.2 and 7.0 points against 1.5, and K = 8 dips to 0.769.
+  - The late accuracy is K = 1 0.960, K = 4 0.974 (+1.3 points) and K = 8 0.957 (−0.3).
+- **C1 (speed reading) holds on the pre-registered late measure.** The K = 4 lead in late accuracy shrinks from +9.0 points in steps 7,500–10,000 to +1.3 points in steps 45,000–60,000. The final-step and best-evaluation numbers point the other way: looped runs reach 100%, the unlooped run does not. Two causes cannot be told apart here: a learning-rate schedule that never decays, and looped maps being more sensitive to the noise of each update. A run with the rate decayed to zero over the last part of training (or weight averaging) would separate a better reachable level from more oscillation. That run has not been done.
+- **C2 and C3 are pending.** The large-layer (D = 16,384) and GeGLU 512 references at 60,000 steps, and D = 1,536 at K = 1 and 4, are still running.
+- **What the probe shows about the trained looped maps (D = 256):**
+  - **No fixed point.** Trained at K = 4, accuracy along extra passes is 0.41, 0.81, 0.995, 1.000, 0.998, 0.975, 0.91, 0.82 (passes 1–8), and 0.34 at pass 16. Trained at K = 8, it is 1.000 for passes 7–10 and 0.84 at pass 16. The relative step stays at 0.18–0.20 (K = 4) and 0.10–0.12 (K = 8) per pass. The map learns to arrive at the right state at the trained pass count and then drifts.
+  - **No clean-up of state noise.** With the dilution control (amendment 1), a push of 0.25 |h| propagated through the passes leaves 0.717 / 0.605 / 0.553 accuracy at K = 1 / 4 / 8, against 0.947 / 0.997 / 1.000 when the same push is added after the passes. So the passes amplify the push, more so with more passes. L2 fails.
+  - **Tangent spectrum.** The median largest tangent eigenvalue is 2.04 (K = 1), 1.42–1.47 (K = 4) and 1.23–1.28 (K = 8). About 47% of the tangent directions contract. The map expands in some directions, so it is not an attractor.
+  - **Robust to the step size.** Trained at K = 4, accuracy stays 0.991–0.999 for test step sizes 0.75–1.5.
+
 **Pending** (status 21:25 UTC: basis tests complete; width sweep seed 2 at K = 1 and 4 is running, then K = 2; the T-rule verdict waits for fixed-Cos seed 2 at D = 1,536 and 4,096). The account keeps at most 2 GPU sandboxes running, so all runs share one GPU (`docs/NEURON_DEVELOPMENT.md` §8). To speed up, on 2026-10-19 at 19:10 the queues were cut to the runs that answer the open questions. The configs keep every entry; the cut runs can be run later.
 
 - **Width sweep** (`facts_loops_width.json`, predictions `predictions_width.md`): can looping let a small Cos-Bochner layer match the large one at equal parameters? Cos-Bochner σ = 4 at D = 256 … 8,192, K = 1, 2, 4, seeds 1 and 2. D = 1,536 has the trained parameters of GeGLU 512. Cut: K = 8, and σ = 8 at D = 512 and 2,048.
