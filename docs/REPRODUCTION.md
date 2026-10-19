@@ -685,6 +685,41 @@ Status 2026-10-19 18:30 UTC: facts round 1 is complete (2 seeds). Facts round 2 
   - The Gemma post-norm adds a write of fixed RMS on each pass, so that map has no fixed point (Labovich 2604.15259).
   - Physics of Language Models 3.1 (2309.14316) ties wording memorization to data without augmentation. Our biographies already use 20 templates per attribute, so the Cos T = 1 wording memorization of §7.5b comes from the model or the optimizer.
 
+**All runs done (2026-10-19 21:59 UTC): verdicts.**
+
+Not run: biography seed 3, and the cuts listed under Pending. Data: `docs/data/loops/results/`. Late accuracy is the mean over the last quarter of training.
+
+| Prediction | Measure | Result | Verdict |
+|---|---|---|---|
+| L1: narrow Cos gains more from looping than GeGLU | late gain at K = 2 / 4, 3 seeds | Cos σ = 4: +0.51 / +0.07 / +0.06 and +0.68 / +0.25 / +0.28. GeGLU: −0.08 / −0.38 / −0.36 and −0.86 / −1.83 / −1.95 | holds in all 3 seeds |
+| Amendment 1 rule for L1 | the tied gain must exceed the untied control | untied σ = 4, K = 4: +1.0 / +0.5, against tied +0.7 / +0.3 | the gain comes from extra depth, not from reusing one map |
+| T-rule (basis tests) | T1 gains; T2 gains less than fixed Cos, both seeds | T1: +5.8 / +6.7 (D = 1,536) and +7.4 / +6.5 (D = 4,096). T2: −0.4 / +0.7 against fixed Cos +2.6 / +3.4 (D = 1,536); +0.3 / +0.4 against +0.8 / +0.8 (D = 4,096) | reason 1 supported by the rule; the speed-up measure disagrees (see below) |
+| W1: accuracy rises with D | late acc, K = 1 / 2 / 4, 2 seeds | monotone in D at every K | holds |
+| W2 / W3 / W4 | see the interim below | unchanged with seed 2 | hold (with the timing caveat) |
+| C1: the D = 256 looping lead shrinks by 60,000 steps | late gain | +9.0 points at 10,000 steps, +1.3 points at 60,000 | holds |
+| C2: no D = 256 run within 2 points of the large layer at 60,000 steps | late acc | large D = 16,384: 0.996. D = 256: K = 4 0.974 (max 0.9995), K = 1 0.960, K = 8 0.957 | holds, narrowly (K = 4 is 0.3 points short) |
+| C3: D = 1,536 at K = 4 ≥ GeGLU 512 at K = 1 − 1 point at 60,000 steps | late acc | 0.9998 against 0.9969; D = 1,536 at K = 1 is also 0.999 | holds, but at the ceiling: every model with about 600k or more trained parameters converges to 99.6–100% |
+| L4: looping widens Cos T = 1's seen / held-out gap (biographies) | gap, late window | seed 1: 0.343 → 0.384 (K = 2) → 0.412 (K = 4). Seed 2: 0.388 → 0.423 → 0.377. Held-out falls from 0.633 to 0.593 / 0.598 | holds at K = 2 in both seeds, at K = 4 in seed 1 only |
+| L5: Cos T = 2 stays wording-invariant under looping | gap < 2 points at every K | K = 2: 0.001 / 0.001. K = 4: held-out 0.836 / 0.886 against seen 0.980 / 0.999, gap 0.144 / 0.113 | refuted at K = 4 |
+
+- **Biography result.** At K = 4 the Cos T = 2 model memorizes wording. Its held-out accuracy stops at 0.84 from step 2,500 while seen-template accuracy reaches 0.98. At K = 2 it keeps the facts wording-invariant (0.999). GeGLU stays at 100% held-out and seen at every K.
+- **The two measures disagree on the basis question.**
+  - The pre-registered rule, in points at 10,000 steps, supports reason 1 (a fixed basis gains).
+  - The speed-up, the secondary measure in amendment 2, separates the arms by kernel width instead. Narrow cosine speeds up 1.32–1.53 times, fixed or trained. Wide cosine and ReLU features speed up 0.94–1.20 times.
+  - The point gains of T1 and T2 mostly reflect how far each arm is from convergence (see the interim below).
+- **Normal MLPs under looping** (facts; speed-up = steps to 20–50% accuracy at K = 1 over K = 4):
+
+  | Arm | Late gain at K = 4 (points) | Speed-up |
+  |---|---|---|
+  | GeGLU 512 | −0.9 / −1.8 / −2.0 | 0.85–0.89 |
+  | GeGLU 4,096 (3.4M parameters) | −6.1 / −12.1 | 0.38–0.73 |
+  | ReLU MLP, width 768 | −7.6 / −8.9 | 0.85–0.90 |
+  | ReLU MLP, width 6,144 | −38.9 / −25.8 | 0.63–0.73 |
+  | Untied GeGLU 512 (separate weights per pass) | +1.9 / +1.8 | – |
+
+  Open confound: the MLPs use default initialization, the fixed-feature layers a zero-initialized readout (see the interim below). A zero-initialized MLP control has not run.
+- **Related paper read end to end:** Li et al., InfiLoop, arXiv 2610.11570 (`docs/data/loops/papers/2610.11570_infiloop.md`). It reports "latent overthinking" in carry-last looped transformers: extra loops overwrite correct states. Our looped FFN shows the same thing. Trained at K = 4, accuracy peaks at pass 4 and falls to 0.34 by pass 16, with a relative step of 0.18–0.20 per pass. The paper's fix, a content-gated convex aggregation of loop outputs, suggests a direct test on our task (see the note).
+
 **Basis tests and width sweep** (interim, 2026-10-19 21:25 UTC; checked by a 3-agent verification workflow that recomputed every number and reviewed the claims; data `docs/data/loops/results/`, tables `docs/data/loops/interim_2110/`).
 
 **Measures.**
