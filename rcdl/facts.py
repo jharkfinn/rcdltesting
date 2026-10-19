@@ -61,6 +61,8 @@ class FactsConfig:
   width: int = 512         # FFN width w (geglu, cos)
   cos_sigma: float = 4.0   # σ of the random features (cos)
   cos_train: bool = False  # cos: also train W and b (a trained cosine MLP with the kernel-scaled initialisation)
+  ffn_zero_init: bool = False  # geglu / relu: zero-initialise the output weight, as the cos and rfrelu readouts are (at
+                               # initialisation the block then writes only its output bias)
   rbf_layers: str = 'all'  # 'all' | 'last': which FFNs are growing RBF layers (others GeGLU)
   rbf_temperature: float = 1.0
   rbf_eta: float = 1.0     # value learning rate of the growing layer
@@ -139,13 +141,17 @@ class ReLUFeatures(nn.Module):
 def make_ffn(cfg, gen):
   if cfg.ffn == 'cos':
     return CosFeatures(cfg.d, cfg.width, cfg.cos_sigma, gen, cfg.cos_train)
-  if cfg.ffn == 'relu':
-    return ReLUMLP(cfg.d, cfg.width)
   if cfg.ffn == 'rfrelu':
     return ReLUFeatures(cfg.d, cfg.width, gen)
-  if cfg.ffn in ('geglu', 'rbf'):                  # with rbf_layers = 'last', the other FFNs are GeGLU
-    return GeGLU(cfg.d, cfg.width)
-  raise ValueError(f'unknown ffn {cfg.ffn!r}')
+  if cfg.ffn == 'relu':
+    m = ReLUMLP(cfg.d, cfg.width)
+  elif cfg.ffn in ('geglu', 'rbf'):                # with rbf_layers = 'last', the other FFNs are GeGLU
+    m = GeGLU(cfg.d, cfg.width)
+  else:
+    raise ValueError(f'unknown ffn {cfg.ffn!r}')
+  if cfg.ffn_zero_init:                            # after the default initialisation, so the random draws do not change
+    nn.init.zeros_(m.o.weight)
+  return m
 
 
 def name_region(cfg: FactsConfig) -> int:

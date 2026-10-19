@@ -223,3 +223,23 @@ def test_ffn_variants_have_the_intended_trained_and_frozen_parts():
       assert len(r['loop_probe']['jacobian_by_pass']) == 2
   r = run_facts(_cfg(ffn='cos', cos_sigma=2.0, cos_train=True, loops=2, final_probe=True, steps=4, eval_every=2))
   assert math.isfinite(r['loop_probe']['jacobian_by_pass'][0]['tangent_radius_median'])
+
+
+@pytest.mark.parametrize('ffn', ['geglu', 'relu'])
+def test_zero_init_only_zeroes_the_output_weight(ffn):
+  torch.manual_seed(0)
+  a = FactsModel(_cfg(ffn=ffn, loops=2), torch.Generator().manual_seed(0))
+  torch.manual_seed(0)
+  b = FactsModel(_cfg(ffn=ffn, loops=2, ffn_zero_init=True), torch.Generator().manual_seed(0))
+  sa, sb = a.state_dict(), b.state_dict()
+  for k in sa:                                      # every other parameter is the same draw
+    if k.endswith('.o.weight') and k.startswith('ffn.'):
+      assert torch.all(sb[k] == 0) and not torch.all(sa[k] == 0)
+    else:
+      torch.testing.assert_close(sa[k], sb[k], rtol=0, atol=0)
+  b.eval()
+  x = _tokens(b.cfg)
+  with torch.no_grad():                             # at initialisation the looped block writes only its output bias
+    h = b.last_state(x)
+    i = b.cfg.layers - 1
+    torch.testing.assert_close(b.block(i, h), b.ffn[i].o.bias.expand_as(h))
