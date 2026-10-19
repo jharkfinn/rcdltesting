@@ -1,5 +1,21 @@
 ## Facts task
 
+Late-window measures (mean over the evaluations in the last quarter of training) are the robust ones; the final-step accuracy is kept for the pre-registered comparison.
+
+| arm | K | seeds | late acc | late gain vs K = 1 | late loss | step to 50% | step to 90% |
+|---|---|---|---|---|---|---|---|
+| geglu_w512 | 1 | 2 | 0.9242 (0.9242 / 0.9242) | 0.0000 (0.0000 / 0.0000) | 0.2493 (0.2482 / 0.2504) | 3500 (3500 / 3500) | 6750 (6500 / 7000) |
+| geglu_w512 | 2 | 2 | 0.9219 (0.9233 / 0.9205) | -0.0023 (-0.0008 / -0.0038) | 0.2563 (0.2507 / 0.2620) | 3500 (3500 / 3500) | 7000 (7000 / 7000) |
+| geglu_w512 | 4 | 2 | 0.9107 (0.9155 / 0.9060) | -0.0134 (-0.0086 / -0.0183) | 0.2974 (0.2841 / 0.3107) | 3750 (3500 / 4000) | 7750 (7500 / 8000) |
+| cos_w16384_s4 | 1 | 2 | 0.9824 (0.9803 / 0.9844) | 0.0000 (0.0000 / 0.0000) | 0.0609 (0.0670 / 0.0547) | 2500 (2500 / 2500) | 3500 (3500 / 3500) |
+| cos_w16384_s4 | 2 | 2 | 0.9853 (0.9854 / 0.9851) | 0.0029 (0.0051 / 0.0007) | 0.0523 (0.0499 / 0.0547) | 2000 (2000 / 2000) | 3000 (3000 / 3000) |
+| cos_w16384_s4 | 4 | 2 | 0.9871 (0.9872 / 0.9869) | 0.0047 (0.0068 / 0.0025) | 0.0453 (0.0449 / 0.0456) | 2000 (2000 / 2000) | 2750 (2500 / 3000) |
+| cos_w16384_s8 | 1 | 2 | 0.9806 (0.9816 / 0.9796) | 0.0000 (0.0000 / 0.0000) | 0.0676 (0.0650 / 0.0702) | 3500 (3500 / 3500) | 4500 (4500 / 4500) |
+| cos_w16384_s8 | 2 | 2 | 0.9823 (0.9828 / 0.9818) | 0.0017 (0.0012 / 0.0022) | 0.0625 (0.0625 / 0.0625) | 3000 (3000 / 3000) | 4000 (4000 / 4000) |
+| cos_w16384_s8 | 4 | 2 | 0.9823 (0.9812 / 0.9833) | 0.0017 (-0.0003 / 0.0037) | 0.0620 (0.0655 / 0.0584) | 3000 (3000 / 3000) | 4000 (4000 / 4000) |
+
+Final-step accuracy (pre-registered measure) and accuracy at K_test passes:
+
 | arm | K | seeds | final acc | gain vs K = 1 | K_test 1 | 2 | 4 | 8 | 16 |
 |---|---|---|---|---|---|---|---|---|---|
 | geglu_w512 | 1 | 2 | 0.938 (0.944 / 0.931) | 0.000 (0.000 / 0.000) | 0.938 (0.944 / 0.931) | 0.517 (0.517 / 0.517) | 0.185 (0.181 / 0.189) | 0.089 (0.084 / 0.093) | - |
@@ -14,9 +30,9 @@
 
 Controls: final accuracy, and gain over the tied K = 1 run of the same arm and seed (main set):
 
-| control arm | K | seeds | final acc | gain | baseline |
-|---|---|---|---|---|---|
-| cos_w16384_s4_untied | 2 | 1 | 0.986 | 0.011 | cos_w16384_s4 K = 1 |
+| control arm | K | seeds | late acc | late gain | final acc | final gain | step to 90% | baseline |
+|---|---|---|---|---|---|---|---|---|
+| cos_w16384_s4_untied | 2 | 1 | 0.9868 | 0.0065 | 0.986 | 0.011 | 3000 | cos_w16384_s4 K = 1 |
 
 Facts: per-pass Jacobian medians at the trained K (mean over seeds; the plain radius is at least 1 by construction, the tangent radius is not)
 

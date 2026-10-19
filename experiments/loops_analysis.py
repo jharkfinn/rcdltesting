@@ -79,8 +79,33 @@ def jac_rows(runs, label):
   return lines, out
 
 
+def late(r, key='acc', frac=0.75):
+  """Mean of a logged measure over the evaluations at steps >= frac * steps (the last quarter of training). With a
+  constant Adam rate the model oscillates late in training, so one evaluation at the last step is a noisy snapshot."""
+  v = [e[key] for e in r['log'] if frac * r['cfg']['steps'] <= e['step'] <= r['cfg']['steps']]
+  return mean(v) if v else None
+
+
+def first_step(r, thr):
+  return next((e['step'] for e in r['log'] if e['step'] <= r['cfg']['steps'] and e['acc'] >= thr), None)
+
+
 def facts_tables(main, ctrl, replicate=None):
   lines, summary = ['## Facts task\n'], {}
+  lines += ['Late-window measures (mean over the evaluations in the last quarter of training) are the robust ones; the '
+            'final-step accuracy is kept for the pre-registered comparison.\n']
+  rows = []
+  for (arm, K), seeds in sorted(main.items(), key=lambda kv: (arm_key(kv[0][0]), kv[0][1])):
+    base = main.get((arm, 1), {})
+    rs = [seeds[s] for s in sorted(seeds)]
+    row = {'late_acc': [late(r) for r in rs], 'late_loss': [late(r, 'loss') for r in rs],
+           'late_gain_vs_K1': [late(seeds[s]) - late(base[s]) for s in sorted(seeds) if s in base],
+           'step50': [first_step(r, 0.5) for r in rs], 'step90': [first_step(r, 0.9) for r in rs]}
+    summary[f'{arm}_K{K}'] = row
+    rows.append([arm, str(K), str(len(rs)), fmt(row['late_acc'], 4), fmt(row['late_gain_vs_K1'], 4),
+                 fmt(row['late_loss'], 4), fmt(row['step50'], 0), fmt(row['step90'], 0)])
+  lines += table(['arm', 'K', 'seeds', 'late acc', 'late gain vs K = 1', 'late loss', 'step to 50%', 'step to 90%'], rows)
+  lines += ['\nFinal-step accuracy (pre-registered measure) and accuracy at K_test passes:\n']
   rows = []
   for (arm, K), seeds in sorted(main.items(), key=lambda kv: (arm_key(kv[0][0]), kv[0][1])):
     rs = [seeds[s] for s in sorted(seeds)]
@@ -89,7 +114,7 @@ def facts_tables(main, ctrl, replicate=None):
     row = {'seeds': sorted(seeds), 'final_acc': [r['final_acc'] for r in rs],
            'gain_vs_K1': [seeds[s]['final_acc'] - base[s]['final_acc'] for s in sorted(seeds) if s in base],
            **{f'K{k}': [q['acc_by_K'][str(k)] for q in p if str(k) in q.get('acc_by_K', {})] for k in (1, 2, 4, 8, 16)}}
-    summary[f'{arm}_K{K}'] = row
+    summary[f'{arm}_K{K}'] |= row
     rows.append([arm, str(K), str(len(rs)), fmt(row['final_acc']), fmt(row['gain_vs_K1'])]
                 + [fmt(row[f'K{k}']) for k in (1, 2, 4, 8, 16)])
   lines += table(['arm', 'K', 'seeds', 'final acc', 'gain vs K = 1', 'K_test 1', '2', '4', '8', '16'], rows)
@@ -113,11 +138,16 @@ def facts_tables(main, ctrl, replicate=None):
         base_arm = re.sub(r'_w\d+', '_w16384', base_arm)
       base = main.get((base_arm, 1), {}) if 'N16k' not in arm else ctrl.get((arm, 1), {})
       gain = [r['final_acc'] - base[s]['final_acc'] for s, r in seeds.items() if s in base]
+      lgain = [late(r) - late(base[s]) for s, r in seeds.items() if s in base]
       summary[f'ctrl_{arm}_K{K}'] = {'seeds': sorted(seeds), 'final_acc': [seeds[s]['final_acc'] for s in sorted(seeds)],
-                                     'gain_vs': f'{base_arm if "N16k" not in arm else arm}_K1', 'gain': gain}
-      rows.append([arm, str(K), str(len(seeds)), fmt([seeds[s]['final_acc'] for s in sorted(seeds)]), fmt(gain),
-                   f'{base_arm if "N16k" not in arm else arm} K = 1'])
-    lines += table(['control arm', 'K', 'seeds', 'final acc', 'gain', 'baseline'], rows)
+                                     'late_acc': [late(seeds[s]) for s in sorted(seeds)],
+                                     'gain_vs': f'{base_arm if "N16k" not in arm else arm}_K1', 'gain': gain,
+                                     'late_gain': lgain, 'step90': [first_step(seeds[s], 0.9) for s in sorted(seeds)]}
+      rows.append([arm, str(K), str(len(seeds)), fmt([late(seeds[s]) for s in sorted(seeds)], 4), fmt(lgain, 4),
+                   fmt([seeds[s]['final_acc'] for s in sorted(seeds)]), fmt(gain),
+                   fmt([first_step(seeds[s], 0.9) for s in sorted(seeds)], 0), f'{base_arm if "N16k" not in arm else arm} K = 1'])
+    lines += table(['control arm', 'K', 'seeds', 'late acc', 'late gain', 'final acc', 'final gain', 'step to 90%',
+                    'baseline'], rows)
 
   v2 = {key: seeds for key, seeds in main.items() if any('acc_by_noise_end' in r.get('loop_probe', {}) for r in seeds.values())}
   if v2:

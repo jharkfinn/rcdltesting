@@ -3,6 +3,7 @@
 | File | Content |
 |---|---|
 | `predictions.md` | Predictions L1-L5, written before any Cos-Bochner or biography result |
+| `amendment_2.md` | Post hoc change of the recall measure: late accuracy (mean over the last quarter of training) is primary, final-step accuracy is still reported |
 | `amendment_1.md` | Protocol amendment before any probe v2 result: L3 measured on the tangent space (the plain radius is at least 1 by construction), dilution control for L2, 3 seeds, controls for L1 |
 | `literature.json` | Literature workflow: 18 candidates, 8 papers read end to end (structured notes), synthesis |
 | `results/facts_loops/` | Facts round 1, 18 runs (`result.json` per run: config, training log, `loop_probe`) |

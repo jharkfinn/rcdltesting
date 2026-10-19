@@ -626,19 +626,44 @@ Status 2026-10-19 18:30 UTC: facts round 1 is complete (2 seeds). Facts round 2 
   - σ = 4 is the narrow kernel and σ = 8 the wide kernel.
 - Configs: `experiments/configs/facts_loops.json`, `facts_loops_v2.json`, `facts_loops_ctrl.json`, `bios_loops.json`.
 
-**Facts, round 1** (final accuracy, mean of seeds 1 / 2; gain = accuracy at K minus accuracy at K = 1, same seed):
+**Layer sizes** (counted from the modules). d is the model width and D the number of random features.
+- The kernel's argument is the normalized FFN input. Its norm is about √d with the norm gains at their initial value; the gains are trained, so the effective width drifts.
+- The half-height distance is the distance at which the kernel falls to 0.5.
 
-| FFN | K = 1 | K = 2 (gain) | K = 4 (gain) |
-|---|---|---|---|
-| GeGLU 512 | 0.938 | 0.933 (−0.004) | 0.926 (−0.012) |
-| Cos-Bochner, σ = 4 | 0.978 | 0.990 (+0.012) | 0.995 (+0.016) |
-| Cos-Bochner, σ = 8 | 0.986 | 0.982 (−0.004) | 0.979 (−0.007) |
+| Task | FFN | Per FFN layer: trained / fixed parameters | FFN layers | Model, trained | Kernel k(x, y) | Half-height distance (share of input norm) |
+|---|---|---|---|---|---|---|
+| Facts (d = 128) | GeGLU, width 512 | 197,760 / 0 | 2 | 608,928 | – | – |
+| Facts | Cos-Bochner D = 16,384, σ = 4 | 2,097,280 (W_o) / 2,113,536 (W, b) | 2 | 4,407,968 | exp(−‖x − y‖² / (2σ²)) | 4.7 (42% of 11.3) |
+| Facts | Cos-Bochner D = 16,384, σ = 8 | same | 2 | 4,407,968 | same | 9.4 (83%) |
+| Facts, control | Cos-Bochner D = 32,768 / 65,536, σ = 4 | 4,194,432 / 8,388,736 trained | 2 | 8,602,272 / 16,990,880 | as σ = 4 | 4.7 |
+| Facts, control | GeGLU, width 4,096 | 1,581,184 / 0 | 2 | 3,375,776 | – | – |
+| Biographies (d = 256) | GeGLU, width 1,024 | 786,432 / 0 | 6 | about 6.1M | – | – |
+| Biographies | Cos-Bochner D = 4,096, T = 1 | 2,101,248 (Ω, b, W_down all trained) / 0 | 6 | 14,013,952 | exp(−‖x − y‖² / (2T√d)) | 4.7 (29% of 16) |
+| Biographies | Cos-Bochner D = 4,096, T = 2 | same | 6 | 14,013,952 | same | 6.7 (42%) |
 
-- **L1 holds in round 1.** The narrow kernel gains from looping in both seeds, and its gain grows with K. The wide kernel and GeGLU lose a little.
-  - This goes against the prior from the literature. Two looped-transformer papers report that looping does not add knowledge storage: Saunshi et al. 2502.17416 and Ouro 2510.25741, both read end to end.
-  - The GeGLU loss is 1.2 points at K = 4. That is about 3 binomial standard errors on 4,096 facts.
-- **First control: the untied σ = 4 run** at K = 2, seed 1, has a separate LayerNorm and FFN (new random features) for each pass. It gains +0.011, against +0.015 for the tied run of the same seed.
-  - So most of the gain comes with any second pass, tied or not.
+- The facts Cos-Bochner layer has about 10.6 times the trained FFN parameters of GeGLU 512.
+- Looping adds no parameters. It adds K − 1 extra passes of the last FFN only. The untied control adds a full FFN per extra pass.
+- In relative terms, the facts σ = 4 kernel and the biography T = 2 kernel have the same width (42%).
+
+**Facts, round 1** (seeds 1 and 2). The late accuracy is the mean over the 6 evaluations in the last quarter of training. It is the robust measure: with the constant Adam rate the model oscillates, and one evaluation at the last step varies by 0.3 to 1.6 points within a run (`amendment_2.md`). The final-step gain is the pre-registered measure. Steps are the first evaluation at or above 90% (mean of seeds).
+
+| FFN | Late acc K = 1 | Late gain K = 2 / K = 4 (points) | Final-step gain K = 2 / K = 4 (points) | Step to 90%, K = 1 / 2 / 4 |
+|---|---|---|---|---|
+| GeGLU 512 | 0.924 | −0.2 / −1.3 | −0.4 / −1.2 | 6,750 / 7,000 / 7,750 |
+| Cos-Bochner, σ = 4 | 0.982 | +0.3 / +0.5 | +1.2 / +1.6 | 3,500 / 3,000 / 2,750 |
+| Cos-Bochner, σ = 8 | 0.981 | +0.2 / +0.2 | −0.4 / −0.7 | 4,500 / 4,000 / 4,000 |
+
+- **The main effect is speed.**
+  - Looping makes both Cos-Bochner kernels learn faster. At step 3,000, narrow Cos is at 0.820 / 0.922 / 0.962 for K = 1 / 2 / 4, and wide Cos at 0.373 / 0.547 / 0.640.
+  - It makes GeGLU learn slower: 0.480 / 0.456 / 0.379.
+- **The final level changes little.**
+  - Both Cos kernels gain a few tenths of a point. The narrow kernel gains in both seeds (+0.5 and +0.1 at K = 2, +0.7 and +0.3 at K = 4). The wide kernel gains +0.1 and +0.2 at K = 2, and −0.0 and +0.4 at K = 4.
+  - GeGLU loses, by 1.3 points at K = 4 (−0.9 and −1.8 by seed).
+  - Late loss falls with K for narrow Cos (0.061 / 0.052 / 0.045) and rises for GeGLU (0.249 / 0.256 / 0.297).
+- **L1 (narrow Cos-Bochner gains more than GeGLU) holds** under both measures in both seeds. This goes against the prior from the literature: two looped-transformer papers report that looping does not add knowledge storage (Saunshi et al. 2502.17416; Ouro 2510.25741; both read end to end).
+- **Narrow against wide is not settled.** Under the final-step measure only the narrow kernel gains. Under the late measure the two kernels differ by 0.1 to 0.3 points. The σ sweep (2, 3, 4, 6, 8) and the third seed of round 2 decide it.
+- **First control: the untied σ = 4 run** at K = 2, seed 1, has a separate LayerNorm and FFN (new random features) for each pass. Its late gain is +0.65 points, against +0.51 for the tied run of the same seed. It also reaches 90% at the same step, 3,000.
+  - So at this seed a second pass helps as much without weight sharing. The gain comes from extra depth, not from reusing one map.
   - This is one seed. The decision rule in `amendment_1.md` needs all 3 seeds, plus the compute-matched width control (σ = 4 at width 32,768 and 65,536, K = 1).
 - **Extra passes beyond the trained K:**
   - Trained at K = 4 and run at K_test = 8, narrow Cos keeps 0.944. GeGLU keeps 0.756 and wide Cos 0.883.
