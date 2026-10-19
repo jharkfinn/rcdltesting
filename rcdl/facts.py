@@ -26,6 +26,12 @@ FFN variants (all pre-LayerNorm, residual):
   cos    random Fourier features: W_o sqrt(2/w) cos(W_r x + b), W_r ~ N(0, 1/σ^2) and b ~ U(0, 2π) fixed, W_o trained;
          by Bochner's theorem the features approximate an RBF kernel of bandwidth σ as w grows.
   rbf    growing RBF layer (rcdl.layers.RCDLLayer, kind 'rbf'): one stored row per token per step.
+
+Looping (weight-tied recurrence of the last FFN block): with `loops` = K > 1 the last block h <- h + a f(LN(h)) runs K
+times with the same LayerNorm and FFN weights (a = `loop_alpha`); K = 1 is the plain model. `final_probe` adds, after
+training, the accuracy with other numbers of passes at test time, the accuracy with Gaussian noise of relative size e
+added to the state before the looped block (clean-up test), and the spectral radius and norm of each pass's Jacobian
+d(h + a f(LN(h)))/dh at the evaluation states (stability of the iteration). Not for the growing RBF layer.
 """
 
 import dataclasses as dc
@@ -69,6 +75,9 @@ class FactsConfig:
   name_vocab: int = 256    # T >= 2: distinct tokens per name part (each part has its own token range)
   random_name_pos: bool = False   # True: the name starts at a uniform position in [0, L]; False: at position 0
   eval_facts: int = 0      # 0: evaluate on all N x A facts; > 0: on a fixed random subset of this size
+  loops: int = 1           # K: passes of the last FFN block with tied weights (1 = the plain model)
+  loop_alpha: float = 1.0  # a: step size of each pass of the last block, h <- h + a f(LN(h))
+  final_probe: bool = False   # after training: accuracy at other K, under state noise, and per-pass Jacobian spectra
 
 
 class GeGLU(nn.Module):
@@ -104,6 +113,8 @@ class FactsModel(nn.Module):
     # tokens: names [0, R), attributes [R, R + A), distractors [R + A, R + A + F), with R = name_region(cfg)
     V = name_region(cfg) + cfg.n_attrs + cfg.filler_vocab
     S = cfg.name_tokens + cfg.n_filler + 1                 # sequence length
+    if cfg.ffn == 'rbf' and cfg.loops > 1:
+      raise ValueError('looping is not defined for the growing RBF layer (it stores one row per pass)')
     self.cfg = cfg
     self.emb = nn.Embedding(V, cfg.d)
     self.pos = nn.Parameter(torch.randn(S, cfg.d, generator=gen) * 0.02)
@@ -128,20 +139,73 @@ class FactsModel(nn.Module):
     self.head = nn.Linear(cfg.d, cfg.n_values)
     self.register_buffer('mask', torch.triu(torch.ones(S, S, dtype=torch.bool), 1))
 
-  def forward(self, tokens):                       # tokens: (B, T + L + 1): distractors with the name, then attribute
+  def block(self, i, h):
+    """The FFN branch f(LN(h)) of layer i."""
+    f = self.ln2[i](h)
+    return self.ffn[i](f.reshape(-1, f.shape[-1])).view_as(f) if isinstance(self.ffn[i], RCDLLayer) else self.ffn[i](f)
+
+  def last_state(self, tokens):
+    """(B, 1, d): the state at the last position before the last FFN block."""
     h = self.emb(tokens) + self.pos
     for i in range(self.cfg.layers):
       a = self.ln1[i](h)
       h = h + self.attn[i](a, a, a, attn_mask=self.mask, need_weights=False)[0]
       if i == self.cfg.layers - 1:                 # only the last position reaches the head, so the last FFN runs
-        h = h[:, -1:]                              # there only (same output; the growing layer stores 1 row/example)
-      f = self.ln2[i](h)
-      out = self.ffn[i](f.reshape(-1, f.shape[-1])).view_as(f) if isinstance(self.ffn[i], RCDLLayer) else self.ffn[i](f)
-      h = h + out
-    return self.head(self.ln_f(h[:, -1]))
+        return h[:, -1:]                           # there only (same output; the growing layer stores 1 row/example)
+      h = h + self.block(i, h)
+
+  def forward(self, tokens, loops=None, noise=0.0, noise_gen=None):
+    """tokens: (B, T + L + 1): distractors with the name, then the attribute. loops: passes of the last block (default
+    cfg.loops); noise: Gaussian noise of norm noise * |h| added to the state before the last block."""
+    h = self.last_state(tokens)
+    if noise:
+      z = torch.randn(h.shape, generator=noise_gen).to(h.device)
+      h = h + noise * h.norm(dim=-1, keepdim=True) * z / z.norm(dim=-1, keepdim=True)
+    return self.head(self.ln_f(self.loop(h, loops)[:, -1]))
+
+  def loop(self, h, loops=None):
+    i, K = self.cfg.layers - 1, loops or self.cfg.loops
+    for _ in range(K):
+      h = h + self.cfg.loop_alpha * self.block(i, h)
+    return h
 
   def rcdl_layers(self) -> Dict[str, RCDLLayer]:
     return {f'ffn_{i}': m for i, m in enumerate(self.ffn) if isinstance(m, RCDLLayer)}
+
+
+@torch.no_grad()
+def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int = 0) -> Dict[str, Any]:
+  """Accuracy with K_test = 1, 2, 4, 8 passes of the last block; accuracy with state noise e = 0.1, 0.25, 0.5 at the
+  trained K (one fixed noise draw per e); and, on n_jac evaluation states, per pass k: the median spectral radius
+  (largest |eigenvalue|) and spectral norm of J_k = d(h + a f(LN(h)))/dh at the pass's input state, the median of
+  |J_k - I|_2, and the median relative step |a f| / |h|."""
+  from torch.func import jacrev, vmap
+  model.eval()
+  acc = lambda **kw: float((torch.cat([model(tokens[i:i + 2048], **kw) for i in range(0, len(tokens), 2048)])
+                            .argmax(-1) == targets).float().mean())
+  out = {'acc_by_K': {str(k): acc(loops=k) for k in (1, 2, 4, 8)}}
+  out['acc_by_noise'] = {str(e): acc(noise=e, noise_gen=torch.Generator().manual_seed(seed + int(e * 1000)))
+                         for e in (0.1, 0.25, 0.5)}
+  i, a = model.cfg.layers - 1, model.cfg.loop_alpha
+  step = lambda v: v + a * model.block(i, v[None, None])[0, 0]
+  h = model.last_state(tokens[:n_jac])[:, 0]                       # (n, d)
+  eye = torch.eye(h.shape[-1], device=h.device)
+  per_pass = []
+  for k in range(model.cfg.loops):
+    with torch.enable_grad():
+      J = vmap(jacrev(step))(h)                                    # (n, d, d)
+    rad = torch.linalg.eigvals(J.double()).abs().amax(-1)
+    nrm = torch.linalg.matrix_norm(J.double(), ord=2)
+    dev = torch.linalg.matrix_norm((J - eye).double(), ord=2)
+    nxt = vmap(step)(h)
+    per_pass.append({'pass': k + 1, 'spectral_radius_median': float(rad.median()),
+                     'spectral_radius_max': float(rad.max()), 'spectral_norm_median': float(nrm.median()),
+                     'jac_minus_I_norm_median': float(dev.median()),
+                     'rel_step_median': float(((nxt - h).norm(dim=-1) / h.norm(dim=-1)).median())})
+    h = nxt
+  out['jacobian_by_pass'] = per_pass
+  model.train()
+  return out
 
 
 def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cpu') -> Dict[str, Any]:
@@ -228,6 +292,8 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
   phase1 = [r for r in log if r['step'] <= cfg.steps]
   result = {'cfg': dc.asdict(cfg), 'log': log, 'final_acc': phase1[-1]['acc'], 'final_loss': phase1[-1]['loss'],
             'plateau_end_step': plateau_end, 'params': sum(p.numel() for p in params)}
+  if cfg.final_probe:
+    result['loop_probe'] = loop_probe(model, *old_set, seed=cfg.seed)
   if M:
     phase2 = [r for r in log if r['step'] >= cfg.steps]
     result |= {'old_acc_min_during_finetune': min(r['acc'] for r in phase2), 'old_acc_after_finetune': log[-1]['acc'],
