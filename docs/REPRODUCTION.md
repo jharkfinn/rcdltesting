@@ -717,7 +717,17 @@ Not run: biography seed 3, and the cuts listed under Pending. Data: `docs/data/l
   | ReLU MLP, width 6,144 | −38.9 / −25.8 | 0.63–0.73 |
   | Untied GeGLU 512 (separate weights per pass) | +1.9 / +1.8 | – |
 
-  Open confound: the MLPs use default initialization, the fixed-feature layers a zero-initialized readout (see the interim below). A zero-initialized MLP control has not run.
+- **Initialization control** (`facts_loops_zeroinit.json`, predictions Z1–Z3 in `predictions_zeroinit.md`; 2026-10-19 22:10 UTC). The MLPs were rerun with their output weight zero-initialized, as the Cos-Bochner readout is.
+
+  | Arm | Late gain at K = 4, seed 1 / 2 (points) | Speed-up at K = 4 |
+  |---|---|---|
+  | GeGLU 512, zero-init | −0.9 / −1.2 | 0.95–1.04 (default init: 0.85–0.89) |
+  | ReLU MLP 768, zero-init | −1.3 / −1.3 | 0.90–0.96 (default: 0.85–0.90; default gain −7.6 / −8.9) |
+  | GeGLU 4,096, zero-init | seed 1 did not train at K = 4 (0.03); seed 2 −6.8 | 0.37–0.43 (seed 2) |
+
+  - Verdicts: Z1 partial (speed-up near 1.0, neither all above nor all below). Z2 and Z3: the reuse explanation holds (speed-up below 1.0 at every threshold in both seeds that trained).
+  - Zero initialization removes most of the ReLU MLP's loss (−8 to −1.3 points) and GeGLU 512's slowdown (0.86 to about 0.98). It does not make any MLP speed up from looping.
+  - Narrow-kernel Cos speeds up 1.33–1.53 times; zero-initialized MLPs 0.90–1.04 times. So the Cos-against-MLP contrast survives the initialization control. The size of the MLP losses was partly an initialization artifact.
 - **Related paper read end to end:** Li et al., InfiLoop, arXiv 2610.11570 (`docs/data/loops/papers/2610.11570_infiloop.md`). It reports "latent overthinking" in carry-last looped transformers: extra loops overwrite correct states. Our looped FFN shows the same thing. Trained at K = 4, accuracy peaks at pass 4 and falls to 0.34 by pass 16, with a relative step of 0.18–0.20 per pass. The paper's fix, a content-gated convex aggregation of loop outputs, suggests a direct test on our task (see the note).
 
 **Basis tests and width sweep** (interim, 2026-10-19 21:25 UTC; checked by a 3-agent verification workflow that recomputed every number and reviewed the claims; data `docs/data/loops/results/`, tables `docs/data/loops/interim_2110/`).
