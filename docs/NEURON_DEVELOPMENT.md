@@ -1730,3 +1730,13 @@ count with the held-out test is the sharper measure.
   the queues.
 - Lesson (cost one stalled queue): bash reads a script while it runs it, so a queue script must never be rewritten in
   place. Each relaunch now writes a new file.
+- 2026-10-19 18:58–19:04: on request we tried to run a second GPU notebook of ours (3 running on the account: ours D
+  and F, and one notebook of another session). Both tries failed the same way. Opening F evicted D, within about
+  90 s the first time and within 30 s the second time. The other session's notebook was not evicted either time.
+
+  So on this account at most 2 GPU sandboxes run at once, not 3, and a second GPU of ours gives no speed-up. The
+  supervisor now reopens D only when at most 1 other notebook runs.
+
+  A supervisor bug made the first try worse: its keepalive restart stopped every keepalive browser, F's too. It now
+  stops only the browser of the notebook it reopens. The biography checkpoints survived both evictions, and the 3
+  runs in flight resumed from step 5,000.
