@@ -247,14 +247,32 @@ def main():
   ap.add_argument('--facts')
   ap.add_argument('--facts_v2')
   ap.add_argument('--facts_ctrl')
+  ap.add_argument('--merge', nargs='*', default=[], help='more facts result dirs (width sweep, basis tests) merged into '
+                  'the main facts set; each arm is compared with its own K = 1 run')
   ap.add_argument('--bios')
   ap.add_argument('--out')
   a = ap.parse_args()
   lines, summary = [], {}
   if a.facts or a.facts_v2:
     r1, r2 = load(a.facts), load(a.facts_v2)
-    l, summary['facts'] = facts_tables(r2 or r1, load(a.facts_ctrl), replicate=r1 if r2 else None)
+    main = {k: dict(v) for k, v in (r2 or r1).items()}
+    if r2:                                         # round 1 seeds that round 2 did not repeat stay in the main set
+      for k, v in r1.items():
+        for s_, r in v.items():
+          main.setdefault(k, {}).setdefault(s_, r)
+    for d in a.merge:
+      for k, v in load(d).items():
+        main.setdefault(k, {}).update(v)
+    l, summary['facts'] = facts_tables(main, load(a.facts_ctrl), replicate=r1 if r2 else None)
     lines += l
+    lines += ['', '## Equal-parameter view (trained parameters of the whole model; late accuracy, mean over seeds)\n']
+    rows = []
+    for arm in sorted({k[0] for k in main}, key=arm_key):
+      ks = sorted(K for (a_, K) in main if a_ == arm)
+      any_r = next(iter(main[(arm, ks[0])].values()))
+      cell = lambda K: fmt([late(r) for r in main[(arm, K)].values()], 4) if (arm, K) in main else '-'
+      rows.append([arm, f"{any_r['params']:,}"] + [cell(K) for K in (1, 2, 4)])
+    lines += table(['arm', 'trained params', 'K = 1', 'K = 2', 'K = 4'], rows)
   if a.bios:
     l, summary['bios'] = bios_tables(load(a.bios))
     lines += [''] + l
