@@ -1708,3 +1708,25 @@ count with the held-out test is the sharper measure.
   step 50,000 of 225,180 (only its 10-epoch microscope was pulled), the E6 umbrella queue after about 140 finished jobs
   (outputs written after the storage limit), the exits run on E4 and the E1-against-E1r compare stage. Everything in
   `docs/data/` is safe.
+- 2026-10-19: three more sandbox losses during the looping test (REPRODUCTION.md §7.5d): at 16:49, about 17:20 and
+  17:51. Each time the keepalive browser still held the notebook open.
+  - The heartbeat log kept as a .py file shows no memory spike before the 17:51 loss: 14.3 GB in use by 3 GPU
+    processes. So memory is not the cause.
+  - The account's list of running notebooks gives the cause. A new notebook on the account (not ours) started at the
+    minute of the 17:51 loss, and ours was gone from the list. Another session on the same account opens notebooks.
+    When the account is at its limit of 3 running notebooks, molab reclaims one of them, so far ours.
+  - We reopen our notebook only when the account runs 2 or fewer other notebooks, so we never push the account over
+    the limit.
+- 2026-10-19: when molab replaces a sandbox, it restores only the `.py` and `.md` files under `work/` from its object
+  store (counted in its restore script: 1,267 .py, 86 .md, no .json, .sh, .log or .pt). A file written as .py was
+  restored after a loss about 20 s later, so the sync is near-continuous. The runs use this as follows:
+  - each result is also written as `persist/<task>_<name>.py` (`DATA = '<json>'`);
+  - the heartbeat is a .py file of comment lines;
+  - biography checkpoints are chunked base64 .py files (`rcdl/ckpt.py`; resume equals an uninterrupted run, tested);
+  - queues are idempotent and skip finished runs;
+  - code is cloned to /tmp on each new sandbox.
+
+  A local supervisor pulls each result, reopens the notebook after a loss (subject to the account limit) and relaunches
+  the queues.
+- Lesson (cost one stalled queue): bash reads a script while it runs it, so a queue script must never be rewritten in
+  place. Each relaunch now writes a new file.

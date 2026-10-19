@@ -605,6 +605,77 @@ Findings (both runs H, one seed each):
 - The new-fact numbers are the same in all six branches to within 0.2 points at steps 25 / 75 (87.1-87.4% / 99.7-99.8%): the table writes alone set this speed.
 - **The timing of the growing layer's dips with AdamW is not repeatable.** Run H repeats seed 1 with the same seed; its pre-training collapses at steps 800-1,000 (1.6%, 1.7%, 4.1%) and has no dip after step 1,000, while seed 1 collapsed at step 800 (4.0%) and at step 1,300 (33.4%). Single evaluations of the two differ by up to 95.8 points, and the first crossings of 50% and 90% move from step 900 to 1,100. The plateau end (step 700) and the final accuracy (93.3% against 93.1%) are the same.
 
+### 7.5d Weight-tied looping of the last FFN: does Cos-Bochner gain more than GeGLU? (user question, interim)
+
+Status 2026-10-19 18:30 UTC: facts round 1 is complete (2 seeds). Facts round 2 (3 seeds, probe v2, σ sweep), 24 control runs and 27 biography runs are running on one molab GPU. This section will be updated when they end. Data: `docs/data/loops/`.
+- Predictions L1–L5 were written before the Cos-Bochner results (`predictions.md`).
+- An amendment was written before any probe v2 result (`amendment_1.md`).
+- `literature.json` holds the literature notes.
+
+**Setup.**
+- The last FFN block runs K times with the same weights, h ← h + a f(LN(h)). The model is trained at that K.
+  - h is the residual state at the last position.
+  - a = 1 is the step size.
+  - f is the FFN.
+  - LN is the block's LayerNorm.
+- The task is the facts task of §7.5 (`rcdl/facts.py`): N = 8,192 individuals, two-token names at random positions among 10 distractors, 10,000 steps, Adam 1e-3.
+- The measure is recall of 4,096 trained facts.
+- Arms:
+  - GeGLU width 512;
+  - Cos-Bochner width 16,384 with fixed random features, f(x) = W_o √(2/D) cos(W x + b), W ~ N(0, 1/σ²), D the width, only W_o trained;
+  - σ = 4 is the narrow kernel and σ = 8 the wide kernel.
+- Configs: `experiments/configs/facts_loops.json`, `facts_loops_v2.json`, `facts_loops_ctrl.json`, `bios_loops.json`.
+
+**Facts, round 1** (final accuracy, mean of seeds 1 / 2; gain = accuracy at K minus accuracy at K = 1, same seed):
+
+| FFN | K = 1 | K = 2 (gain) | K = 4 (gain) |
+|---|---|---|---|
+| GeGLU 512 | 0.938 | 0.933 (−0.004) | 0.926 (−0.012) |
+| Cos-Bochner, σ = 4 | 0.978 | 0.990 (+0.012) | 0.995 (+0.016) |
+| Cos-Bochner, σ = 8 | 0.986 | 0.982 (−0.004) | 0.979 (−0.007) |
+
+- **L1 holds in round 1.** The narrow kernel gains from looping in both seeds, and its gain grows with K. The wide kernel and GeGLU lose a little.
+  - This goes against the prior from the literature. Two looped-transformer papers report that looping does not add knowledge storage: Saunshi et al. 2502.17416 and Ouro 2510.25741, both read end to end.
+  - The GeGLU loss is 1.2 points at K = 4. That is about 3 binomial standard errors on 4,096 facts.
+- **First control: the untied σ = 4 run** at K = 2, seed 1, has a separate LayerNorm and FFN (new random features) for each pass. It gains +0.011, against +0.015 for the tied run of the same seed.
+  - So most of the gain comes with any second pass, tied or not.
+  - This is one seed. The decision rule in `amendment_1.md` needs all 3 seeds, plus the compute-matched width control (σ = 4 at width 32,768 and 65,536, K = 1).
+- **Extra passes beyond the trained K:**
+  - Trained at K = 4 and run at K_test = 8, narrow Cos keeps 0.944. GeGLU keeps 0.756 and wide Cos 0.883.
+  - Trained at K = 1 and run at K_test = 2, every arm drops: GeGLU to 0.517, σ = 4 to 0.890, σ = 8 to 0.832.
+  - So the narrow-kernel map is the most stable under extra passes. It does not reach a fixed point in 4 passes, because the relative step stays at 0.15–0.17 per pass.
+- **L2 (clean-up of state noise) is not supported by round 1.**
+  - Looping makes every arm less robust to a random push of the state. With the push size e = 0.5 of |h|, σ = 4 falls from 0.535 (K = 1) to 0.445 (K = 2) and 0.366 (K = 4). GeGLU falls from 0.659 to 0.615 and 0.600.
+  - The round 1 comparison mixes processing with dilution. The noise stays in the residual stream while the passes add writes.
+  - Round 2 adds the control from `amendment_1.md`: the same push added after the clean passes.
+- **L3 as measured in round 1 is invalid.** LayerNorm ignores the scale of h and a shift along the ones vector. So the step Jacobian J = d(h + a f(LN(h)))/dh has J h = h and J 1 = 1, and its spectral radius is at least 1 by construction. A radius above 1 says nothing about expansion.
+  - Round 1 medians: GeGLU 3.28 (spectral norm 8.5), σ = 4 1.53 (2.5), σ = 8 1.29 (2.1), at K = 1.
+  - So GeGLU has the largest per-pass Jacobian. That is the opposite of L3 as worded.
+  - Round 2 measures the spectrum on the tangent space, with h and 1 projected out (`rcdl.facts.tangent_spectrum`; the test checks it against the full spectrum).
+
+**What the literature predicts** (`docs/data/loops/literature.json`: 8 papers read end to end, 10 more listed but not read):
+- Hopfield networks and kernel memory networks (2008.02217, 2208.09416) predict that a sharp kernel retrieves in one step and contracts near stored states. Mean-shift theory (1503.00687) puts the largest gain per pass at an intermediate bandwidth.
+- No paper loops a single tied FFN, compares FFN types under looping, or tests a residual hetero-associative update behind a LayerNorm. Our test does all three.
+- Two caveats for the biography task:
+  - The Gemma post-norm adds a write of fixed RMS on each pass, so that map has no fixed point (Labovich 2604.15259).
+  - Physics of Language Models 3.1 (2309.14316) ties wording memorization to data without augmentation. Our biographies already use 20 templates per attribute, so the Cos T = 1 wording memorization of §7.5b comes from the model or the optimizer.
+
+**Pending.**
+- Facts round 2: 3 seeds of the main arms, a σ sweep 2 / 3 / 6, and probe v2 with:
+  - the tangent spectrum;
+  - the dilution control;
+  - the trajectory to 16 passes;
+  - test-time step size.
+- 24 controls:
+  - untied K = 2, 4 for σ = 4 and GeGLU;
+  - compute-matched width;
+  - GeGLU 4096;
+  - N = 16,384.
+- 27 biography runs: GeGLU, Cos 4k at T = 1 and Cos 4k at T = 2, at K = 1, 2, 4 and seeds 1–3. They test L4 (looping widens Cos T = 1's seen / held-out gap) and L5 (Cos T = 2 stays wording-invariant). The 3 K = 1 runs of seed 1 reproduce §7.5b and §7.5c at step 4,000–6,000:
+  - GeGLU: 99.98%.
+  - Cos T = 1: 65.3% held-out.
+  - Cos T = 2: 97.6%.
+
 ### 7.6 Cost (article: RCDL "matches but does not beat" strong baselines at much higher cost)
 
 Memory is the stored table (keys, values, weights; fp32) or the parameters; compute is per test input at the end of training. Times are wall-clock training times on the GPU named.
