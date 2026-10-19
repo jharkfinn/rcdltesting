@@ -605,9 +605,9 @@ Findings (both runs H, one seed each):
 - The new-fact numbers are the same in all six branches to within 0.2 points at steps 25 / 75 (87.1-87.4% / 99.7-99.8%): the table writes alone set this speed.
 - **The timing of the growing layer's dips with AdamW is not repeatable.** Run H repeats seed 1 with the same seed; its pre-training collapses at steps 800-1,000 (1.6%, 1.7%, 4.1%) and has no dip after step 1,000, while seed 1 collapsed at step 800 (4.0%) and at step 1,300 (33.4%). Single evaluations of the two differ by up to 95.8 points, and the first crossings of 50% and 90% move from step 900 to 1,100. The plateau end (step 700) and the final accuracy (93.3% against 93.1%) are the same.
 
-### 7.5d Weight-tied looping of the last FFN: does Cos-Bochner gain more than GeGLU? (user question, interim)
+### 7.5d Weight-tied looping of the last FFN: does Cos-Bochner gain more than GeGLU? (user question)
 
-Status 2026-10-19 18:30 UTC: facts round 1 is complete (2 seeds). Facts round 2 (3 seeds, probe v2, σ sweep), 24 control runs and 27 biography runs are running on one molab GPU. This section will be updated when they end. Data: `docs/data/loops/`.
+Status 2026-10-19 23:40 UTC: all planned runs are done, except the cuts listed under Pending. The verdicts are in "All runs done" and "Tests 1–3" below. The answer is in "Where the question stands". The interim blocks after that are kept as written at the time; statements that later results overtook carry a "Superseded" or "Resolved" note. Two verification workflows recomputed every number from the result files (`verify_interim_2115.json`, `verify_tests123.json`). Data: `docs/data/loops/`.
 - Predictions L1–L5 were written before the Cos-Bochner results (`predictions.md`).
 - An amendment was written before any probe v2 result (`amendment_1.md`).
 - `literature.json` holds the literature notes.
@@ -668,7 +668,8 @@ Status 2026-10-19 18:30 UTC: facts round 1 is complete (2 seeds). Facts round 2 
 - **Extra passes beyond the trained K:**
   - Trained at K = 4 and run at K_test = 8, narrow Cos keeps 0.944. GeGLU keeps 0.756 and wide Cos 0.883.
   - Trained at K = 1 and run at K_test = 2, every arm drops: GeGLU to 0.517, σ = 4 to 0.890, σ = 8 to 0.832.
-  - So the narrow-kernel map is the most stable under extra passes. It does not reach a fixed point in 4 passes, because the relative step stays at 0.15–0.17 per pass.
+  - So at D = 16,384 the narrow-kernel map is the most stable under extra passes. It does not reach a fixed point in 4 passes, because the relative step stays at 0.15–0.17 per pass.
+  - Superseded for small layers by Test 2: at D = 256 and 1,536, narrow Cos trained at K = 4 loses 20–24 points at K_test = 8, more than GeGLU 512 (17 points).
 - **L2 (clean-up of state noise) is not supported by round 1.**
   - Looping makes every arm less robust to a random push of the state. With the push size e = 0.5 of |h|, σ = 4 falls from 0.535 (K = 1) to 0.445 (K = 2) and 0.366 (K = 4). GeGLU falls from 0.659 to 0.615 and 0.600.
   - The round 1 comparison mixes processing with dilution. The noise stays in the residual stream while the passes add writes.
@@ -697,7 +698,7 @@ Not run: biography seed 3, and the cuts listed under Pending. Data: `docs/data/l
 | W1: accuracy rises with D | late acc, K = 1 / 2 / 4, 2 seeds | monotone in D at every K | holds |
 | W2 / W3 / W4 | see the interim below | unchanged with seed 2 | hold (with the timing caveat) |
 | C1: the D = 256 looping lead shrinks by 60,000 steps | late gain | +9.0 points at 10,000 steps, +1.3 points at 60,000 | holds |
-| C2: no D = 256 run within 2 points of the large layer at 60,000 steps | late acc | large D = 16,384: 0.996. D = 256: K = 4 0.974 (max 0.9995), K = 1 0.960, K = 8 0.957 | holds, narrowly (K = 4 is 0.3 points short) |
+| C2: no D = 256 run within 2 points of the large layer at 60,000 steps | late acc | large D = 16,384: 0.996. D = 256: K = 4 0.974 (max 0.9995), K = 1 0.960, K = 8 0.957 | holds, narrowly (K = 4 is 0.3 points short). With the rate decayed, every D = 256 run (K = 1, 4, 8) reaches 0.9997–1.0000 (Test 3), so the C2 margin comes from the constant rate, not from capacity |
 | C3: D = 1,536 at K = 4 ≥ GeGLU 512 at K = 1 − 1 point at 60,000 steps | late acc | 0.9998 against 0.9969; D = 1,536 at K = 1 is also 0.999 | holds, but at the ceiling: every model with about 600k or more trained parameters converges to 99.6–100% |
 | L4: looping widens Cos T = 1's seen / held-out gap (biographies) | gap, late window | seed 1: 0.343 → 0.384 (K = 2) → 0.412 (K = 4). Seed 2: 0.388 → 0.423 → 0.377. Held-out falls from 0.633 to 0.593 / 0.598 | holds at K = 2 in both seeds, at K = 4 in seed 1 only |
 | L5: Cos T = 2 stays wording-invariant under looping | gap < 2 points at every K | K = 2: 0.001 / 0.001. K = 4: held-out 0.836 / 0.886 against seen 0.980 / 0.999, gap 0.144 / 0.113 | refuted at K = 4 |
@@ -722,13 +723,17 @@ Not run: biography seed 3, and the cuts listed under Pending. Data: `docs/data/l
   | Arm | Late gain at K = 4, seed 1 / 2 (points) | Speed-up at K = 4 |
   |---|---|---|
   | GeGLU 512, zero-init | −0.9 / −1.2 | 0.95–1.04 (default init: 0.85–0.89) |
-  | ReLU MLP 768, zero-init | −1.3 / −1.3 | 0.90–0.96 (default: 0.85–0.90; default gain −7.6 / −8.9) |
+  | ReLU MLP 768, zero-init | −1.2 / −1.3 | 0.90–0.96 (default: 0.85–0.90; default gain −7.6 / −8.9) |
   | GeGLU 4,096, zero-init | seed 1 did not train at K = 4 (0.03); seed 2 −6.8 | 0.37–0.43 (seed 2) |
 
-  - Verdicts: Z1 partial (speed-up near 1.0, neither all above nor all below). Z2 and Z3: the reuse explanation holds (speed-up below 1.0 at every threshold in both seeds that trained).
-  - Zero initialization removes most of the ReLU MLP's loss (−8 to −1.3 points) and GeGLU 512's slowdown (0.86 to about 0.98). It does not make any MLP speed up from looping.
-  - Narrow-kernel Cos speeds up 1.33–1.53 times; zero-initialized MLPs 0.90–1.04 times. So the Cos-against-MLP contrast survives the initialization control. The size of the MLP losses was partly an initialization artifact.
-- **Related paper read end to end:** Li et al., InfiLoop, arXiv 2610.11570 (`docs/data/loops/papers/2610.11570_infiloop.md`). It reports "latent overthinking" in carry-last looped transformers: extra loops overwrite correct states. Our looped FFN shows the same thing. Trained at K = 4, accuracy peaks at pass 4 and falls to 0.34 by pass 16, with a relative step of 0.18–0.20 per pass. The paper's fix, a content-gated convex aggregation of loop outputs, suggests a direct test on our task (see the note).
+  - Verdicts:
+    - Z1 partial. Zero-init GeGLU 512 is about level: 0.95–1.04 at K = 4, above 1.0 at one threshold of seed 1 and below at the rest.
+    - Z2: the reuse explanation holds. The ReLU MLP 768 speed-up is below 1.0 at every threshold in both seeds.
+    - Z3: the speed-up is 0.37–0.43 in seed 2. Seed 1 at K = 4 did not train, and the rule counts it as a speed-up of 0. So the verdict rests on one trained seed.
+  - Zero initialization removes most of the ReLU MLP's loss (−8 to −1.2 / −1.3 points) and GeGLU 512's slowdown (0.86 to about 0.98).
+  - With zero initialization, no MLP comes near the Cos speed-up. GeGLU 512 is level, and the other MLP arms are slower.
+  - Narrow-kernel Cos at K = 4 speeds up 1.31–1.54 times (fixed or trained W, both seeds). Zero-initialized GeGLU 512 and ReLU 768 speed up 0.90–1.04 times, and zero-initialized GeGLU 4,096 0.37–0.43 times (one seed did not train). So the Cos-against-MLP contrast survives the initialization control. The size of the MLP losses was partly an initialization artifact.
+- **Related paper read end to end:** Li et al., InfiLoop, arXiv 2610.11570 (`docs/data/loops/papers/2610.11570_infiloop.md`). It reports "latent overthinking" in carry-last looped transformers: extra loops overwrite correct states. Our looped FFN shows the same thing. Trained at K = 4, accuracy peaks at pass 4 and falls to 0.34 by pass 16, with a relative step of 0.18–0.20 per pass. The paper's fix is a content-gated convex aggregation of loop outputs. Test 2 below applies it to our task.
 
 **Tests 1–3 after the verdict table** (2026-10-19 23:10 UTC; predictions in `predictions_zeroinit.md` and `predictions_gating_lr.md`, written before the runs; data in `docs/data/loops/results/`).
 
@@ -740,24 +745,33 @@ Not run: biography seed 3, and the cuts listed under Pending. Data: `docs/data/l
   - The standard deviation in the window is at most 0.11 points.
   - **R1 holds:** the decay removes the late oscillation.
   - **R2 is refuted:** K = 4 minus K = 1 is −0.03 / 0.00 points.
-  - So looping does not raise the level the small layer reaches. The earlier result ("looped D = 256 reaches 100%, unlooped never above 0.979") came from the constant rate. Unlooped runs oscillated below 100% and looped runs touched it. With the rate decayed, the unlooped 279,200-parameter model stores all 32,768 facts too.
+  - With the rate decayed, the unlooped 279,200-parameter model reaches 100% on the 4,096 evaluated facts (late 1.0000 / 0.9999). These are a fixed random eighth of the 32,768 trained facts.
+  - The earlier result ("looped D = 256 reaches 100%, unlooped never above 0.979") came from the constant rate. Two things made the gap: the oscillation, and the constant-rate K = 1 run not having converged by step 60,000 (0.947 at step 30,000, 0.956 at 40,000, 0.978 at 50,000, still rising). The looped runs came within 0.05 points of 100% (K = 4) or touched it (K = 8).
+  - **This task cannot test whether looping raises the reachable level.** Every size tested, looped or not, reaches 100% once the rate decays, so R2 had no room to hold. The D = 256 model stores 32,768 facts × log2(32) = 163,840 bits in 279,200 trained parameters, about 0.59 bits per parameter, which is well below a capacity limit. A test needs a setting where K = 1 stays below 100% with decay: for example D = 64, or many more individuals per parameter.
+  - Speed to high accuracy at D = 256 (decayed rate, K = 4 against K = 1, seeds 1 / 2): 1.31 / 1.37 at 50%, 1.10 / 1.09 at 90%, 1.07 / 1.04 at 99%. K = 8 reaches 99% at 1.00 / 0.99 times the K = 1 speed. So the small layer gets a head start from looping, and the looped and unlooped runs reach near-full recall at about the same step.
 - **Test 2, InfiLoop gating, facts.**
   - Speed-up is the step at which the residual K = 1 run reaches 20–50% accuracy, divided by the same step for the gated run.
   - Overthinking is the probe accuracy at the trained K, then at twice the trained K.
 
   | Arm | Residual K = 4: late gain / speed-up | Gated K = 4: late gain / speed-up | Residual K = 8 | Gated K = 8 | Overthinking, gated K = 4 |
   |---|---|---|---|---|---|
-  | Cos σ = 4, D = 256 | +9.3 / +9.4; 1.31–1.40 | +7.9 / +8.6; 1.27–1.36 | +9.3 / +9.4; 1.37–1.51 | +8.3 / +8.1; 1.33–1.43 | 0.804 → 0.569 / 0.799 → 0.555 |
+  | Cos σ = 4, D = 256 | +9.3 / +9.4; 1.31–1.40 | +7.9 / +8.5; 1.27–1.36 | +9.3 / +9.4; 1.37–1.51 | +8.3 / +8.1; 1.33–1.43 | 0.804 → 0.569 / 0.799 → 0.555 |
   | Cos σ = 4, D = 1,536 | +2.6 / +3.4; 1.45–1.54 | +2.8 / +2.8; 1.41–1.49 | +2.7 / +2.8; 1.66–1.78 | +2.4 / +2.6; 1.58–1.68 | 0.955 → 0.729 / 0.942 → 0.721 |
   | GeGLU 512 | −0.9 / −1.8; 0.85–0.89 | −0.6 / −0.8; 0.88–0.91 | −4.1 / −6.2; 0.53–0.69 | −1.2 / −1.5; 0.81–0.84 | 0.934 → 0.804 / 0.917 → 0.799 |
 
-  - **G1 is refuted.** Gating does not remove overthinking here. Accuracy at twice the trained pass count falls 12–25 points for every arm in both seeds, about as much as without gating. The paper's setting (Sudoku, nested loops, deep supervision) differs from ours: one tied FFN and fact recall.
+  - **G1 is refuted as worded.** Accuracy at twice the trained pass count falls 11–26 points for every gated arm (K = 4 and K = 8) in both seeds. For Cos this is about as much as without gating. For GeGLU, gating makes the K = 4 drop smaller by 4–5 points (16.7 / 17.3 to 13.0 / 11.9).
+    - What this tests: a residual loop with a convex step, trained only at pass K. It is not a full test of InfiLoop's content gating.
+    - With q = 0 the score is constant, and the rule becomes a residual loop with step a_k = 1 / (1 + β + … + β^k), where a_k is the step at pass k and β = 0.55 is the decay. The step falls from 0.645 to 1 − β = 0.45. The facts FFN has no post-norm and a trained readout, so it can absorb that step size.
+    - The loss applies only after pass K, with no deep supervision. So nothing rewards a high score for a correct state, and nothing penalizes drift after pass K. The paper's setting (Sudoku, nested loops, deep supervision) differs from ours on this point.
+    - q and β were not logged. The gated facts runs track the residual runs closely (Cos D = 256, seed 1, K_test 1 / 2 / 4 / 8 / 16: residual 0.340 / 0.595 / 0.828 / 0.588 / 0.245, gated 0.325 / 0.587 / 0.804 / 0.569 / 0.242). So the gate may have done little. A probe with q set to 0 would show it.
+    - Overshoot after the trained K appears in every arm, GeGLU included (residual GeGLU trained at K = 4: 0.929 at K_test 4, 0.763 at 8). It is expected when only pass K is supervised.
   - **G2 is refuted.** Gated GeGLU still loses at K = 4 (−0.6 / −0.8) and is still slower (0.88–0.91). Gating does cut GeGLU's K = 8 loss from −4.1 / −6.2 to −1.2 / −1.5 points.
-  - **G3 holds.** Under gating Cos still learns faster (1.27–1.68) and GeGLU slower (0.81–0.91).
-  - **Cos still amplifies a push of the state under gating; gated GeGLU barely does.** At noise 0.25, propagated against end-added accuracy:
+  - **G3 holds.** At K = 4 under gating, Cos learns faster (1.27–1.49) and GeGLU slower (0.88–0.91). At K = 8: Cos 1.33–1.68, GeGLU 0.81–0.84.
+  - **Cos still amplifies a push of the state under gating; gated GeGLU barely does.** At noise 0.25, propagated against end-added accuracy, gated K = 4:
     - Cos D = 256: 0.43 against 0.75–0.76;
-    - Cos D = 1,536: 0.55 against 0.92–0.94;
-    - GeGLU: 0.85–0.88 against 0.91–0.93.
+    - Cos D = 1,536: 0.55 against 0.91–0.94;
+    - GeGLU: 0.85–0.86 against 0.91–0.93.
+  - About half of this difference is there without looping. At K = 1, Cos loses 15–18 points to the push (D = 1,536: 0.71 / 0.72 against 0.89 / 0.90) and GeGLU 6–7 points (0.86 against 0.93). Gated looping adds about 18–20 points of loss for Cos and about 0 for GeGLU. Cos D = 1,536 and GeGLU have about the same clean accuracy (0.955 / 0.942 against 0.934 / 0.917), so the different accuracy levels do not cause the contrast.
 - **Test 2, InfiLoop gating, biographies** (K = 4; late window, steps 4,500–6,000; held-out / seen / gap):
 
   | Arm | Gated K = 4 | Residual K = 4 | Residual K = 1 |
@@ -767,17 +781,29 @@ Not run: biography seed 3, and the cuts listed under Pending. Data: `docs/data/l
   | Cos T = 1, seed 1 | 0.572 / 0.957 / +0.385 | 0.586 / 0.998 / +0.412 | 0.655 / 0.998 / +0.343 |
   | GeGLU, seed 1 | 0.999 / 1.000 / +0.001 | 1.000 / 1.000 / 0 | 1.000 / 1.000 / 0 |
 
-  - **G4 holds.** Gating removes most of the K = 4 wording memorization of Cos T = 2: held-out 0.84 / 0.89 becomes 0.999 / 0.972. The gap stays above 2 points in seed 2 (2.7), but the rule needs both seeds to refute.
-  - The gated biography model also tolerates extra passes. Held-out accuracy is 1.000 at the trained K = 4, 0.999 at 6 and 0.979 at 8 (seed 1), against a fall at 12 and 16.
-  - **G5 is refuted.** Gating does not fix Cos T = 1's wording memorization: held-out is 0.572 against 0.655 at residual K = 1. That memorization belongs to the narrow kernel, not to looping.
+  - **G4 is not refuted, with a split result.** Gating removes most of the K = 4 wording memorization of Cos T = 2: held-out 0.84 / 0.89 becomes 0.999 / 0.972.
+    - The seen / held-out gap is 0.1 points in seed 1 and 2.7 points in seed 2. The rule needs both seeds above 2 points to refute.
+    - In seed 2, gated held-out is also 2.7 points below its own K = 1 run (0.972 against 0.999).
+    - The 2-point line sits inside the K = 1 seed spread: the residual K = 1 gap is already 2.4 points in seed 1.
+  - Extra passes in the gated biography model: held-out accuracy falls 2.1 points from the trained K = 4 to K_test = 8 in seed 1 (0.9995 to 0.979) and 4.8 points in seed 2 (0.972 to 0.924). That is milder than plain looping (residual T = 2: 9 and 11 points), and above G1's 2-point line. At K_test 12 and 16, accuracy falls further (seed 1: 0.683, 0.328).
+  - **G5 is refuted.** Gated looping lowers Cos T = 1 held-out accuracy by 8.3 points (0.572 against 0.655 at residual K = 1, seed 1). This is slightly more than plain looping (0.586, −6.9 points).
+    - The base gap (0.343 at K = 1) comes from the narrow kernel. Looping adds to it, with or without gating. This agrees with L4.
+    - Seen accuracy of the gated run also falls, to 0.957 (residual: 0.998). So part of the held-out drop may be undertraining.
+    - One seed.
 
 **Where the question stands: does Cos-Bochner unlock something special with looping?**
-- **Learning speed: yes, robustly.**
-  - With a narrow kernel, a looped Cos-Bochner layer learns the facts 1.3 to 1.8 times faster than unlooped, with plain or gated passes.
-  - Every trained MLP learns slower when looped: GeGLU 512 and 4,096, the ReLU MLP, zero-initialized or gated.
-- **Reachable level: no.** With a decayed learning rate the small unlooped layer also stores every fact. The level gain seen with a constant rate was oscillation.
-- **Generalization: no gain, and plain looping can harm it.** Plain K = 4 looping made the wording-invariant Cos T = 2 memorize wording. Gating removes most of that harm. GeGLU is unaffected either way.
-- **Mechanism:** the looped Cos map is a fast learner that arrives at the answer at the trained pass count. It is not an attractor. It overshoots with more passes, and it amplifies noise in the state, with or without gating.
+- **Learning speed: yes, on the facts task, and the effect belongs to a narrow cosine nonlinearity.**
+  - A cosine layer with a narrow kernel (σ = 4) reaches 20–50% accuracy 1.3–1.8 times sooner when looped at K = 4 or 8, with plain or gated passes (1.1–1.25 times at K = 2). The features can be fixed or trained.
+  - The lead holds at 1.3–1.5 times to 90% accuracy for D ≥ 1,024. At D = 256 it shrinks to about 1.1 at 90% and about 1.0 at 99%.
+  - The wide σ = 8 cosine kernel gains about 1.1–1.2 times. ReLU random features gain about 1.0.
+  - So random Fourier (Bochner) features as such do not make the speed-up. The trained-W cosine layer is a trained MLP, and it speeds up nearly as much as the fixed one.
+  - GeGLU and ReLU MLPs are level (zero-initialized GeGLU 512: 0.95–1.04) to slower (default initialization, gated GeGLU, GeGLU 4,096). None comes near 1.3 times.
+- **Reachable level: not testable on this task.** With a decayed learning rate, every model tested reaches 100% on the evaluated facts, looped or not. The constant-rate gap at D = 256 came from oscillation and from K = 1 not having converged. A test needs a harder setting (for example D = 64).
+- **Generalization (biographies): no gain, and looping can harm it.**
+  - Plain K = 4 looping made the wording-invariant Cos T = 2 memorize wording. Gating removes most of that harm (fully in seed 1, partly in seed 2).
+  - For Cos T = 1, gating does not remove the harm: gated K = 4 loses 8.3 held-out points against K = 1 (one seed).
+  - GeGLU is unaffected either way.
+- **Mechanism (facts task):** the looped Cos map arrives at the answer at the trained pass count. It is not an attractor. It overshoots with more passes, as every arm trained only at pass K does (GeGLU included). It amplifies noise in the state, with or without gating, beyond the single-pass sensitivity of the narrow kernel. In the biographies, gating makes the overshoot milder.
 
 **Basis tests and width sweep** (interim, 2026-10-19 21:25 UTC; checked by a 3-agent verification workflow that recomputed every number and reviewed the claims; data `docs/data/loops/results/`, tables `docs/data/loops/interim_2110/`).
 
@@ -794,7 +820,7 @@ Not run: biography seed 3, and the cuts listed under Pending. Data: `docs/data/l
 
 For these arms the late accuracy, the gain in points and the share of errors measure where each learning curve stands at steps 7,500–10,000. The speed-up does not have this problem.
 
-The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
+The fixed-Cos rows at D ≤ 8,192 have seed 1 only. Resolved: seed 2 at K = 1, 2 and 4 is now done, and the verdict table above uses both seeds.
 
 | Arm (D = features or width) | Trained params | Late acc K = 1 (mean of seeds) | Gain, seed 1 / 2 (points) | Share of K = 1 errors removed, seed 1 / 2 | Speed-up, seed 1 / 2 |
 |---|---|---|---|---|---|
@@ -819,7 +845,7 @@ The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
 
 | Layer | Speed-up from K = 4 |
 |---|---|
-| Narrow cosine (σ = 4), fixed, every width from 256 to 16,384 | 1.33–1.53 |
+| Narrow cosine (σ = 4), fixed, every width from 256 to 16,384 | 1.33–1.53 (seed 1; both seeds 1.31–1.54) |
 | Narrow cosine (σ = 4), W and b trained | 1.32–1.45 |
 | Wide cosine (σ = 8), fixed | 1.06–1.20 |
 | ReLU random features | 0.94–1.12 |
@@ -832,7 +858,7 @@ The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
   - Training W and b (T2) keeps the speed-up.
   - So neither explanation written before the tests fits. "A fixed basis gains" (reason 1) fails because a trained cosine basis gains as much and a fixed ReLU basis does not. "Smooth bounded features gain" (reason 2) fails because the σ = 8 cosine is just as smooth and bounded and gains little.
   - The pattern is "a narrow-kernel cosine layer gains". This was not pre-registered and needs its own test.
-- **Verdict on the pre-registered rule (`predictions_basis.md`): pending.**
+- **Verdict on the pre-registered rule (`predictions_basis.md`): pending at the time.** Resolved in the verdict table above (T-rule row): the rule supports reason 1, and the speed-up measure disagrees.
   - The rule supports reason 1 if T1 gains and T2 gains less than fixed Cos, both in both seeds.
   - In points, T1 gains in both seeds at both widths, and T2 gains less than fixed Cos in seed 1 (−0.4 against +2.6 at D = 1,536, +0.3 against +0.8 at D = 4,096). Fixed-Cos seed 2 at these widths has not run.
   - Reason 2 is not supported under the rule, because T1 gains.
@@ -851,7 +877,7 @@ The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
   - Fixed Cos D = 1,536 (606,880 trained parameters) at K = 4 reaches 0.941, against 0.924 for GeGLU 512 (608,928) at K = 1. Cos at K = 1 is behind (0.914).
   - But looped Cos is flat in the late window (evaluations 0.919–0.958). GeGLU still rises 0.6–1.2 points per 1,000 steps and is ahead at the last evaluation (0.944 / 0.931 against 0.928).
   - The looped layer also uses about 8 times GeGLU's last-FFN compute: 2·128·1,536 multiply-adds per pass, 4 passes, against 3·128·512 once.
-  - The ordering at convergence is open. The long runs (C3) test it.
+  - The ordering at convergence is open. The long runs (C3) test it. Resolved (C3 row above): at 60,000 steps every model with about 600k or more trained parameters reaches 99.6–100%, so the ordering is at the ceiling.
 - **GeGLU loses under looping but gains with untied passes.**
   - Untied GeGLU gains +1.2 / +1.3 points at K = 2 and +1.9 / +1.8 at K = 4 (`facts_loops_ctrl`, with 1.3 and 2 times the trained parameters).
   - So its loss comes from reusing one trained map, not from extra depth.
@@ -859,7 +885,7 @@ The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
 - **Initialization is a confound for the trained MLPs.**
   - Every fixed-feature and T2 arm has a zero-initialized readout on √(2/D)-scaled features. At initialization the looped block writes about 0.015 |h|, and one Adam step moves it by about 0.015 |h|.
   - GeGLU and the ReLU MLP use the default initialization. They write 0.11–0.24 |h| at initialization and move 0.07–1.2 |h| per step (the verification workflow measured this).
-  - So their slowdown under looping may come partly from starting as a random map applied K times.
+  - So their slowdown under looping may come partly from starting as a random map applied K times. Resolved by the initialization control above: zero initialization removes most of the MLP losses, and no MLP comes near the Cos speed-up.
   - Zero initialization does not explain the cosine speed-up: the ReLU-feature and σ = 8 arms also have it and barely speed up.
 - **The trained ReLU MLP learns slowly at Adam 1e-3, and looping slows it further.**
   - Its curves are smooth and monotone with no loss spikes, so it is not unstable.
@@ -878,21 +904,21 @@ Learning curves (accuracy / loss) at selected steps, with late-window measures (
 | K = 4 | 0.828 / 0.58 | 0.919 / 0.25 | 0.937 / 0.20 | 0.972 / 0.09 | 0.983 / 0.05 | 1.000 / 0.006 | 0.974 (2.2) | 0.087 | 4 of 16 | 0.929 |
 | K = 8 | 0.812 / 0.62 | 0.910 / 0.28 | 0.926 / 0.23 | 0.968 / 0.10 | 0.995 / 0.02 | 1.000 / 0.0015 | 0.957 (7.0) | 0.153 | 8 of 16 | 0.769 |
 
-- **Looped D = 256 does reach 100%. Without looping it does not, within 60,000 steps.**
+- **Looped D = 256 does reach 100%. Without looping it does not, within 60,000 steps, at a constant rate.** Superseded by Test 3: with a cosine-decayed rate, K = 1 also reaches 100% (late 1.0000 / 0.9999). The gap here came from the constant rate.
   - K = 4 reaches ≥ 0.99 from step 55,000, and K = 8 from step 50,000. At step 60,000 they reach 1.000 with loss 0.006 and 0.0015.
   - K = 1 never exceeds 0.979. At step 60,000 it has loss 0.083, which is 13 and 55 times higher.
 - **Averaged over the last quarter, the looped runs are not reliably better.**
   - The constant Adam rate makes every run oscillate. The looped runs swing more: standard deviation 2.2 and 7.0 points against 1.5, and K = 8 dips to 0.769.
   - The late accuracy is K = 1 0.960, K = 4 0.974 (+1.3 points) and K = 8 0.957 (−0.3).
-- **C1 (speed reading) holds on the pre-registered late measure.** The K = 4 lead in late accuracy shrinks from +9.0 points in steps 7,500–10,000 to +1.3 points in steps 45,000–60,000. The final-step and best-evaluation numbers point the other way: looped runs reach 100%, the unlooped run does not. Two causes cannot be told apart here: a learning-rate schedule that never decays, and looped maps being more sensitive to the noise of each update. A run with the rate decayed to zero over the last part of training (or weight averaging) would separate a better reachable level from more oscillation. That run has not been done.
-- **C2 and C3 are pending.** The large-layer (D = 16,384) and GeGLU 512 references at 60,000 steps, and D = 1,536 at K = 1 and 4, are still running.
+- **C1 (speed reading) holds on the pre-registered late measure.** The K = 4 lead in late accuracy shrinks from +9.0 points in steps 7,500–10,000 to +1.3 points in steps 45,000–60,000. The final-step and best-evaluation numbers point the other way: looped runs reach 100%, the unlooped run does not. Two causes cannot be told apart here: a learning-rate schedule that never decays, and looped maps being more sensitive to the noise of each update. A run with the rate decayed to zero over the last part of training (or weight averaging) would separate a better reachable level from more oscillation. Resolved by Test 3 (cosine decay): every K reaches 100%, so the constant-rate gap was oscillation plus unfinished learning at K = 1, not a level difference.
+- **C2 and C3 were pending at the time.** Resolved: see the C2 and C3 rows of the verdict table above.
 - **What the probe shows about the trained looped maps (D = 256):**
   - **No fixed point.** Trained at K = 4, accuracy along extra passes is 0.41, 0.81, 0.995, 1.000, 0.998, 0.975, 0.91, 0.82 (passes 1–8), and 0.34 at pass 16. Trained at K = 8, it is 1.000 for passes 7–10 and 0.84 at pass 16. The relative step stays at 0.18–0.20 (K = 4) and 0.10–0.12 (K = 8) per pass. The map learns to arrive at the right state at the trained pass count and then drifts.
   - **No clean-up of state noise.** With the dilution control (amendment 1), a push of 0.25 |h| propagated through the passes leaves 0.717 / 0.605 / 0.553 accuracy at K = 1 / 4 / 8, against 0.947 / 0.997 / 1.000 when the same push is added after the passes. So the passes amplify the push, more so with more passes. L2 fails.
   - **Tangent spectrum.** The median largest tangent eigenvalue is 2.04 (K = 1), 1.42–1.47 (K = 4) and 1.23–1.28 (K = 8). About 47% of the tangent directions contract. The map expands in some directions, so it is not an attractor.
   - **Robust to the step size.** Trained at K = 4, accuracy stays 0.991–0.999 for test step sizes 0.75–1.5.
 
-**Pending** (status 21:25 UTC: basis tests complete; width sweep seed 2 at K = 1 and 4 is running, then K = 2; the T-rule verdict waits for fixed-Cos seed 2 at D = 1,536 and 4,096). The account keeps at most 2 GPU sandboxes running, so all runs share one GPU (`docs/NEURON_DEVELOPMENT.md` §8). To speed up, on 2026-10-19 at 19:10 the queues were cut to the runs that answer the open questions. The configs keep every entry; the cut runs can be run later.
+**Pending** (status 23:40 UTC: every run below is done except the cuts. The T-rule verdict is in the verdict table). The account keeps at most 2 GPU sandboxes running, so all runs share one GPU (`docs/NEURON_DEVELOPMENT.md` §8). To speed up, on 2026-10-19 at 19:10 the queues were cut to the runs that answer the open questions. The configs keep every entry; the cut runs can be run later.
 
 - **Width sweep** (`facts_loops_width.json`, predictions `predictions_width.md`): can looping let a small Cos-Bochner layer match the large one at equal parameters? Cos-Bochner σ = 4 at D = 256 … 8,192, K = 1, 2, 4, seeds 1 and 2. D = 1,536 has the trained parameters of GeGLU 512. Cut: K = 8, and σ = 8 at D = 512 and 2,048.
 - **Basis tests** (`facts_loops_basis.json`, predictions `predictions_basis.md`): is the gain a property of a fixed random basis or of the cosine? Arms at D = 1,536 and 4,096, K = 1 and 4, seeds 1 and 2:
