@@ -56,6 +56,11 @@ Feed-forward variants (`ffn` for every layer, `special` for the last `n_special`
               `rbf_finetune_rows` > 0 the fine-tuning rows are appended behind it without eviction (the paper's layer
               never evicts; the ring buffer bounds the pre-training cost).
   geglu_fact  control for `rbf`: a GeGLU layer applied only at the fact positions (same routing, parametric memory).
+
+Looping (`ffn_loops` = K > 1): the FFN sub-block of the last layer runs K times with the same weights, x <- x + a
+post_ffn_norm(FFN(pre_ffn_norm(x))), a = `ffn_loop_alpha`; attention runs once. K = 1 is the plain model. Assumption:
+looping only the last FFN (not the whole block) mirrors the minimal facts task (rcdl/facts.py) and keeps attention cost
+fixed; every pass keeps Gemma's post-norm, so each pass adds a vector of fixed RMS (the post-norm scale).
 """
 
 import copy
@@ -122,6 +127,9 @@ class BiosConfig:
   cos_width: int = 4096         # D
   cos_T: float = 1.0            # Ω_ij ~ N(0, 1/(T sqrt(d)))
   cos_train: bool = True        # train Ω and b (else fixed random features)
+  ffn_loops: int = 1            # K: passes of the last block's FFN with tied weights, x <- x + a post_ffn_norm(FFN(
+                                # pre_ffn_norm(x))) (1 = the plain model; 'geglu' and 'cos' only)
+  ffn_loop_alpha: float = 1.0   # a: step size of each pass
   rbf_T: float = 2.0            # kernel exp(-||q - k||^2 / (2 T sqrt(d)))
   rbf_eta: float = 1.0          # η: v_i = -η dℓ_i/ds_i
   rbf_capacity: int = 4_000_000  # ring-buffer rows
@@ -140,6 +148,8 @@ class BiosConfig:
   eval_every: int = 100
   eval_bios: int = 1024         # held-out-template biographies of pre-training individuals (6 instances each)
   eval_seen_templates: bool = False  # also evaluate the same individuals with their training templates ('seen_*')
+  final_probe: bool = False     # after pre-training: held-out (and seen) accuracy at K_test = 1, 2, 4, 8 passes of the
+                                # last FFN, and per-pass Jacobian spectra at value positions (`loop_probe`)
   # fine-tuning on new individuals (Zucchet et al. Sec. 4: constant lr 3e-5, no replay)
   finetune_people: int = 0      # M
   finetune_steps: int = 0
@@ -547,6 +557,9 @@ class Block(nn.Module):
     self.input_norm, self.post_attn_norm = GemmaRMSNorm(d), GemmaRMSNorm(d)
     self.pre_ffn_norm, self.post_ffn_norm = GemmaRMSNorm(d), GemmaRMSNorm(d)
     self.attn = Attention(cfg)
+    self.loops, self.loop_alpha = (cfg.ffn_loops, cfg.ffn_loop_alpha) if i == cfg.layers - 1 else (1, 1.0)
+    if self.loops > 1 and kind not in ('geglu', 'cos'):
+      raise ValueError(f'ffn_loops > 1 needs a geglu or cos last layer, not {kind!r}')
     if kind == 'rbf':
       self.ffn = GrowingRBF(cfg, device)
     elif kind == 'cos':
@@ -558,14 +571,23 @@ class Block(nn.Module):
     else:
       raise ValueError(f'unknown FFN kind {kind!r}')
 
-  def forward(self, x, rope, fact):
+  def attend(self, x, rope):
     cos, sin = rope[1] if self.is_global else rope[0]
-    x = x + self.post_attn_norm(self.attn(self.input_norm(x), cos, sin, self.window))
+    return x + self.post_attn_norm(self.attn(self.input_norm(x), cos, sin, self.window))
+
+  def ffn_step(self, x):                                   # one pass of the FFN sub-block ('geglu', 'cos')
+    return self.post_ffn_norm(self.ffn(self.pre_ffn_norm(x)))
+
+  def forward(self, x, rope, fact):
+    x = self.attend(x, rope)
     if self.kind == 'rbf':                                 # growing layer: plain RMSNorm query, no post-norm
       return x + self.ffn(x, fact).to(x.dtype)
-    h = self.pre_ffn_norm(x)
-    h = self.ffn(h, fact) if self.kind == 'geglu_fact' else self.ffn(h)
-    return x + self.post_ffn_norm(h)
+    if self.kind == 'geglu_fact':
+      return x + self.post_ffn_norm(self.ffn(self.pre_ffn_norm(x), fact))
+    for _ in range(self.loops):
+      h = self.ffn_step(x)
+      x = x + (h if self.loop_alpha == 1.0 else self.loop_alpha * h)
+    return x
 
 
 class GemmaBios(nn.Module):
@@ -598,6 +620,13 @@ class GemmaBios(nn.Module):
       x = blk(x, self.rope, fact)
     return self.final_norm(x) @ self.embed.weight.T.to(x.dtype)
 
+  def loop_input(self, tokens, fact=None):
+    """Residual stream entering the last block's FFN passes (after its attention), (B, S, d)."""
+    x = self.embed(tokens) * math.sqrt(self.cfg.d_model)
+    for blk in self.blocks[:-1]:
+      x = blk(x, self.rope, fact)
+    return self.blocks[-1].attend(x, self.rope)
+
 
 # ----------------------------------------------------------------------------------------------------------- training
 
@@ -621,6 +650,56 @@ def evaluate(model: GemmaBios, data, batch: int = 256, amp: bool = False) -> Dic
   per_attr = acc.view(-1, 6).mean(0).tolist()
   return {'attr_loss': loss.mean().item(), 'attr_acc': acc.mean().item(),
           **{f'acc_{a}': per_attr[k] for k, a in enumerate(ATTRS)}}
+
+
+def loop_probe(model: GemmaBios, data, seen=None, amp: bool = False, n_jac: int = 256, seed: int = 0) -> Dict[str, Any]:
+  """Held-out (and seen-template) attribute accuracy and loss with K_test = 1, 2, 4, 8 passes of the last FFN; and, at
+  n_jac value-predicting positions of the held-out set (drawn with `seed`), per trained pass k: the median spectral
+  radius (largest |eigenvalue|) and spectral norm of J_k = d(x + a post_ffn_norm(FFN(pre_ffn_norm(x))))/dx at the pass's
+  input, the median of |J_k - I|_2 and the median relative step |x_k+1 - x_k| / |x_k|. The Jacobians are taken in fp32
+  (evaluation uses bf16 autocast on CUDA)."""
+  from torch.func import jacrev, vmap
+  blk, K0 = model.blocks[-1], model.blocks[-1].loops
+  if blk.kind not in ('geglu', 'cos'):
+    raise ValueError(f'loop_probe needs a geglu or cos last layer, not {blk.kind!r}')
+  out = {'acc_by_K': {}}
+  try:
+    for k in (1, 2, 4, 8):
+      blk.loops = k
+      r = evaluate(model, data, amp=amp)
+      rec = {'attr_acc': r['attr_acc'], 'attr_loss': r['attr_loss']}
+      if seen is not None:
+        r = evaluate(model, seen, amp=amp)
+        rec |= {'seen_attr_acc': r['attr_acc'], 'seen_attr_loss': r['attr_loss']}
+      out['acc_by_K'][str(k)] = rec
+  finally:
+    blk.loops = K0
+  inputs, _, scored, _, route = data
+  rows = torch.arange(min(len(inputs), 64), device=inputs.device)
+  model.eval()
+  with torch.no_grad():
+    x = model.loop_input(inputs[rows], route[rows])[scored[rows]]          # (n_scored, d), fp32
+  pick = torch.randperm(len(x), generator=torch.Generator().manual_seed(seed))[:n_jac].to(x.device)
+  h, a = x[pick], blk.loop_alpha
+  step = lambda v: v + a * blk.ffn_step(v)
+  eye = torch.eye(h.shape[-1], device=h.device)
+  per_pass = []
+  for k in range(K0):
+    J = vmap(jacrev(step))(h)                                              # (n, d, d)
+    with torch.no_grad():
+      rad = torch.linalg.eigvals(J.double()).abs().amax(-1)
+      nrm = torch.linalg.matrix_norm(J.double(), ord=2)
+      dev = torch.linalg.matrix_norm((J - eye).double(), ord=2)
+      nxt = step(h)
+    per_pass.append({'pass': k + 1, 'spectral_radius_median': float(rad.median()),
+                     'spectral_radius_max': float(rad.max()), 'spectral_norm_median': float(nrm.median()),
+                     'jac_minus_I_norm_median': float(dev.median()),
+                     'rel_step_median': float(((nxt - h).norm(dim=-1) / h.norm(dim=-1)).median())})
+    h = nxt
+  out['jacobian_by_pass'] = per_pass
+  out['n_jac'] = len(pick)
+  model.train()
+  return out
 
 
 class _Optimizers:
@@ -801,6 +880,8 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
             'acc50_step': first(lambda r: r['attr_acc'] >= 0.5), 'acc90_step': first(lambda r: r['attr_acc'] >= 0.9),
             'final_attr_acc': pre[-1]['attr_acc'], 'final_attr_loss': pre[-1]['attr_loss'],
             'bios_per_step': cfg.batch_size * cfg.seq_len / world.mean_bio_len}
+  if cfg.final_probe:
+    result['loop_probe'] = loop_probe(model, old_set, seen_set, amp=amp, seed=cfg.seed)
   if M:
     summary = lambda post: {'old_acc_before_finetune': post[0]['attr_acc'],
                             'old_acc_min_finetune': min(r['attr_acc'] for r in post),

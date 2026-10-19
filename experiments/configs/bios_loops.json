@@ -1,0 +1,126 @@
+{
+ "_comment": "Looping test on the biography task (rcdl/bios.py, 'Looping'): the last layer's FFN sub-block runs K = 1, 2 or 4 times with the same weights (step size a = 1; attention once), trained at that K. Arms: GeGLU, Cos-Bochner 4k at T = 1 (memorizes wording with AdamW: 100% seen, 65% held-out in E_cos_all_D4k_seen_6k) and Cos-Bochner 4k at T = 2 (learns the facts: 99.9% held-out in F_cos_all_D4k_T2); FFN type in every layer as in those runs. N = 8,192, 6,000 steps, AdamW, seeds 1 and 2 (identical Cos-Bochner runs differed by 9 points). Every run evaluates seen and held-out templates and, at the end, accuracy at K_test = 1, 2, 4, 8 and per-pass Jacobian spectra at value positions (final_probe). Question: does looping help Cos-Bochner more than GeGLU, and does it widen or close the seen / held-out gap?",
+ "defaults": {
+  "seq_len": 512,
+  "batch_size": 64,
+  "d_model": 256,
+  "layers": 6,
+  "heads": 4,
+  "kv_heads": 1,
+  "head_dim": 64,
+  "ffn_width": 1024,
+  "steps": 6000,
+  "eval_every": 100,
+  "eval_bios": 1024,
+  "lr": 0.0004,
+  "rbf_capacity": 4000000,
+  "n_people": 8192,
+  "eval_seen_templates": true,
+  "final_probe": true,
+  "ffn_loop_alpha": 1.0
+ },
+ "experiments": {
+  "geglu_K1_s1": {
+   "ffn_loops": 1,
+   "seed": 1
+  },
+  "cosT1_D4k_K1_s1": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "ffn_loops": 1,
+   "seed": 1
+  },
+  "cosT2_D4k_K1_s1": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_T": 2.0,
+   "ffn_loops": 1,
+   "seed": 1
+  },
+  "geglu_K2_s1": {
+   "ffn_loops": 2,
+   "seed": 1
+  },
+  "cosT1_D4k_K2_s1": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "ffn_loops": 2,
+   "seed": 1
+  },
+  "cosT2_D4k_K2_s1": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_T": 2.0,
+   "ffn_loops": 2,
+   "seed": 1
+  },
+  "geglu_K4_s1": {
+   "ffn_loops": 4,
+   "seed": 1
+  },
+  "cosT1_D4k_K4_s1": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "ffn_loops": 4,
+   "seed": 1
+  },
+  "cosT2_D4k_K4_s1": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_T": 2.0,
+   "ffn_loops": 4,
+   "seed": 1
+  },
+  "geglu_K1_s2": {
+   "ffn_loops": 1,
+   "seed": 2
+  },
+  "cosT1_D4k_K1_s2": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "ffn_loops": 1,
+   "seed": 2
+  },
+  "cosT2_D4k_K1_s2": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_T": 2.0,
+   "ffn_loops": 1,
+   "seed": 2
+  },
+  "geglu_K2_s2": {
+   "ffn_loops": 2,
+   "seed": 2
+  },
+  "cosT1_D4k_K2_s2": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "ffn_loops": 2,
+   "seed": 2
+  },
+  "cosT2_D4k_K2_s2": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_T": 2.0,
+   "ffn_loops": 2,
+   "seed": 2
+  },
+  "geglu_K4_s2": {
+   "ffn_loops": 4,
+   "seed": 2
+  },
+  "cosT1_D4k_K4_s2": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "ffn_loops": 4,
+   "seed": 2
+  },
+  "cosT2_D4k_K4_s2": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_T": 2.0,
+   "ffn_loops": 4,
+   "seed": 2
+  }
+ }
+}
