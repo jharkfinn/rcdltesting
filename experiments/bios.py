@@ -1,6 +1,7 @@
 """Synthetic-biography runs on the Gemma 3 style decoder (article's language experiment; see rcdl/bios.py).
 
 Usage: python -m experiments.bios experiments/configs/bios.json --out results/bios [--only name ...] [--set k=v ...]
+       [--ckpt_dir DIR --ckpt_every STEPS]
 Config format: {"defaults": {BiosConfig fields}, "experiments": {name: {BiosConfig fields}}}. Writes
 <out>/<name>/result.json and prints a summary (plateau end = first evaluation with attribute loss below 0.9 times the
 no-knowledge baseline; steps to 50% / 90% attribute accuracy; final accuracy).
@@ -23,6 +24,9 @@ def main():
   p.add_argument('--out', default='results/bios')
   p.add_argument('--set', nargs='*', default=[], help='BiosConfig overrides key=value (JSON values)')
   p.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+  p.add_argument('--ckpt_dir', default=None, help='keep a resumable pre-training checkpoint of each run here '
+                 '(<ckpt_dir>/ckpt_bios_<name>_*.py, rcdl/ckpt.py)')
+  p.add_argument('--ckpt_every', type=int, default=1000)
   args = p.parse_args()
   spec = json.load(open(args.config))
   defaults, exps = spec.get('defaults', {}), spec['experiments']
@@ -39,7 +43,8 @@ def main():
       print(f'{name}: stored result has a different configuration, rerunning', flush=True)
       r = None
     if r is None:
-      r = run_bios(cfg, out_dir, args.device)
+      r = run_bios(cfg, out_dir, args.device, ckpt=os.path.join(args.ckpt_dir, f'ckpt_bios_{name}') if args.ckpt_dir else None,
+                   ckpt_every=args.ckpt_every)
     rows.append((name, r))
   for name, r in rows:
     print(f"{name}: plateau_end={r['plateau_end_step']} acc50={r['acc50_step']} acc90={r['acc90_step']} "

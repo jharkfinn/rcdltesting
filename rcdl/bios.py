@@ -76,6 +76,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from rcdl import ckpt as ckpt_lib
+
 ATTRS = ('birthdate', 'birthplace', 'university', 'major', 'company', 'location')
 OPENERS = ('', 'notably ,', 'as far as we know ,', 'according to the records ,', 'it is worth noting that')
 FRAMES = {
@@ -730,7 +732,10 @@ class _Optimizers:
       o.load_state_dict(st)
 
 
-def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu') -> Dict[str, Any]:
+def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu', ckpt: Optional[str] = None,
+             ckpt_every: int = 0) -> Dict[str, Any]:
+  """ckpt: path prefix of a pre-training checkpoint (rcdl/ckpt.py), saved after the evaluation at every multiple of
+  ckpt_every steps and resumed from when it exists for the same configuration (no growing layers, no fine-tuning)."""
   dev = torch.device(device)
   amp = dev.type == 'cuda'
   N, M = cfg.n_people, cfg.finetune_people
@@ -826,9 +831,28 @@ def run_bios(cfg: BiosConfig, out_dir: Optional[str] = None, device: str = 'cpu'
       g.commit()
     pending.append(loss.detach())
 
-  for step in range(cfg.steps):                      # pre-training
-    if step % cfg.eval_every == 0:
+  start, resumed = 0, False
+  if ckpt:
+    if growing or M:
+      raise ValueError('checkpoints cover pre-training without growing layers and without fine-tuning')
+    if ckpt_every <= 0 or ckpt_every % cfg.eval_every:
+      raise ValueError('ckpt_every must be a positive multiple of eval_every')
+    st = ckpt_lib.load(ckpt, map_location=dev)
+    if st is not None and st['cfg'] == dc.asdict(cfg):
+      model.load_state_dict(st['model'])
+      opt.load_state_dict(st['opt'])
+      gen.set_state(st['gen'].cpu())
+      log[:], train_losses[:] = st['log'], st['train_losses']
+      start, resumed, t0 = st['step'], True, time.time() - st['sec']
+      print(f'[bios] resumed from the checkpoint at step {start}', flush=True)
+
+  for step in range(start, cfg.steps):              # pre-training
+    if step % cfg.eval_every == 0 and not (resumed and step == start):
       record(step, 'pretrain', log)
+      if ckpt and step > 0 and step % ckpt_every == 0:   # after the evaluation, so nothing is pending
+        ckpt_lib.save(ckpt, {'cfg': dc.asdict(cfg), 'step': step, 'model': model.state_dict(), 'opt': opt.state_dict(),
+                             'gen': gen.get_state(), 'log': log, 'train_losses': train_losses,
+                             'sec': time.time() - t0}, step)
     train_one(step)
 
   snap = None
