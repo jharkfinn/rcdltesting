@@ -685,6 +685,46 @@ Status 2026-10-19 18:30 UTC: facts round 1 is complete (2 seeds). Facts round 2 
   - The Gemma post-norm adds a write of fixed RMS on each pass, so that map has no fixed point (Labovich 2604.15259).
   - Physics of Language Models 3.1 (2309.14316) ties wording memorization to data without augmentation. Our biographies already use 20 templates per attribute, so the Cos T = 1 wording memorization of §7.5b comes from the model or the optimizer.
 
+**Basis tests and width sweep** (interim, 2026-10-19 21:15 UTC; data `docs/data/loops/results/`, tables `docs/data/loops/interim_2110/`).
+
+Gain is the late accuracy at K = 4 minus the late accuracy at K = 1, same arm and seed, in points. Share of errors is the gain divided by the K = 1 error rate (1 − late accuracy at K = 1). It is an exploratory measure that corrects for headroom; the pre-registered rule uses points. The fixed-Cos rows at D ≤ 8,192 have seed 1 only; seed 2 is still running.
+
+| Arm (D = features or width) | Trained params | Late acc K = 1 | Gain, seed 1 / 2 (points) | Share of K = 1 errors removed, seed 1 / 2 |
+|---|---|---|---|---|
+| Fixed Cos σ = 4, D = 256 | 279,200 | 0.679 | +9.3 / – | 29% / – |
+| D = 512 | 344,736 | 0.776 | +8.9 / – | 39% |
+| D = 1,024 | 475,808 | 0.866 | +5.6 / – | 42% |
+| D = 1,536 (matched to GeGLU 512) | 606,880 | 0.914 | +2.6 / – | 31% |
+| D = 2,048 | 737,952 | 0.930 | +2.6 / – | 38% |
+| D = 4,096 | 1,262,240 | 0.962 | +0.8 / – | 20% |
+| D = 8,192 | 2,310,816 | 0.976 | +0.4 / – | 16% |
+| D = 16,384 | 4,407,968 | 0.982 | +0.7 / +0.3 | 35% / 16% |
+| T1: ReLU random features (frozen), D = 1,536 | 606,880 | 0.431 | +5.8 / +6.7 | 10% / 12% |
+| T1: same, D = 4,096 | 1,262,240 | 0.442 | +7.4 / +6.5 | 13% / 12% |
+| T2: Cos σ = 4 with W trained, D = 1,536 | 1,003,168 | 0.954 | −0.4 / +0.7 | −8% / 14% |
+| T2: same, D = 4,096 | 2,319,008 | 0.969 | +0.3 / +0.4 | 10% / 13% |
+| GeGLU 512 | 608,928 | 0.924 | −0.9 / −1.8 | −11% / −24% |
+| T3: trained ReLU MLP, width 768 | 608,416 | 0.840 | −7.6 / −8.9 | −46% / −57% |
+| T3: same, width 6,144 | 3,371,680 | 0.726 | −38.9 / −25.8 | −161% / −84% |
+
+- **Verdict on the pre-registered rule (`predictions_basis.md`).**
+  - T1 gains in both seeds at both widths.
+  - T2 gains less than fixed Cos at the same D in seed 1: −0.4 against +2.6 at D = 1,536, and +0.3 against +0.8 at D = 4,096. The seed 2 comparison waits for fixed-Cos seed 2.
+  - So reason 1 (a fixed random basis gains from looping, because looping composes features without new parameters) is supported on seed 1.
+  - The trained MLPs (GeGLU, ReLU MLP) lose, as both reasons predicted.
+- **The headroom view adds a second factor.**
+  - Fixed Cos removes 16–42% of its errors with K = 4, at every width. Fixed ReLU features remove only 10–13%.
+  - So among fixed bases the cosine gains more for the errors it has left. That is reason 2, which the pre-registered absolute rule could not see.
+  - Caveat: ReLU random features fit badly even at K = 1 (0.43). Their kernel, the arc-cosine kernel with no bias term, has low resolution, so this comparison mixes the nonlinearity with kernel resolution.
+- **Width (W2) holds on seed 1.** The gain in points shrinks with D: +9.3 at D = 256 down to +0.4 at D = 8,192. In the share of errors the gain is roughly flat (29–42% for D ≤ 2,048) and somewhat lower at large D. So most of the absolute trend is headroom.
+- **Equal parameters (W4) holds on seed 1.** Fixed Cos at D = 1,536 (606,880 trained parameters) reaches 0.941 at K = 4, against 0.924 for GeGLU 512 (608,928) at K = 1. At K = 1, Cos is behind (0.914). Looping, not the layer type, puts it ahead.
+- **W3 holds so far.** No D ≤ 2,048 reaches the large layer (0.982). The best is D = 2,048 at K = 4 with 0.956.
+- **The trained ReLU MLP is an unstable baseline** at Adam 1e-3.
+  - At width 6,144 it is worse than at width 768 even at K = 1 (0.73 against 0.84), and it collapses with looping.
+  - An earlier run showed the same at width 16,384: GeGLU did not train at this rate (§7.5).
+  - Its large losses may come from instability rather than from looping as such.
+- **Small layers are not converged at 10,000 steps.** At D = 256 accuracy still rises 5–6 points per 1,000 steps. The late accuracy of small layers therefore measures speed. Long runs (60,000 steps, `facts_loops_long.json`, predictions C1–C3 in `predictions_long.md`) test whether the looping lead survives convergence.
+
 **Pending** (status 19:15 UTC). The account keeps at most 2 GPU sandboxes running, so all runs share one GPU (`docs/NEURON_DEVELOPMENT.md` §8). To speed up, on 2026-10-19 at 19:10 the queues were cut to the runs that answer the open questions. The configs keep every entry; the cut runs can be run later.
 
 - **Width sweep** (`facts_loops_width.json`, predictions `predictions_width.md`): can looping let a small Cos-Bochner layer match the large one at equal parameters? Cos-Bochner σ = 4 at D = 256 … 8,192, K = 1, 2, 4, seeds 1 and 2. D = 1,536 has the trained parameters of GeGLU 512. Cut: K = 8, and σ = 8 at D = 512 and 2,048.
