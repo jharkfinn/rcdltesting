@@ -56,9 +56,11 @@ class FactsConfig:
   d: int = 128
   heads: int = 4
   layers: int = 2
-  ffn: str = 'geglu'       # 'geglu' | 'cos' | 'rbf'
+  ffn: str = 'geglu'       # 'geglu' | 'cos' | 'rbf' | 'relu' (trained 2-layer ReLU MLP) | 'rfrelu' (ReLU random
+                           # features: frozen first layer W ~ N(0, 1/d), zero-initialised trained readout, like cos)
   width: int = 512         # FFN width w (geglu, cos)
   cos_sigma: float = 4.0   # σ of the random features (cos)
+  cos_train: bool = False  # cos: also train W and b (a trained cosine MLP with the kernel-scaled initialisation)
   rbf_layers: str = 'all'  # 'all' | 'last': which FFNs are growing RBF layers (others GeGLU)
   rbf_temperature: float = 1.0
   rbf_eta: float = 1.0     # value learning rate of the growing layer
@@ -92,16 +94,58 @@ class GeGLU(nn.Module):
 
 
 class CosFeatures(nn.Module):
-  def __init__(self, d, w, sigma, gen):
+  def __init__(self, d, w, sigma, gen, train_features=False):
     super().__init__()
-    self.register_buffer('W', torch.randn(w, d, generator=gen) / sigma)
-    self.register_buffer('b', torch.rand(w, generator=gen) * 2 * math.pi)
+    W, b = torch.randn(w, d, generator=gen) / sigma, torch.rand(w, generator=gen) * 2 * math.pi
+    if train_features:
+      self.W, self.b = nn.Parameter(W), nn.Parameter(b)
+    else:
+      self.register_buffer('W', W)
+      self.register_buffer('b', b)
     self.o = nn.Linear(w, d)
     nn.init.zeros_(self.o.weight)
     self.scale = math.sqrt(2.0 / w)
 
   def forward(self, x):
     return self.o(self.scale * torch.cos(x @ self.W.T + self.b))
+
+
+class ReLUMLP(nn.Module):
+  """Trained 2-layer MLP, o(relu(i x)) (PyTorch default initialisation, as GeGLU)."""
+
+  def __init__(self, d, w):
+    super().__init__()
+    self.i, self.o = nn.Linear(d, w), nn.Linear(w, d)
+
+  def forward(self, x):
+    return self.o(F.relu(self.i(x)))
+
+
+class ReLUFeatures(nn.Module):
+  """ReLU random features: o(sqrt(2/w) relu(W x)) with W ~ N(0, 1/d) frozen and the readout o trained from zero (the
+  frozen-basis counterpart of CosFeatures with another nonlinearity; its kernel is the arc-cosine kernel)."""
+
+  def __init__(self, d, w, gen):
+    super().__init__()
+    self.register_buffer('W', torch.randn(w, d, generator=gen) / math.sqrt(d))
+    self.o = nn.Linear(w, d)
+    nn.init.zeros_(self.o.weight)
+    self.scale = math.sqrt(2.0 / w)
+
+  def forward(self, x):
+    return self.o(self.scale * F.relu(x @ self.W.T))
+
+
+def make_ffn(cfg, gen):
+  if cfg.ffn == 'cos':
+    return CosFeatures(cfg.d, cfg.width, cfg.cos_sigma, gen, cfg.cos_train)
+  if cfg.ffn == 'relu':
+    return ReLUMLP(cfg.d, cfg.width)
+  if cfg.ffn == 'rfrelu':
+    return ReLUFeatures(cfg.d, cfg.width, gen)
+  if cfg.ffn in ('geglu', 'rbf'):                  # with rbf_layers = 'last', the other FFNs are GeGLU
+    return GeGLU(cfg.d, cfg.width)
+  raise ValueError(f'unknown ffn {cfg.ffn!r}')
 
 
 def name_region(cfg: FactsConfig) -> int:
@@ -132,10 +176,8 @@ class FactsModel(nn.Module):
                         db_size=rows_per_step * (cfg.steps + cfg.finetune_steps + 1), batch_size=cfg.batch_size,
                         num_classes=cfg.d)
         ffns.append(RCDLLayer(rc, cfg.d, cfg.d, i, gen))
-      elif cfg.ffn == 'cos':
-        ffns.append(CosFeatures(cfg.d, cfg.width, cfg.cos_sigma, gen))
       else:
-        ffns.append(GeGLU(cfg.d, cfg.width))
+        ffns.append(make_ffn(cfg, gen))
     self.ffn = nn.ModuleList(ffns)
     self.ln_f = nn.LayerNorm(cfg.d)
     self.head = nn.Linear(cfg.d, cfg.n_values)
@@ -143,8 +185,7 @@ class FactsModel(nn.Module):
     if cfg.loops > 1 and not cfg.loop_tied:          # built last, with their own generator, so the tied model and the
       g2 = torch.Generator().manual_seed(cfg.seed + 7919)   # data drawn after it from `gen` stay the same
       self.extra_ln = nn.ModuleList([nn.LayerNorm(cfg.d) for _ in range(cfg.loops - 1)])
-      self.extra_ffn = nn.ModuleList([CosFeatures(cfg.d, cfg.width, cfg.cos_sigma, g2) if cfg.ffn == 'cos'
-                                      else GeGLU(cfg.d, cfg.width) for _ in range(cfg.loops - 1)])
+      self.extra_ffn = nn.ModuleList([make_ffn(cfg, g2) for _ in range(cfg.loops - 1)])
 
   def block(self, i, h):
     """The FFN branch f(LN(h)) of layer i."""

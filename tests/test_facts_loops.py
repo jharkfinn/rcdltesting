@@ -199,3 +199,27 @@ def test_run_saves_a_model_that_reproduces_the_outputs(tmp_path):
   assert not torch.equal(m.ffn[1].W, st['model']['ffn.1.W'])
   m.load_state_dict(st['model'])                          # the fixed random features are buffers, so they are saved
   assert torch.equal(m.ffn[1].W, st['model']['ffn.1.W']) and sorted(st['model']) == sorted(m.state_dict())
+
+
+def test_ffn_variants_have_the_intended_trained_and_frozen_parts():
+  base = dict(n_people=32, n_attrs=2, n_values=8, d=16, heads=2, layers=2, width=24, name_tokens=2, name_vocab=16,
+              n_filler=3, random_name_pos=True)
+  count = lambda f: (sum(p.numel() for p in f.parameters() if p.requires_grad), sum(b.numel() for b in f.buffers()))
+  g = lambda: torch.Generator().manual_seed(0)
+  m = FactsModel(FactsConfig(**base, ffn='relu'), g())
+  assert count(m.ffn[0]) == (16 * 24 + 24 + 24 * 16 + 16, 0)
+  m = FactsModel(FactsConfig(**base, ffn='rfrelu'), g())
+  assert count(m.ffn[0]) == (24 * 16 + 16, 24 * 16) and torch.all(m.ffn[0].o.weight == 0)
+  fixed = FactsModel(FactsConfig(**base, ffn='cos', cos_sigma=2.0), g())
+  trained = FactsModel(FactsConfig(**base, ffn='cos', cos_sigma=2.0, cos_train=True), g())
+  assert count(fixed.ffn[0]) == (24 * 16 + 16, 24 * 16 + 24)
+  assert count(trained.ffn[0]) == (24 * 16 + 24 + 24 * 16 + 16, 0)
+  torch.testing.assert_close(trained.ffn[0].W, fixed.ffn[0].W, rtol=0, atol=0)   # same draw, now trained
+  m = FactsModel(FactsConfig(**base, ffn='rbf', rbf_layers='last', steps=2), g())
+  assert isinstance(m.ffn[0], torch.nn.Module) and type(m.ffn[0]).__name__ == 'GeGLU'
+  for ffn in ('relu', 'rfrelu'):                    # the loop, the untied control and the probe work for the new kinds
+    for tied in (True, False):
+      r = run_facts(_cfg(ffn=ffn, loops=2, loop_tied=tied, final_probe=True, steps=4, eval_every=2))
+      assert len(r['loop_probe']['jacobian_by_pass']) == 2
+  r = run_facts(_cfg(ffn='cos', cos_sigma=2.0, cos_train=True, loops=2, final_probe=True, steps=4, eval_every=2))
+  assert math.isfinite(r['loop_probe']['jacobian_by_pass'][0]['tangent_radius_median'])
