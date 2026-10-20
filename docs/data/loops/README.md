@@ -23,12 +23,14 @@
 | `results/bios_loops/`, `results/bios_loops_infiloop/` | Biography runs: residual looping (K = 1, 2, 4) and InfiLoop gating (K = 4) |
 | `round1/tables.md`, `round1/summary.json` | Tables from `python -m experiments.loops_analysis --facts results/facts_loops --facts_ctrl results/facts_loops_ctrl --out round1` |
 | `interim_2110/` | Interim tables for the basis tests and width sweep |
-| `predictions_abc.md`, `predictions_abc_amendment_1.md` … `_3.md` | Tests A (level), B (gate and deep supervision), C (why the cosine gains), the 2 × 2 scale design, the readout-scale grid and the level test L; each written before its runs |
+| `predictions_abc.md`, `predictions_abc_amendment_1.md` … `_4.md` | Tests A (level), B (gate and deep supervision), C (why the cosine gains), the 2 × 2 scale design, the readout-scale grid and the level test L; each written before its runs |
 | `review_abc.json` | Design, code and config review of tests A-C (two skeptics per high-severity issue), and two literature reports (looped training speed; deep supervision and gates) |
+| `verify_75e.json` | Verification of REPRODUCTION.md §7.5e (numbers, rules, skeptic; every issue applied) |
 | `code_versions.txt` | Commits and the sha256 of `rcdl/facts.py` used by each group of runs |
 | `results/facts_loops_why/` | Test C: kernel-width sweep, output-scale and learning-rate controls, probe runs, K = 4 at a = 0.25 |
 | `results/facts_loops_grid/` | Amendment 2: every family at K = 1 and 4 over initial output scales 1-16 (extended to 32 / 0.5 at the edges) |
 | `results/facts_loops_gate2/` | Test B: gated reruns with the gate logged, deep supervision, K = 8 without deep supervision |
+| `results/facts_loops_late/` | Amendment 4: decayed-rate runs at D = 1,536 (LP4) |
 | `results/facts_loops_level/`, `results/facts_loops_level2/` | Test A (30,000 steps, cosine decay; A-long) and the level test L (N = 32,768) |
 | `abc/tables.md`, `abc/summary.json` | Output of `python -m experiments.loops_abc_analysis` (all tables and verdicts) |
 

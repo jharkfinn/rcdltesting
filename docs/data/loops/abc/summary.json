@@ -217,12 +217,12 @@
    },
    "late_scale": {
     "K1_a4": [
-     null,
-     null
+     0.99884033203125,
+     0.99365234375
     ],
     "K4_a0.25": [
-     null,
-     null
+     0.99920654296875,
+     0.99908447265625
     ]
    },
    "gain": {
@@ -2040,16 +2040,15 @@
     "1": 1.000298635557382,
     "2": 0.9858088196341837
    },
-   "edge_of_grid": [
-    1,
-    4
-   ],
+   "edge_of_grid": [],
    "mean_steps": {
+    "K1_s0.5": 3547.0410372821148,
     "K1_s1": 3505.361328180797,
     "K1_s2": 3654.2650394338243,
     "K1_s4": 3833.456369906747,
     "K1_s8": 4463.095749267907,
     "K1_s16": 7219.665304164242,
+    "K4_s0.5": 3556.7429460946187,
     "K4_s1": 3532.3397466115734,
     "K4_s2": 3635.5956356591787,
     "K4_s4": 3746.152891416578,
@@ -2074,11 +2073,11 @@
   "cos_w256_s4_N32k": {
    "K1 a1 60k": [
     0.3892415364583333,
-    null
+    0.3697102864583333
    ],
    "K1 a4 60k": [
     0.40673828125,
-    null
+    0.4073893229166667
    ],
    "K1 a1 120k": [
     0.6151529947916666,
@@ -2089,29 +2088,29 @@
     0.6153971354166666
    ],
    "K4 a0.25 60k": [
-    null,
-    null
+    0.4009602864583333,
+    0.3861490885416667
    ],
    "K4 a1 60k": [
-    null,
-    null
+    0.4772135416666667,
+    0.46875
    ],
    "K1 a0 60k": [
-    null,
-    null
+    0.257080078125,
+    0.2520345052083333
    ]
   },
   "cos_w256_s4_N32k_margin": [
-   null,
-   null
+   -0.13793945312499994,
+   -0.14664713541666663
   ],
   "geglu_w85_zinit_N32k": {
    "K1 a1 60k": [
-    null,
+    0.356689453125,
     null
    ],
    "K1 a4 60k": [
-    null,
+    0.3705240885416667,
     null
    ],
    "K1 a1 120k": [
@@ -2123,11 +2122,11 @@
     0.54248046875
    ],
    "K4 a0.25 60k": [
-    null,
+    0.3617350260416667,
     null
    ],
    "K4 a1 60k": [
-    null,
+    0.3709309895833333,
     null
    ],
    "K1 a0 60k": [
@@ -2136,9 +2135,28 @@
    ]
   },
   "geglu_w85_zinit_N32k_margin": [
-   null,
+   -0.18391927083333331,
    null
   ]
+ },
+ "LP": {
+  "third_seed_flags": {
+   "C2b": [
+    true,
+    true,
+    null
+   ],
+   "D2": [
+    false,
+    false,
+    null
+   ],
+   "B2_geglu_ds_K8": [
+    false,
+    true,
+    null
+   ]
+  }
  },
  "verdicts": {
   "A1": "not testable (no capacity-limited Cos width)",
@@ -2172,12 +2190,20 @@
   "H1": "refuted",
   "H2": "refuted (H1 does not hold)",
   "H3": "holds",
-  "L0 cos_w256_s4_N32k": "pending",
+  "L0 cos_w256_s4_N32k": "holds",
   "L-cap cos_w256_s4_N32k": "holds",
-  "L1 cos_w256_s4_N32k": "pending",
+  "L1 cos_w256_s4_N32k": "refuted",
   "L0 geglu_w85_zinit_N32k": "pending",
   "L-cap geglu_w85_zinit_N32k": "holds",
   "L1 geglu_w85_zinit_N32k": "pending",
-  "L2": "pending"
+  "L2": "refuted (L1 does not hold for Cos)",
+  "LP cos_w1536_s4": "pending",
+  "LP cos_w1536_s8": "pending",
+  "LP geglu_w512_zinit": "pending",
+  "LP4 cos_w1536_s4_dec": "pending",
+  "LP4 geglu_w512_zinit_dec": "pending",
+  "C2b (3 seeds)": "pending",
+  "D2 (3 seeds)": "pending",
+  "B2 geglu ds K=8 (3 seeds)": "pending"
  }
 }

@@ -7,7 +7,7 @@
 | cos_w128_s4_lvl | 246,432 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 | +0.0 / +0.0 | no |
 | geglu_w11_lvl | 222,156 | 0.929 / 0.907 | 0.925 / 0.875 | 0.898 / 0.883 | 0.872 / 0.853 | 0.934 / 0.905 | -0.3 / -3.3 | yes |
 | geglu_w21_lvl | 229,876 | 0.985 / 0.976 | 0.980 / 0.976 | 0.974 / 0.953 | 0.974 / 0.967 | 0.987 / 0.982 | -0.5 / -0.0 | no |
-| geglu_w42_lvl | 246,088 | 1.000 / 0.999 | 0.999 / 0.999 | 0.999 / 0.382 | - / - | - / - | -0.0 / +0.0 | no |
+| geglu_w42_lvl | 246,088 | 1.000 / 0.999 | 0.999 / 0.999 | 0.999 / 0.382 | 0.999 / 0.994 | 0.999 / 0.999 | -0.0 / +0.0 | no |
 
 A-long selection (capacity-limited width with K = 1 late accuracy closest to 0.85): {'cos': None, 'geglu': 'geglu_w11_lvl'}
 
@@ -191,11 +191,13 @@ Per-pass probe at the 30% point
 | geglu_w512_zinit | 4 | 1 | 4 | 0.922 / 0.913 | 1787 2337 2773 3176 / 1970 2363 2825 3279 |
 | geglu_w512_zinit | 4 | 2 | 8 | 0.913 / 0.909 | 1990 2516 2902 3357 / 2076 2573 3088 3503 |
 | geglu_w512_zinit | 4 | 4 | 16 | 0.897 / 0.892 | 2362 2929 3394 3859 / 2563 3129 3622 4078 |
+| relu_w768_zinit | 1 | 0.5 | 0.5 | 0.855 / 0.840 | 2737 3568 4211 4809 / 2833 3599 4334 4927 |
 | relu_w768_zinit | 1 | 1 | 1 | 0.845 / 0.841 | 2786 3551 4145 4816 / 2763 3567 4221 4903 |
 | relu_w768_zinit | 1 | 2 | 2 | 0.830 / 0.819 | 2904 3709 4324 4991 / 2987 3668 4332 5017 |
 | relu_w768_zinit | 1 | 4 | 4 | 0.824 / 0.817 | 3104 3837 4501 5122 / 3180 3907 4473 5098 |
 | relu_w768_zinit | 1 | 8 | 8 | 0.715 / 0.743 | 3777 4526 5288 6099 / 3593 4428 5166 5977 |
 | relu_w768_zinit | 1 | 16 | 16 | 0.395 / 0.420 | 5755 7309 8764 - / 5916 7160 8414 9841 |
+| relu_w768_zinit | 4 | 0.125 | 0.5 | 0.854 / 0.844 | 2778 3584 4213 4932 / 2834 3631 4300 4974 |
 | relu_w768_zinit | 4 | 0.25 | 1 | 0.851 / 0.846 | 2738 3542 4226 4838 / 2838 3598 4252 4869 |
 | relu_w768_zinit | 4 | 0.5 | 2 | 0.845 / 0.826 | 2831 3632 4211 4903 / 3009 3739 4391 4994 |
 | relu_w768_zinit | 4 | 1 | 4 | 0.833 / 0.827 | 3086 3780 4376 5051 / 3062 3779 4394 5098 |
@@ -210,7 +212,7 @@ Pass gain P = step(best K = 1) / step(best K = 4)
 | cos_w1536_s8 | 16 | 16 | 0.2 0.3 0.4 0.5 | 0.90–0.99 / 0.90–1.00 | 0.94 / 0.94 | - |
 | rfrelu_w1536 | 8 | 8 | 0.2 0.3 0.4 | 0.97–1.01 / 0.96–0.99 | 1.00 / 0.97 | - |
 | geglu_w512_zinit | 2 | 2 | 0.2 0.3 0.4 0.5 | 0.95–0.97 / 0.94–0.98 | 0.96 / 0.96 | - |
-| relu_w768_zinit | 1 | 1 | 0.2 0.3 0.4 | 0.98–1.02 / 0.97–0.99 | 1.00 / 0.99 | K = 1, K = 4 |
+| relu_w768_zinit | 1 | 1 | 0.2 0.3 0.4 | 0.98–1.02 / 0.97–0.99 | 1.00 / 0.99 | - |
 
 Compute-matched unlooped reference
 
@@ -225,10 +227,20 @@ Compute-matched unlooped reference
 
 | arm | K1 a1 60k | K1 a4 60k | K1 a1 120k | K1 a4 120k | K4 a0.25 60k | K4 a1 60k | K1 a0 (off) 60k |
 |---|---|---|---|---|---|---|---|
-| cos_w256_s4_N32k | 0.389 / - | 0.407 / - | 0.615 / 0.593 | 0.606 / 0.615 | - / - | - / - | - / - |
-| geglu_w85_zinit_N32k | - / - | - / - | 0.554 / 0.536 | 0.555 / 0.542 | - / - | - / - | - / - |
+| cos_w256_s4_N32k | 0.389 / 0.370 | 0.407 / 0.407 | 0.615 / 0.593 | 0.606 / 0.615 | 0.401 / 0.386 | 0.477 / 0.469 | 0.257 / 0.252 |
+| geglu_w85_zinit_N32k | 0.357 / - | 0.371 / - | 0.554 / 0.536 | 0.555 / 0.542 | 0.362 / - | 0.371 / - | - / - |
 
-Margin = best K = 4 at 60k − best K = 1 at 120k: cos_w256_s4_N32k: - / -; geglu_w85_zinit_N32k: - / -
+Margin = best K = 4 at 60k − best K = 1 at 120k: cos_w256_s4_N32k: -13.8 / -14.7; geglu_w85_zinit_N32k: -18.4 / -
+
+## Amendment 4: the late-phase gain of looped Cos (seeds 3 and 4) and third seeds
+
+| family | best scale for 90%, K = 1 / K = 4 | P at 50 / 70 / 80 / 90%, seed 3 / seed 4 | best scale for late acc, K = 1 / K = 4 | late acc K = 4 − K = 1 (points), s3 / s4 |
+|---|---|---|---|---|
+
+Decayed rate, 30,000 steps (LP4)
+
+| family | best scale for 95%, K = 1 / K = 4 | ratio at 95%, s3 / s4 | ratio at 99% | final acc K = 1 | final acc K = 4 |
+|---|---|---|---|---|---|
 
 ## Verdicts
 
@@ -265,10 +277,18 @@ Margin = best K = 4 at 60k − best K = 1 at 120k: cos_w256_s4_N32k: - / -; gegl
 | H1 | refuted |
 | H2 | refuted (H1 does not hold) |
 | H3 | holds |
-| L0 cos_w256_s4_N32k | pending |
+| L0 cos_w256_s4_N32k | holds |
 | L-cap cos_w256_s4_N32k | holds |
-| L1 cos_w256_s4_N32k | pending |
+| L1 cos_w256_s4_N32k | refuted |
 | L0 geglu_w85_zinit_N32k | pending |
 | L-cap geglu_w85_zinit_N32k | holds |
 | L1 geglu_w85_zinit_N32k | pending |
-| L2 | pending |
+| L2 | refuted (L1 does not hold for Cos) |
+| LP cos_w1536_s4 | pending |
+| LP cos_w1536_s8 | pending |
+| LP geglu_w512_zinit | pending |
+| LP4 cos_w1536_s4_dec | pending |
+| LP4 geglu_w512_zinit_dec | pending |
+| C2b (3 seeds) | pending |
+| D2 (3 seeds) | pending |
+| B2 geglu ds K=8 (3 seeds) | pending |
