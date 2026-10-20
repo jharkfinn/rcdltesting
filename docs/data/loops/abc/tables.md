@@ -228,7 +228,7 @@ Compute-matched unlooped reference
 | arm | K1 a1 60k | K1 a4 60k | K1 a1 120k | K1 a4 120k | K4 a0.25 60k | K4 a1 60k | K1 a0 (off) 60k |
 |---|---|---|---|---|---|---|---|
 | cos_w256_s4_N32k | 0.389 / 0.370 | 0.407 / 0.407 | 0.615 / 0.593 | 0.606 / 0.615 | 0.401 / 0.386 | 0.477 / 0.469 | 0.257 / 0.252 |
-| geglu_w85_zinit_N32k | 0.357 / - | 0.371 / - | 0.554 / 0.536 | 0.555 / 0.542 | 0.362 / - | 0.371 / - | - / - |
+| geglu_w85_zinit_N32k | 0.357 / 0.344 | 0.371 / - | 0.554 / 0.536 | 0.555 / 0.542 | 0.362 / 0.375 | 0.371 / - | 0.283 / - |
 
 Margin = best K = 4 at 60k − best K = 1 at 120k: cos_w256_s4_N32k: -13.8 / -14.7; geglu_w85_zinit_N32k: -18.4 / -
 
@@ -236,6 +236,9 @@ Margin = best K = 4 at 60k − best K = 1 at 120k: cos_w256_s4_N32k: -13.8 / -14
 
 | family | best scale for 90%, K = 1 / K = 4 | P at 50 / 70 / 80 / 90%, seed 3 / seed 4 | best scale for late acc, K = 1 / K = 4 | late acc K = 4 − K = 1 (points), s3 / s4 |
 |---|---|---|---|---|
+| cos_w1536_s4 | 8 / 8 | 1.01 1.08 1.13 1.16 / 0.98 1.02 1.08 1.18 | 8 / 8 | +0.7 / +1.1 |
+| cos_w1536_s8 | 16 / 16 | 0.98 1.07 1.09 1.17 / 1.01 1.07 1.14 1.24 | 8 / 8 | +2.1 / +2.1 |
+| geglu_w512_zinit | 2 / 2 | 0.95 0.94 0.94 1.01 / 0.95 0.94 0.93 0.95 | 2 / 2 | -1.0 / -0.7 |
 
 Decayed rate, 30,000 steps (LP4)
 
@@ -284,11 +287,13 @@ Decayed rate, 30,000 steps (LP4)
 | L-cap geglu_w85_zinit_N32k | holds |
 | L1 geglu_w85_zinit_N32k | pending |
 | L2 | refuted (L1 does not hold for Cos) |
-| LP cos_w1536_s4 | pending |
-| LP cos_w1536_s8 | pending |
-| LP geglu_w512_zinit | pending |
+| LP1 cos_w1536_s4 | holds |
+| LP3 cos_w1536_s4 | split |
+| LP1 cos_w1536_s8 | holds |
+| LP3 cos_w1536_s8 | holds |
+| LP2 geglu_w512_zinit | split |
 | LP4 cos_w1536_s4_dec | pending |
 | LP4 geglu_w512_zinit_dec | pending |
-| C2b (3 seeds) | pending |
-| D2 (3 seeds) | pending |
-| B2 geglu ds K=8 (3 seeds) | pending |
+| C2b (3 seeds) | holds (3 of 3 seeds) |
+| D2 (3 seeds) | refuted (0 of 3 seeds) |
+| B2 geglu ds K=8 (3 seeds) | holds (2 of 3 seeds) |
