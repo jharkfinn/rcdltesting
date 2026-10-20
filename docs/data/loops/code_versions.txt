@@ -1,0 +1,8 @@
+Code versions of the looping follow-up runs (tests A, B, C and amendments 1-2).
+rcdl/facts.py sha256 bc57168202d29fbba8c9b250dbb18b62fe43714c7a0cff1a8b47070f9344f2d6 in every commit below
+(training code identical; the facts_loops_why σ = 4 K = 1 reruns reproduce the earlier facts_loops_width runs
+evaluation by evaluation).
+  2dae75a  facts_loops_level (first 36 runs), facts_loops_why (first 56 runs)
+  26248c3  amendment 1 runs (facts_loops_why a0p25, facts_loops_level a4 / a0p25), facts_loops_gate2 (first 20 runs)
+  (next)   amendment 2 runs: facts_loops_grid, facts_loops_level2, facts_loops_gate2 K = 8 without deep supervision,
+           facts_loops_level A-long
