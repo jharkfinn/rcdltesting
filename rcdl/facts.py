@@ -488,8 +488,11 @@ def loop_probe(model: FactsModel, tokens, targets, n_jac: int = 256, seed: int =
 
 
 def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cpu',
-              model_path: Optional[str] = None) -> Dict[str, Any]:
-  """model_path: also save the trained model (cfg and state_dict) there as a chunked .py checkpoint (rcdl/ckpt.py)."""
+              model_path: Optional[str] = None, ckpt: Optional[str] = None, ckpt_every: int = 0) -> Dict[str, Any]:
+  """model_path: also save the trained model (cfg and state_dict) there as a chunked .py checkpoint (rcdl/ckpt.py).
+  ckpt: path prefix of a training checkpoint (rcdl/ckpt.py), saved after the evaluation at every multiple of ckpt_every
+  steps and resumed from when it exists for the same configuration (no growing layers, no fine-tuning phase). The
+  resumed run equals the uninterrupted one: training draws only from `gen`, whose state is saved."""
   gen = torch.Generator().manual_seed(cfg.seed)
   torch.manual_seed(cfg.seed)
   N, M, A = cfg.n_people, cfg.finetune_people, cfg.n_attrs
@@ -548,8 +551,23 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
 
   log, t0 = [], time.time()
   total = cfg.steps + (cfg.finetune_steps if M else 0)
-  for step in range(total + 1):
-    if step % cfg.eval_every == 0 or step == cfg.steps:
+  start, resumed = 0, False
+  if ckpt:
+    if M or model.rcdl_layers():
+      raise ValueError('checkpoints cover training without growing layers and without fine-tuning')
+    if ckpt_every <= 0 or ckpt_every % cfg.eval_every:
+      raise ValueError('ckpt_every must be a positive multiple of eval_every')
+    from rcdl import ckpt as ckpt_lib
+    st = ckpt_lib.load(ckpt, map_location=device)
+    if st is not None and st['cfg'] == dc.asdict(cfg):
+      model.load_state_dict(st['model'])
+      opt.load_state_dict(st['opt'])
+      gen.set_state(st['gen'].cpu())
+      log[:] = st['log']
+      start, resumed, t0 = st['step'], True, time.time() - st['sec']
+      print(f'[facts] resumed from the checkpoint at step {start}', flush=True)
+  for step in range(start, total + 1):
+    if (step % cfg.eval_every == 0 or step == cfg.steps) and not (resumed and step == start):
       rec = {'step': step, 'sec': time.time() - t0}
       rec['loss'], rec['acc'] = evaluate(*old_set)
       if M:
@@ -563,6 +581,9 @@ def run_facts(cfg: FactsConfig, out_dir: Optional[str] = None, device: str = 'cp
       print(f'[facts:{cfg.ffn}:N={N}] step={step} loss={rec["loss"]:.4f} (ln K={math.log(cfg.n_values):.3f}) '
             f'acc={rec["acc"]:.4f}' + (f' new_acc={rec["acc_new"]:.4f}' if M else '') + f' ({time.time() - t0:.0f}s)',
             flush=True)
+      if ckpt and 0 < step < total and step % ckpt_every == 0:     # after the evaluation (the record is in the log)
+        ckpt_lib.save(ckpt, {'cfg': dc.asdict(cfg), 'step': step, 'model': model.state_dict(), 'opt': opt.state_dict(),
+                             'gen': gen.get_state(), 'log': log, 'sec': time.time() - t0}, step)
     if step == total:
       break
     if cfg.lr_schedule == 'cosine' and step < cfg.steps:
