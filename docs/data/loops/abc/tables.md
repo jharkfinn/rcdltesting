@@ -15,7 +15,7 @@ A-long (final accuracy = mean of the last 3 evaluations)
 
 | arm | K = 1, 30k | K = 4, 30k | K = 1, 60k | K = 4, 60k | K = 1, 120k | K4(30k) − K1(120k) |
 |---|---|---|---|---|---|---|
-| geglu_w11_lvl | 0.944 / 0.922 | 0.942 / 0.892 | 1.000 / - | 1.000 / - | - / - | - / - |
+| geglu_w11_lvl | 0.944 / 0.922 | 0.942 / 0.892 | 1.000 / 1.000 | 1.000 / 1.000 | 1.000 / 1.000 | -5.8 / -10.8 |
 
 Per-pass readout loss at the end (pass 0 = before the looped block) and accuracy at K_test = 1 / 2 / 4 / 8 / 16
 
@@ -256,8 +256,8 @@ Decayed rate, 30,000 steps (LP4)
 | A4 | not testable (no capacity-limited Cos width) |
 | D3 | not testable (no capacity-limited Cos width) |
 | D4 geglu_w11_lvl | refuted |
-| A3 geglu_w11_lvl (as written) | pending |
-| A-long strict geglu_w11_lvl | pending |
+| A3 geglu_w11_lvl (as written) | not testable |
+| A-long strict geglu_w11_lvl | refuted |
 | B1 cos_w1536_s4 | holds |
 | B1 geglu_w512 | refuted |
 | B2 cos_w1536_s4 ds K=4 | refuted |
@@ -297,6 +297,7 @@ Decayed rate, 30,000 steps (LP4)
 | LP2 geglu_w512_zinit (3 seeds, amendment 5) | holds (2 of 3 seeds) |
 | LP3 cos_w1536_s4 (3 seeds, amendment 5) | holds (2 of 3 seeds) |
 | LP4 | split |
+| LP4 (3 seeds, amendment 5) | refuted (1 of 3 seeds) |
 | C2b (3 seeds) | holds (3 of 3 seeds) |
 | D2 (3 seeds) | refuted (0 of 3 seeds) |
 | B2 geglu ds K=8 (3 seeds) | holds (2 of 3 seeds) |

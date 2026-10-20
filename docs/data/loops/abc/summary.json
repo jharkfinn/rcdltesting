@@ -253,15 +253,15 @@
    ],
    "final_K1_60k": [
     1.0,
-    null
+    1.0
    ],
    "final_K4_60k": [
     0.999755859375,
-    null
+    0.9996744791666666
    ],
    "final_K1_120k": [
-    null,
-    null
+    1.0,
+    1.0
    ],
    "gain30": [
     -0.0017903645833333703,
@@ -269,11 +269,11 @@
    ],
    "gain60": [
     -0.000244140625,
-    null
+    -0.00032552083333337034
    ],
    "K4_30k_minus_K1_120k": [
-    null,
-    null
+    -0.05794270833333337,
+    -0.10791015625
    ]
   }
  },
@@ -2256,7 +2256,8 @@
    "final_K4": {
     "3": 1.0,
     "4": 1.0
-   }
+   },
+   "seed5_ratio95": 1.092607472880675
   },
   "geglu_w512_zinit_dec": {
    "best95_scale_K1": 2,
@@ -2302,8 +2303,8 @@
   "A4": "not testable (no capacity-limited Cos width)",
   "D3": "not testable (no capacity-limited Cos width)",
   "D4 geglu_w11_lvl": "refuted",
-  "A3 geglu_w11_lvl (as written)": "pending",
-  "A-long strict geglu_w11_lvl": "pending",
+  "A3 geglu_w11_lvl (as written)": "not testable",
+  "A-long strict geglu_w11_lvl": "refuted",
   "B1 cos_w1536_s4": "holds",
   "B1 geglu_w512": "refuted",
   "B2 cos_w1536_s4 ds K=4": "refuted",
@@ -2343,6 +2344,7 @@
   "LP2 geglu_w512_zinit (3 seeds, amendment 5)": "holds (2 of 3 seeds)",
   "LP3 cos_w1536_s4 (3 seeds, amendment 5)": "holds (2 of 3 seeds)",
   "LP4": "split",
+  "LP4 (3 seeds, amendment 5)": "refuted (1 of 3 seeds)",
   "C2b (3 seeds)": "holds (3 of 3 seeds)",
   "D2 (3 seeds)": "refuted (0 of 3 seeds)",
   "B2 geglu ds K=8 (3 seeds)": "holds (2 of 3 seeds)"
