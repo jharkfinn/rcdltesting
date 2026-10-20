@@ -1710,6 +1710,14 @@ count with the held-out test is the sharper measure.
   `docs/data/` is safe.
 - 2026-10-19: three more sandbox losses during the looping test (REPRODUCTION.md §7.5d): at 16:49, about 17:20 and
   17:51. Each time the keepalive browser still held the notebook open.
+- 2026-10-20: looping results go to the public Hugging Face dataset `joshhf/rcdl-loops` (the user allowed public
+  storage; the private dataset is still at its limit). `experiments/loops_hf_sync.py` runs on the sandbox and uploads
+  every 5 minutes: the result files (`persist/facts*_*.py`), the latest training checkpoint of each running facts run
+  (`persist/ckpt_facts_*`), the saved models and the queue logs. Facts runs now save a checkpoint every 4,000 steps
+  (`--ckpt_dir`, `--ckpt_every`; the resumed run equals the uninterrupted one, `tests/test_facts_ckpt.py`). A queue
+  started on a replaced sandbox first runs `loops_hf_sync.py --restore`, which brings back results and checkpoints.
+  The token file is not restored by molab (only .py and .md are), so the local supervisor writes it again after each
+  reopen.
   - The heartbeat log kept as a .py file shows no memory spike before the 17:51 loss: 14.3 GB in use by 3 GPU
     processes. So memory is not the cause.
   - The account's list of running notebooks gives the cause. A new notebook on the account (not ours) started at the
