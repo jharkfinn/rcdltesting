@@ -252,11 +252,11 @@
     0.89208984375
    ],
    "final_K1_60k": [
-    null,
+    1.0,
     null
    ],
    "final_K4_60k": [
-    null,
+    0.999755859375,
     null
    ],
    "final_K1_120k": [
@@ -268,7 +268,7 @@
     -0.03019205729166663
    ],
    "gain60": [
-    null,
+    -0.000244140625,
     null
    ],
    "K4_30k_minus_K1_120k": [
@@ -2111,7 +2111,7 @@
    ],
    "K1 a4 60k": [
     0.3705240885416667,
-    null
+    0.353515625
    ],
    "K1 a1 120k": [
     0.5538736979166666,
@@ -2127,16 +2127,16 @@
    ],
    "K4 a1 60k": [
     0.3709309895833333,
-    null
+    0.3899739583333333
    ],
    "K1 a0 60k": [
     0.2830403645833333,
-    null
+    0.2706705729166667
    ]
   },
   "geglu_w85_zinit_N32k_margin": [
    -0.18391927083333331,
-   null
+   -0.15250651041666669
   ]
  },
  "LP": {
@@ -2170,7 +2170,8 @@
    "late_K4": {
     "3": 0.9395751953125,
     "4": 0.9427490234375
-   }
+   },
+   "seed5": 0.01277669270833337
   },
   "cos_w1536_s8": {
    "best90_scale_K1": 16,
@@ -2234,6 +2235,47 @@
    "late_K4": {
     "3": 0.9166259765625,
     "4": 0.9208170572916666
+   },
+   "seed5": 0.86616793153281
+  },
+  "cos_w1536_s4_dec": {
+   "best95_scale_K1": 16,
+   "best95_scale_K4": 8,
+   "ratio95": {
+    "3": 1.2252513111888113,
+    "4": 1.1152602631861517
+   },
+   "ratio99": {
+    "3": 1.1764249720536337,
+    "4": 1.170077577014508
+   },
+   "final_K1": {
+    "3": 1.0,
+    "4": 1.0
+   },
+   "final_K4": {
+    "3": 1.0,
+    "4": 1.0
+   }
+  },
+  "geglu_w512_zinit_dec": {
+   "best95_scale_K1": 2,
+   "best95_scale_K4": 2,
+   "ratio95": {
+    "3": 0.9400412975057758,
+    "4": 0.9900253779101842
+   },
+   "ratio99": {
+    "3": 0.9484879025759272,
+    "4": 1.0074465529666106
+   },
+   "final_K1": {
+    "3": 1.0,
+    "4": 1.0
+   },
+   "final_K4": {
+    "3": 1.0,
+    "4": 1.0
    }
   },
   "third_seed_flags": {
@@ -2289,17 +2331,18 @@
   "L0 cos_w256_s4_N32k": "holds",
   "L-cap cos_w256_s4_N32k": "holds",
   "L1 cos_w256_s4_N32k": "refuted",
-  "L0 geglu_w85_zinit_N32k": "pending",
+  "L0 geglu_w85_zinit_N32k": "holds",
   "L-cap geglu_w85_zinit_N32k": "holds",
-  "L1 geglu_w85_zinit_N32k": "pending",
+  "L1 geglu_w85_zinit_N32k": "refuted",
   "L2": "refuted (L1 does not hold for Cos)",
   "LP1 cos_w1536_s4": "holds",
   "LP3 cos_w1536_s4": "split",
   "LP1 cos_w1536_s8": "holds",
   "LP3 cos_w1536_s8": "holds",
   "LP2 geglu_w512_zinit": "split",
-  "LP4 cos_w1536_s4_dec": "pending",
-  "LP4 geglu_w512_zinit_dec": "pending",
+  "LP2 geglu_w512_zinit (3 seeds, amendment 5)": "holds (2 of 3 seeds)",
+  "LP3 cos_w1536_s4 (3 seeds, amendment 5)": "holds (2 of 3 seeds)",
+  "LP4": "split",
   "C2b (3 seeds)": "holds (3 of 3 seeds)",
   "D2 (3 seeds)": "refuted (0 of 3 seeds)",
   "B2 geglu ds K=8 (3 seeds)": "holds (2 of 3 seeds)"

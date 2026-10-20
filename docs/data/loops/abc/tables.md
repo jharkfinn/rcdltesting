@@ -15,7 +15,7 @@ A-long (final accuracy = mean of the last 3 evaluations)
 
 | arm | K = 1, 30k | K = 4, 30k | K = 1, 60k | K = 4, 60k | K = 1, 120k | K4(30k) − K1(120k) |
 |---|---|---|---|---|---|---|
-| geglu_w11_lvl | 0.944 / 0.922 | 0.942 / 0.892 | - / - | - / - | - / - | - / - |
+| geglu_w11_lvl | 0.944 / 0.922 | 0.942 / 0.892 | 1.000 / - | 1.000 / - | - / - | - / - |
 
 Per-pass readout loss at the end (pass 0 = before the looped block) and accuracy at K_test = 1 / 2 / 4 / 8 / 16
 
@@ -228,9 +228,9 @@ Compute-matched unlooped reference
 | arm | K1 a1 60k | K1 a4 60k | K1 a1 120k | K1 a4 120k | K4 a0.25 60k | K4 a1 60k | K1 a0 (off) 60k |
 |---|---|---|---|---|---|---|---|
 | cos_w256_s4_N32k | 0.389 / 0.370 | 0.407 / 0.407 | 0.615 / 0.593 | 0.606 / 0.615 | 0.401 / 0.386 | 0.477 / 0.469 | 0.257 / 0.252 |
-| geglu_w85_zinit_N32k | 0.357 / 0.344 | 0.371 / - | 0.554 / 0.536 | 0.555 / 0.542 | 0.362 / 0.375 | 0.371 / - | 0.283 / - |
+| geglu_w85_zinit_N32k | 0.357 / 0.344 | 0.371 / 0.354 | 0.554 / 0.536 | 0.555 / 0.542 | 0.362 / 0.375 | 0.371 / 0.390 | 0.283 / 0.271 |
 
-Margin = best K = 4 at 60k − best K = 1 at 120k: cos_w256_s4_N32k: -13.8 / -14.7; geglu_w85_zinit_N32k: -18.4 / -
+Margin = best K = 4 at 60k − best K = 1 at 120k: cos_w256_s4_N32k: -13.8 / -14.7; geglu_w85_zinit_N32k: -18.4 / -15.3
 
 ## Amendment 4: the late-phase gain of looped Cos (seeds 3 and 4) and third seeds
 
@@ -244,6 +244,8 @@ Decayed rate, 30,000 steps (LP4)
 
 | family | best scale for 95%, K = 1 / K = 4 | ratio at 95%, s3 / s4 | ratio at 99% | final acc K = 1 | final acc K = 4 |
 |---|---|---|---|---|---|
+| cos_w1536_s4_dec | 16 / 8 | 1.23 / 1.12 | 1.18 / 1.17 | 1.0000 / 1.0000 | 1.0000 / 1.0000 |
+| geglu_w512_zinit_dec | 2 / 2 | 0.94 / 0.99 | 0.95 / 1.01 | 1.0000 / 1.0000 | 1.0000 / 1.0000 |
 
 ## Verdicts
 
@@ -283,17 +285,18 @@ Decayed rate, 30,000 steps (LP4)
 | L0 cos_w256_s4_N32k | holds |
 | L-cap cos_w256_s4_N32k | holds |
 | L1 cos_w256_s4_N32k | refuted |
-| L0 geglu_w85_zinit_N32k | pending |
+| L0 geglu_w85_zinit_N32k | holds |
 | L-cap geglu_w85_zinit_N32k | holds |
-| L1 geglu_w85_zinit_N32k | pending |
+| L1 geglu_w85_zinit_N32k | refuted |
 | L2 | refuted (L1 does not hold for Cos) |
 | LP1 cos_w1536_s4 | holds |
 | LP3 cos_w1536_s4 | split |
 | LP1 cos_w1536_s8 | holds |
 | LP3 cos_w1536_s8 | holds |
 | LP2 geglu_w512_zinit | split |
-| LP4 cos_w1536_s4_dec | pending |
-| LP4 geglu_w512_zinit_dec | pending |
+| LP2 geglu_w512_zinit (3 seeds, amendment 5) | holds (2 of 3 seeds) |
+| LP3 cos_w1536_s4 (3 seeds, amendment 5) | holds (2 of 3 seeds) |
+| LP4 | split |
 | C2b (3 seeds) | holds (3 of 3 seeds) |
 | D2 (3 seeds) | refuted (0 of 3 seeds) |
 | B2 geglu ds K=8 (3 seeds) | holds (2 of 3 seeds) |

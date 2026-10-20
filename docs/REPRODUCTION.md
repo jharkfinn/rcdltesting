@@ -944,8 +944,8 @@ The K = 1 biography runs of seed 1 reproduce §7.5b and §7.5c:
 ### 7.5e Follow-ups A, B and C: what looping gives a Cos-Bochner layer (user request, 2026-10-20)
 
 Status 2026-10-20 03:40 UTC:
-- Complete: tests B and C, the readout-scale grid with its edge extensions, test A, the Cos half of the level test L, the third seeds, and the late-phase test on new seeds at 10,000 steps (amendment 4, LP1 to LP3).
-- Running: the decayed-rate test LP4, seed 5 for the two split late-phase rules (amendment 5), the GeGLU half of L, and the A-long runs. Their rows say pending.
+- Complete: tests B and C, the readout-scale grid with its edge extensions, test A, the level test L, the third seeds, the late-phase tests on new seeds (amendment 4, LP1 to LP4), and seed 5 for LP2 and LP3 (amendment 5).
+- Running: seed 5 for the split LP4, and the A-long runs. Their rows say pending.
 
 Sources:
 - Predictions: `docs/data/loops/predictions_abc.md` and amendments 1–4, each written before its runs.
@@ -964,8 +964,9 @@ Terms used below:
 - **Late learning (70–90%): looped Cos keeps a gain that the step size does not explain, and the MLPs do not get it.**
   - At the best early scales, looped Cos reaches 90% 1.20–1.30 times sooner than unlooped Cos (both kernels, seeds 1–2).
   - Its accuracy at 10,000 steps is 1.3 points (σ = 4) and 2.0–2.7 points (σ = 8) higher than the best single-pass run at any readout scale.
-  - In the capacity-limited level test, at equal steps and equal starting scale, it is 7 points higher than one pass. GeGLU gains nothing there.
-  - This was found after the fact. It replicates on new seeds 3 and 4 (amendment 4): looped Cos reaches 90% 1.16–1.18 times sooner (σ = 4) and 1.17–1.24 times sooner (σ = 8), so LP1 holds for both kernels. GeGLU stays at 0.95–1.01. The decayed-rate test (LP4) is pending.
+  - In the capacity-limited level test, at equal steps and starting scale 4, it is 6.2–7.0 points higher than one pass; GeGLU gains 0 / 3.6.
+  - This was found after the fact. It replicates on new seeds 3 and 4 (amendment 4): looped Cos reaches 90% 1.16–1.18 times sooner (σ = 4) and 1.17–1.24 times sooner (σ = 8), so LP1 holds for both kernels. GeGLU gets no such gain (0.87–1.01; LP2 holds in 2 of 3 seeds).
+  - With the rate decayed to 0 (LP4), looped Cos reaches 95% 1.23 / 1.12 times sooner (split on the 1.15 bar; seed 5 running) and 99% 1.17–1.18 times sooner. Every run ends at 100%.
 - **Level: looping does not raise the storage limit.** In test L one pass given twice the steps stores far more facts (0.59–0.62 against 0.47–0.48), so the late gain is a speed gain below 2 times.
 - **The cosine readout is under-stepped at a = 1.** The narrow cosine (σ = 4) with a large readout step reaches 20–50% 1.21–1.44 times sooner than the best zero-initialized GeGLU without looping, and 1.25–1.34 times sooner with it. Past 70% only the looped run keeps a clear lead (1.15–1.31 against 1.01–1.11). The wide kernel (σ = 8) at its best scale is slower than the best GeGLU to 80%.
 - **Gate and deep supervision.** Without deep supervision, the gate on Cos collapses into the plain residual loop. With deep supervision, its β averages the passes; its content scores still cause most of the remaining overshoot past K. With deep supervision, the GeGLU gate routes most examples to the first pass.
@@ -1005,7 +1006,9 @@ Terms used below:
   - The 20% crossings fall between the evaluations at steps 1,000 and 1,500, so P at 20% is interpolated.
 - **Late phase (found here, then tested on new seeds in amendment 4).** Past 50% the passes do add speed for both Cos kernels: P rises to 1.20–1.30 at 90%.
   - On seeds 3 and 4, with the best scale chosen for 90% over scales 8 and 16, P90 is 1.16 / 1.18 for σ = 4 and 1.17 / 1.24 for σ = 8 (LP1 holds for both). P at 70% is 1.02–1.08 and at 80% 1.08–1.14.
-  - For zero-initialized GeGLU, P90 is 1.01 / 0.95 (LP2 split; seed 5 running), and 0.93–0.95 at 50–80%. Chosen separately for 90%, the best scales give 6,209 against 5,018 mean steps (σ = 4, scale 8 for both K) and 7,831 against 6,282 (σ = 8). GeGLU goes the other way (0.91–0.94), and the ReLU MLP stays at about 1.
+  - For zero-initialized GeGLU, P90 is 1.01 / 0.95, and 0.87 on seed 5 (LP2 holds in 2 of 3 seeds). It is 0.93–0.95 at 50–80%.
+  - Late accuracy at 10,000 steps, best K = 4 minus best K = 1: σ = 8 +2.1 / +2.1 (LP3 holds); σ = 4 +0.7 / +1.1, and +1.3 on seed 5 (holds in 2 of 3 seeds).
+  - Decayed rate (LP4, 30,000 steps, seeds 3 / 4): Cos σ = 4 reaches 95% 1.23 / 1.12 times sooner (best scales 16 for K = 1, 8 for K = 4) and 99% 1.18 / 1.17 times sooner. GeGLU: 0.94 / 0.99 and 0.95 / 1.01. Every run ends at 100%, so under a decayed rate the gain is speed, not level. LP4 split on the 1.15 bar; seed 5 is running. Chosen separately for 90%, the best scales give 6,209 against 5,018 mean steps (σ = 4, scale 8 for both K) and 7,831 against 6,282 (σ = 8). GeGLU goes the other way (0.91–0.94), and the ReLU MLP stays at about 1.
 - **Late accuracy at 10,000 steps** (constant rate; the best scale for each K):
 
   | Family | Best K = 1 | Best K = 4 | K = 4 − K = 1 |
@@ -1093,12 +1096,17 @@ Terms used below:
   | Arm | K = 1 at 60k (a = 1 / 4) | K = 4 at 60k (a = 0.25 / 1) | K = 1 at 120k (a = 1 / 4) | Last FFN off, 60k |
   |---|---|---|---|---|
   | Cos σ = 4, D = 256, s1 / s2 | 0.389 / 0.370; 0.407 / 0.407 | 0.401 / 0.386; 0.477 / 0.469 | 0.615 / 0.593; 0.606 / 0.615 | 0.257 / 0.252 |
-  | GeGLU w = 85 zero-init, s1 (s2 running) | 0.357; 0.371 | 0.362; 0.371 | 0.554 / 0.536; 0.555 / 0.542 | running |
+  | GeGLU w = 85 zero-init, s1 / s2 | 0.357 / 0.344; 0.371 / 0.354 | 0.362 / 0.375; 0.371 / 0.390 | 0.554 / 0.536; 0.555 / 0.542 | 0.283 / 0.271 |
 
   - **L-cap holds for both families:** K = 1 stays below 0.97 after 120,000 steps (Cos 0.59–0.62, GeGLU 0.54–0.55).
-  - **L0 holds for Cos:** switching the last FFN off costs 12–13 points.
-  - **L1 is refuted for Cos, and L2 with it.** The best looped run at 60,000 steps (0.469–0.477) is 14–15 points below the best single pass with twice the steps (0.615 in both seeds). The model is still limited by how often it has seen each fact, so looping does not raise the level beyond what more training gives. L0 and L1 for GeGLU are pending.
-  - **At equal steps and equal starting scale,** the passes add to Cos: K = 4 at a = 1 beats K = 1 at a = 4 by 6.2–7.0 points, and K = 4 at a = 0.25 beats K = 1 at a = 1 by 1.2–1.6 points. GeGLU gains 0 and 0.5 points (seed 1). This matches the late-phase gain of section 2.
+  - **L0 holds for both:** switching the last FFN off costs 12–13 points (Cos) and 7 points (GeGLU).
+  - **L1 is refuted for both, and L2 with it.**
+    - The best looped run at 60,000 steps is far below the best single pass with twice the steps: Cos 0.469–0.477 against 0.615 (−14 to −15 points), GeGLU 0.375–0.390 against 0.542–0.555 (−15 to −18).
+    - The models are still limited by how often they have seen each fact, so looping does not raise the level beyond what more training gives.
+  - **At equal steps and equal starting scale,** the passes add to both:
+    - At scale 4 (K = 4, a = 1 against K = 1, a = 4): Cos +6.2 / +7.0 points, GeGLU 0 / +3.6.
+    - At scale 1 (K = 4, a = 0.25 against K = 1, a = 1): Cos +1.2 / +1.6, GeGLU +0.5 / +3.1.
+    - The Cos gain at scale 4 is the larger one and matches the late-phase gain of section 2. At scale 1 the two families are alike.
 
 **7. Verdicts.**
 
@@ -1121,20 +1129,21 @@ Terms used below:
 | H2 (specific to the narrow cosine) | refuted |
 | H3 (looped Cos beats the best unlooped MLP) | holds (unlooped Cos does too to 50%, but not past 70%) |
 | L-cap (model at capacity) | holds for both families |
-| L0 (looped layer stores facts) | holds for Cos; GeGLU pending |
-| L1, L2 (looping raises the level beyond 2 times the steps) | refuted for Cos (−14 to −15 points), so L2 refuted; GeGLU L1 pending |
+| L0 (looped layer stores facts) | holds for both families |
+| L1, L2 (looping raises the level beyond 2 times the steps) | refuted for both (Cos −14 to −15 points, GeGLU −15 to −18); L2 refuted |
 | LP1 (looped Cos reaches 90% ≥ 1.15 times sooner, new seeds) | holds for σ = 4 (1.16 / 1.18) and σ = 8 (1.17 / 1.24) |
-| LP2 (GeGLU gets no such gain) | split on seeds 3–4 (1.01 / 0.95); seed 5 running (amendment 5) |
-| LP3 (looped Cos ≥ 1 point more accurate at 10,000 steps) | holds for σ = 8 (+2.1 / +2.1); split for σ = 4 (+0.7 / +1.1), seed 5 running |
-| LP4 (the late gain survives a decayed rate) | pending |
+| LP2 (GeGLU gets no such gain) | holds (2 of 3 seeds: 1.01 / 0.95 / 0.87) |
+| LP3 (looped Cos ≥ 1 point more accurate at 10,000 steps) | holds for σ = 8 (+2.1 / +2.1); holds for σ = 4 in 2 of 3 seeds (+0.7 / +1.1 / +1.3) |
+| LP4 (the late gain survives a decayed rate) | split on seeds 3–4 (1.23 / 1.12 at 95%; 1.17–1.18 at 99%); seed 5 running |
 
 **8. Where the question stands.** This replaces the speed and mechanism parts of "Where the question stands" in §7.5d.
 - **Early learning:** the early looping speed-up of the Cos-Bochner layer is a readout step-size effect, not something the passes unlock. Its readout is under-stepped at a = 1. One pass with a 4 times larger step gets all of the speed-up to 50%.
 - **Late learning: this is where looping does something specific to Cos.**
   - At its best readout step, looped Cos reaches 90% 1.20–1.30 times sooner, and is 1.3–2.7 points more accurate at 10,000 steps, than any single-pass Cos.
-  - In the capacity-limited test it stores 6–7 points more at equal steps.
+  - In the capacity-limited test, at equal steps and starting scale 4, it stores 6–7 points more (GeGLU 0–3.6).
+  - With the rate decayed to 0 it still reaches 95–99% 1.12–1.23 times sooner, and every model ends at 100%.
   - GeGLU and the ReLU MLP get nothing of this; for GeGLU the passes even slow learning.
-  - This was found after the fact. On new seeds it replicates for the speed to 90% (LP1 holds for both kernels, 1.16–1.24), and for the late accuracy of σ = 8. The decayed-rate test is pending (LP4). It is the "something special": weight reuse helps a fixed random-feature cosine layer in the late, fine-grained phase of learning facts, beyond what a larger readout step gives.
+  - This was found after the fact. On new seeds it replicates for the speed to 90% (LP1 holds for both kernels, 1.16–1.24) and for the late accuracy (LP3), and GeGLU gets no such gain (LP2). Under a decayed rate it is near the 1.15 bar (LP4 split, seed 5 running). It is the "something special": weight reuse speeds up a fixed random-feature cosine layer in the late, fine-grained phase of learning facts, by about 1.2 times, beyond what a larger readout step gives. It is a speed gain, not a level gain.
 - **Level:** looping does not raise the storage limit. One pass with twice the training stores far more (test L), so the late gain is a speed gain below 2 times.
 - **Generalization (biographies, §7.5d):** unchanged. Plain looping can make Cos T = 2 memorize wording; the gate fixes T = 2 but not T = 1.
 - **Mechanism:**
