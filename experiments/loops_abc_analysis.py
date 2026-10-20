@@ -625,6 +625,24 @@ def section_lp(grid, late_runs, why, gate):
       V['LP2 geglu_w512_zinit'] = 'not testable (90% not reached)' if None in p90 else verdict([x <= 1.0 for x in p90])
   L += table(['family', 'best scale for 90%, K = 1 / K = 4', 'P at 50 / 70 / 80 / 90%, seed 3 / seed 4',
               'best scale for late acc, K = 1 / K = 4', 'late acc K = 4 − K = 1 (points), s3 / s4'], rows)
+  # amendment 5: seed 5 for the split rules LP2 and LP3 (sigma 4); best scales stay those chosen on seeds 3 and 4
+  for fam, key in (('geglu_w512_zinit', 'LP2 geglu_w512_zinit'), ('cos_w1536_s4', 'LP3 cos_w1536_s4')):
+    x = S.get(fam)
+    if not x or not V.get(key, '').startswith('split'):
+      continue
+    if key.startswith('LP2'):
+      b1, b4 = x['best90_scale_K1'], x['best90_scale_K4']
+      r1, r4 = get(grid, f'{fam}{atag(b1)}', 1, 5), get(grid, f'{fam}{atag(b4 / 4)}', 4, 5)
+      s5 = None if r1 is None or r4 is None or not tstep(r1, 0.9) or not tstep(r4, 0.9) else tstep(r1, 0.9) / tstep(r4, 0.9)
+      flags = [x['P'][s][0.9] <= 1.0 for s in seeds] + [None if s5 is None else s5 <= 1.0]
+    else:
+      l1, l4 = x['bestlate_scale_K1'], x['bestlate_scale_K4']
+      r1, r4 = get(grid, f'{fam}{atag(l1)}', 1, 5), get(grid, f'{fam}{atag(l4 / 4)}', 4, 5)
+      s5 = None if r1 is None or r4 is None else late(r4) - late(r1)
+      flags = [x['late_gap'][s] >= 0.01 for s in seeds] + [None if s5 is None else s5 >= 0.01]
+    S[fam]['seed5'] = s5
+    V[key + ' (3 seeds, amendment 5)'] = ('pending' if None in flags else
+                                          f'{"holds" if sum(flags) >= 2 else "refuted"} ({sum(flags)} of 3 seeds)')
   # LP4: decayed rate at D = 1,536
   rows = []
   for fam, scales in (('cos_w1536_s4_dec', (8, 16)), ('geglu_w512_zinit_dec', (2,))):
