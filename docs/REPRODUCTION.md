@@ -792,6 +792,7 @@ Not run: biography seed 3, and the cuts listed under Pending. Data: `docs/data/l
     - One seed.
 
 **Where the question stands: does Cos-Bochner unlock something special with looping?**
+- *Superseded in part by §7.5e (2026-10-20): the speed-up below is a readout step-size effect. K = 1 with a 4 times larger step gets all of it, and at each family's best step looping adds no speed.*
 - **Learning speed: yes, on the facts task, and the effect belongs to a narrow cosine nonlinearity.**
   - A cosine layer with a narrow kernel (σ = 4) reaches 20–50% accuracy 1.3–1.8 times sooner when looped at K = 4 or 8, with plain or gated passes (1.1–1.25 times at K = 2). The features can be fixed or trained.
   - The lead holds at 1.3–1.5 times to 90% accuracy for D ≥ 1,024. At D = 256 it shrinks to about 1.1 at 90% and about 1.0 at 99%.
@@ -939,6 +940,132 @@ The K = 1 biography runs of seed 1 reproduce §7.5b and §7.5c:
 - GeGLU: 99.98%.
 - Cos T = 1: 65.3% held-out.
 - Cos T = 2: 97.6% at step 4,100.
+
+### 7.5e Follow-ups A, B and C: the looping speed-up is a readout step size (user request, 2026-10-20)
+
+Status 2026-10-20 02:00 UTC: tests B and C and the readout-scale grid are complete. The level test L (N = 32,768) and the A-long runs are still running; their rows say pending. Predictions: `docs/data/loops/predictions_abc.md` and amendments 1–3, each written before its runs. Review of design, code and configs: `review_abc.json`. Tables: `python -m experiments.loops_abc_analysis` (`docs/data/loops/abc/`). Results: `docs/data/loops/results/facts_loops_{why,grid,gate2,level,level2}/`, and the public Hugging Face dataset `joshhf/rcdl-loops`.
+
+Terms used below:
+- K is the number of passes of the tied last FFN block. Each pass is h ← h + a f(LN(h)), where a is the step size.
+- The *initial output scale* is K a. Near initialization the Cos readout is zero, the passes barely move h, and the block writes about K a f(LN(h_0)).
+- *Speed-up* is the step at which the baseline reaches 20 / 30 / 40 / 50% accuracy, divided by the step at which the variant does. Steps are interpolated between evaluations.
+- The facts task and the arms are those of §7.5d: 8,192 individuals, 32,768 facts, 10,000 steps, Adam 1e-3, about 607k trained parameters per arm.
+
+**Short answer.**
+- **Speed.** Looping gives no special speed. The speed-up of looped Cos-Bochner is a larger step on the looped block's readout, and K = 1 with a 4 times larger a gets all of it. At each family's own best readout scale, four passes are no faster than one, for every family.
+- **The cosine layer itself.** A narrow-kernel cosine layer with a large readout step does learn faster than the best zero-initialized GeGLU (1.25–1.34 times), with or without looping. That is a property of the layer and its readout scale. With a = 1 and Adam 1e-3, the Cos readout is under-stepped.
+- **Level.** Pending (test L). Test A could not test it, because even Cos D = 32 stores 99.5% of the facts.
+- **Gate and deep supervision.** Without deep supervision, the gate on Cos collapses into the plain residual loop. With deep supervision, it averages the passes and nearly removes the overshoot past the trained K. On GeGLU the gate learns to use only the first pass.
+
+**1. The scale control (C-scale and amendment 1).** Under Adam, a is a learning rate on the looped block's readout. The review checked this: K = 1 at a = 4 equals K = 1 at a = 1 with the readout rate and bias × 4, to 3.6e-5 in the logits after 60 steps. Early speed-up over K = 1 at a = 1, seeds 1 / 2:
+
+| Arm | K = 1, a = 2 | K = 1, a = 4 | K = 4, a = 1 (looping as in §7.5d) | K = 4, a = 0.25 (passes at scale 1) |
+|---|---|---|---|---|
+| Cos σ = 4, D = 1,536 | 1.22–1.24 / 1.22–1.27 | 1.48–1.58 / 1.50–1.57 | 1.45–1.51 / 1.48–1.54 | 0.97–1.00 / 1.00–1.01 |
+| Cos σ = 8, D = 1,536 | 1.14–1.20 / 1.09–1.22 | 1.35–1.43 / 1.27–1.43 | 1.25–1.38 / 1.19–1.36 | 0.98–0.99 / 0.97–1.00 |
+| GeGLU 512 (default init) | 0.99–1.02 / 1.00–1.04 | 0.90–0.96 / 0.95–0.96 | 0.85–0.89 / 0.85–0.86 | 0.92–0.94 / 0.93–0.98 |
+
+- One pass at a = 4 is as fast as four passes at a = 1 (C2 holds), and four passes at a = 0.25 are no faster than one pass at a = 1 (D1 holds).
+- GeGLU gets slower from scale as well as from passes. D2 is refuted, because four passes at a = 0.25 are 0.92–0.98, not ≥ 0.95 at every threshold.
+- A larger learning rate for all weights is no substitute. K = 1 at 2e-3 is no faster (Cos 0.90–1.04), and at 4e-3 neither Cos nor GeGLU trains (accuracy 0.034). Only the looped readout tolerates the larger step.
+- The literature reports the same effect. Wang et al. (arXiv 2606.18524, read end to end) show that under Adam a tied loop's one-step change in function space grows about linearly with the number of passes, and they recommend 1/N residual scaling. Jaggi (arXiv 2606.16825, read through a summary) reports the same for tied expert stacks.
+
+**2. The headline test: each family at its own best readout scale (amendment 2, H1–H3).** Every family ran at K = 1 and K = 4 over initial output scales K a ∈ {1, 2, 4, 8, 16}. The grid was extended to 32 for both Cos kernels and to 0.5 for the ReLU MLP, where the best scale sat at the edge. The best scale is the one with the lowest mean step to the thresholds. P is the step of the best K = 1 divided by the step of the best K = 4; P above 1 means the passes add speed.
+
+| Family (about 607k trained parameters) | Best scale K = 1 / K = 4 | Mean steps to 20–50%, best K = 1 / best K = 4 | P, seed 1 / seed 2 |
+|---|---|---|---|
+| Cos σ = 4, D = 1,536 | 16 / 16 | 1,860 / 1,903 | 0.95–1.04 / 0.91–1.02 |
+| Cos σ = 8, D = 1,536 | 16 / 16 | 2,699 / 2,861 | 0.90–0.99 / 0.90–1.00 |
+| ReLU random features, D = 1,536 | 8 / 8 | 5,481 / 5,566 (to 20–40%) | 0.97–1.01 / 0.96–0.99 |
+| Zero-initialized GeGLU 512 | 2 / 2 | 2,422 / 2,524 | 0.95–0.97 / 0.94–0.98 |
+| Zero-initialized ReLU MLP 768 | 1 / 1 (extension to 0.5 pending) | 3,505 / 3,532 (to 20–40%) | 0.98–1.02 / 0.97–0.99 |
+
+- **H1 is refuted.** For Cos σ = 4, P is 0.91–1.04, not ≥ 1.15. **H2 is refuted** with it. No family gets speed from the passes once the readout step is tuned; every P is 0.90–1.04.
+- **H3 holds.** Best looped Cos σ = 4 reaches the thresholds 1.25–1.34 times sooner than the best unlooped zero-initialized GeGLU 512 (both seeds). But best unlooped Cos σ = 4 is just as fast: scale 16 at K = 1 takes 1,234–1,272 steps to 20%, against 1,297–1,392 for the best looped run. The advantage over GeGLU belongs to the cosine layer with a large readout step, not to looping.
+- The compute-matched unlooped layer, Cos σ = 4 at D = 6,144 and K = 1, is faster still at a = 4: 1,267–1,323 steps to 20% and 1,969–1,991 to 50%. Its late accuracy is 0.972–0.973, against 0.934–0.947 for looped D = 1,536 at scales 8–16.
+- At high scale the MLPs degrade. The ReLU MLP at scale 16 has late accuracy 0.40–0.42, and GeGLU slows down above scale 4. The cosine readout tolerates scale 16–32.
+- Late accuracy at 10,000 steps (constant rate) is still about 1 point higher for looped Cos at its best scale than for unlooped (σ = 4: K = 4 at scale 8 0.946–0.947, K = 1 at scale 8 0.929–0.934). This is not a pre-registered measure; test L checks level properly.
+
+**3. Kernel width (C-σ, D = 1,536, a = 1).** Early speed-up of K = 4 over K = 1, seeds 1 / 2, and the probe at the 30% point of the K = 4 run:
+
+| σ | Late acc K = 1 / K = 4 (mean of seeds) | Speed-up | Overlap of consecutive pass features |
+|---|---|---|---|
+| 1.5 | 0.454 / 0.204 | not testable (K = 4 reaches only 20%) | – |
+| 2 | 0.900 / 0.928 | 1.39–1.43 / 1.38–1.42 | 0.902 / 0.903 |
+| 3 | 0.919 / 0.943 | 1.47–1.61 / 1.47–1.53 | 0.930 / 0.935 |
+| 4 | 0.913 / 0.943 | 1.45–1.51 / 1.48–1.54 | 0.950 / 0.954 |
+| 6 | 0.892 / 0.940 | 1.37–1.49 / 1.35–1.47 | 0.973 / 0.961 |
+| 8 | 0.866 / 0.932 | 1.25–1.38 / 1.19–1.36 | 0.979 / 0.980 |
+
+- The σ = 4 reruns reproduce the width-sweep runs of §7.5d exactly, evaluation by evaluation (same seeds, identical training code).
+- C1 (a peak at intermediate σ) is "not testable" by its rule, because at σ = 1.5 the looped and unlooped runs share fewer than 2 thresholds. Descriptively the speed-up peaks at σ = 3–4. At σ = 1.5 looping fails: the K = 4 run learns far slower than K = 1 (seed 1: 0.24 against 0.56 at the last evaluation).
+- Section 2 shows that the speed-up at σ = 8 is also a step-size effect, so the σ dependence here is how much each kernel profits from a larger readout step.
+- The overlap of consecutive pass features rises steadily with σ (C4, descriptive). It equals exp(−shift² / (2σ²)) to 3 decimals, so it says little beyond σ.
+
+**4. What the passes do (probe; A and C).**
+- Each looped Cos pass lowers the readout loss. At the 30% point of Cos σ = 4, K = 4, the loss after passes 0–4 is 3.15, 2.83, 2.56, 2.37, 2.27, and the median descent_cos of each pass is 0.11–0.20 (C5, sign part, holds). Amendment 3 explains why the size comparison with GeGLU is confounded.
+- Trained at K = 4 with the decayed rate (test A), small Cos layers spread the work over the passes. At D = 32 the loss after passes 0–4 is 4.65, 2.14, 0.67, 0.11, 0.03, and accuracy is 0.45 after one pass and 0.999 after four. The unlooped D = 32 model still reaches 0.995.
+- Accuracy still falls past the trained K (K_test = 8: 0.64–0.67), as in §7.5d.
+
+**5. Gate and deep supervision (B).**
+
+| Run (D = 1,536 Cos σ = 4, or GeGLU 512; K = 4 unless named) | β at the end | Median gate weights z_0 … z_4 | Drop at 2K (points) | Gate-off change at K |
+|---|---|---|---|---|
+| Cos, gated, no deep supervision | 0.014–0.015 | 0 0 0 0 1.00 | 22.1–22.6 | −0.1 / 0.0 |
+| GeGLU, gated, no deep supervision | 0.54–0.56 | 0.06–0.07, 0.10, 0.15–0.16, 0.25, 0.40–0.42 | 11.9–13.0 | −0.4 / −1.0 |
+| Cos, residual, deep supervision | – | – | 32.3–33.9 (K = 8: 37.2–38.0) | – |
+| Cos, gated, deep supervision | 0.93–0.94 (K = 8: 0.97) | 0, then 0.21–0.28 each | 5.2–5.5 (K = 8: 4.0–4.2) | −0.4 / +0.1 |
+| GeGLU, residual, deep supervision | – | – | 2.3–3.2 (loop idle in seed 2) | – |
+| GeGLU, gated, deep supervision | 0.88–0.90 (K = 8: 0.86–0.87) | 0.02, 0.87–0.89, 0.02, 0.02, 0.02 | 0.4–0.5 (loop idle) | −15.9 / −17.5 (K = 8: −57 / −64) |
+
+- **B1 holds for Cos and is refuted for GeGLU.** Without deep supervision, the Cos gate learns β → 0.015, keeps only the last candidate, and becomes the plain residual loop. That is why the gated runs of §7.5d tracked the residual runs. The GeGLU gate stays at β ≈ 0.55 and weights the candidates with some dependence on content (weight SD 0.06–0.07).
+- **B2 is refuted for Cos.**
+  - Deep supervision makes the residual Cos loop overshoot more: it loses 32–38 points at 2K, against 20–25 without.
+  - With the gate it learns β = 0.93–0.97. It then averages the passes evenly and loses only 4–5.5 points, but the rule asked for at most 2.
+  - The GeGLU arms are "loop idle": their accuracy after one pass is within 2 points of that after K.
+- **B3 holds.** Under deep supervision Cos still speeds up over K = 1 (1.26–1.38 at K = 4), and GeGLU does not (0.90–0.93). Section 1 shows this Cos speed-up is a step-size effect. Deep supervision itself slows Cos slightly against the same K without it (0.86–0.94).
+- **B4 is refuted.** With deep supervision, the Cos gate-off change at K = 4 is below 1 point (−0.4 / +0.1). Its gate is active through β and the averaging, not through content scores. For GeGLU the gate is essential: with q = 0, accuracy falls 16–64 points, because the gate selects pass 1 and suppresses the later passes.
+- B-rerun reproduces the Test 2 gated runs exactly (late accuracy 0.943 / 0.940 and 0.918 / 0.916).
+- The literature agrees (review_abc.json, 4 papers read end to end). Deep supervision fixes behavior inside the supervised depth but does not reliably stop overshoot past it (TRM, Ouro). InfiLoop's own ablation attributes most of its gain to damping, not to the content score.
+
+**6. Level (A and L).**
+- **Test A.** No Cos width is capacity-limited: Cos D = 32 / 64 / 128 at K = 1 reach 0.994–0.995 / 0.999 / 1.000. So A1, A2, A4 and D3 are not testable. The facts fit in the attention and embedding weights, which hold 84–93% of the parameters.
+  - At equal trained parameters, the fixed-feature Cos layer stores more than GeGLU (D = 32: 0.995 against w = 11: 0.907–0.929).
+  - GeGLU w = 11 is the only capacity-limited width, and looping lowers it (K = 4: −0.3 / −3.3 points).
+  - A-long (GeGLU w = 11, 60,000 and 120,000 steps): pending.
+- **Test L** (N = 32,768, 131,072 facts, Cos D = 256 against zero-initialized GeGLU w = 85). Cos K = 1 reaches only 0.59–0.62 after 120,000 steps (L-cap holds for Cos), and GeGLU 0.55. The looped runs and the last-FFN-off control are running. L0, L1 and L2 are pending.
+
+**7. Verdicts.**
+
+| Prediction | Verdict |
+|---|---|
+| A1, A2, A4, D3 (level at a capacity-limited Cos width) | not testable: no Cos width is capacity-limited |
+| B1 (gate inactive without deep supervision) | holds for Cos (the gate becomes the residual loop), refuted for GeGLU |
+| B2 (deep supervision removes overshoot) | refuted for Cos (residual worse, gated 4–5.5 points); GeGLU loops idle |
+| B3 (Cos keeps its speed-up under deep supervision) | holds (a step-size effect, section 1) |
+| B4 (deep supervision activates the Cos gate) | refuted (gate-off change < 1 point) |
+| C1 (speed-up peaks at intermediate σ) | not testable by its rule; descriptively a peak at σ = 3–4, and looping fails at σ = 1.5 |
+| C2 (output scale explains at least half) | holds, and in fact all of it |
+| C2b (scale slows GeGLU) | holds |
+| C3 (beyond a global learning-rate change) | holds (a global rate change does not help; section 2 is the stronger test) |
+| C5 (each Cos pass moves downhill; sign part) | holds |
+| D1 (no speed from the passes at fixed initial scale, Cos) | holds |
+| D2 (GeGLU slowdown is only scale) | refuted (passes at fixed scale still 0.92–0.98) |
+| H1 (passes add speed at the best readout step, Cos σ = 4) | refuted (P 0.91–1.04) |
+| H2 (specific to the narrow cosine) | refuted |
+| H3 (looped Cos beats the best unlooped MLP) | holds, but unlooped Cos at its best step is as fast |
+| L0, L-cap, L1, L2 (level with the looped layer at capacity) | pending |
+
+**8. Where the question stands.** This replaces the speed and mechanism parts of "Where the question stands" in §7.5d.
+- **Speed:** looping unlocks nothing special in the Cos-Bochner layer. Its speed-up comes from a larger effective step on the looped readout. One pass with a 4 times larger step gets all of it, and at the best step four passes add nothing for any family tested.
+- **What is special about the cosine layer:** it tolerates and profits from a large readout step (best scale 16, against 2 for GeGLU and 1 for the ReLU MLP). With that step it learns the facts 1.25–1.34 times faster than the best zero-initialized GeGLU at equal trained parameters. Looping is one way to reach the larger step; a larger readout step is a cheaper one.
+- **Level:** pending (test L).
+- **Generalization (biographies, §7.5d):** unchanged. Plain looping can make Cos T = 2 memorize wording; the gate fixes T = 2 but not T = 1.
+- **Mechanism:**
+  - The passes refine the state: each lowers the readout loss.
+  - The map is not an attractor and overshoots past K.
+  - Without deep supervision the gate turns itself into the plain loop.
+  - With deep supervision it averages the passes (Cos) or switches the loop off (GeGLU).
 
 ### 7.6 Cost (article: RCDL "matches but does not beat" strong baselines at much higher cost)
 

@@ -6,3 +6,6 @@ evaluation by evaluation).
   26248c3  amendment 1 runs (facts_loops_why a0p25, facts_loops_level a4 / a0p25), facts_loops_gate2 (first 20 runs)
   87d980a  amendment 2 runs: facts_loops_grid, facts_loops_level2, facts_loops_gate2 K = 8 without deep supervision,
            facts_loops_level A-long
+  7c1a768+ (rcdl/facts.py sha256 94e81c6f…, training checkpoints added; the training path is unchanged and a resumed run
+           equals the uninterrupted one, tests/test_facts_ckpt.py): q24 (level test L and A-long, after the first 6 L runs)
+           and q25 (ReLU grid extension)
