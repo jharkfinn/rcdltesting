@@ -576,9 +576,112 @@ def section_l(runs):
   return L, S, V
 
 
+# ---------------------------------------------------------------- amendment 4: late-phase gain (LP1-LP4), third seeds
+
+def best_by(runs, fam, K, scales, seeds, key):
+  """The scale with the lowest mean of key(run) over seeds (None values excluded; a scale whose runs miss the key in any
+  seed is not eligible). Returns (scale, {seed: run}) or (None, None)."""
+  cands = []
+  for sc in scales:
+    per = {s: get(runs, f'{fam}{atag(sc / K)}', K, s) for s in seeds}
+    if any(r is None for r in per.values()):
+      return 'pending', None
+    vals = [key(r) for r in per.values()]
+    if all(v is not None for v in vals):
+      cands.append((mean(vals), sc, per))
+  if not cands:
+    return None, None
+  m, sc, per = min(cands, key=lambda c: c[0])
+  return sc, per
+
+
+def section_lp(grid, late_runs, why, gate):
+  L, S, V = ['\n## Amendment 4: the late-phase gain of looped Cos (seeds 3 and 4) and third seeds\n'], {}, {}
+  seeds = (3, 4)
+  fams = {'cos_w1536_s4': (8, 16), 'cos_w1536_s8': (8, 16), 'geglu_w512_zinit': (2,)}
+  rows = []
+  for fam, scales in fams.items():
+    t90 = lambda r: tstep(r, 0.9)
+    b1, p1 = best_by(grid, fam, 1, scales, seeds, t90)
+    b4, p4 = best_by(grid, fam, 4, scales, seeds, t90)
+    l1, q1 = best_by(grid, fam, 1, scales, seeds, lambda r: -late(r))
+    l4, q4 = best_by(grid, fam, 4, scales, seeds, lambda r: -late(r))
+    if 'pending' in (b1, b4, l1, l4):
+      V[f'LP {fam}'] = 'pending'
+      continue
+    P = {s: {t: (tstep(p1[s], t) / tstep(p4[s], t)) if p1 and p4 and tstep(p1[s], t) and tstep(p4[s], t) else None
+             for t in (0.5, 0.7, 0.8, 0.9)} for s in seeds}
+    gap = {s: late(q4[s]) - late(q1[s]) for s in seeds} if q1 and q4 else None
+    S[fam] = {'best90_scale_K1': b1, 'best90_scale_K4': b4, 'P': P, 'bestlate_scale_K1': l1, 'bestlate_scale_K4': l4,
+              'late_gap': gap, 'late_K1': {s: late(q1[s]) for s in seeds} if q1 else None,
+              'late_K4': {s: late(q4[s]) for s in seeds} if q4 else None}
+    rows.append([fam, f'{b1} / {b4}', ' / '.join(' '.join(f(P[s][t], 2) for t in (0.5, 0.7, 0.8, 0.9)) for s in seeds),
+                 f'{l1} / {l4}', ' / '.join(pts(gap[s]) for s in seeds) if gap else '-'])
+    p90 = [None if p1 is None or p4 is None else P[s][0.9] for s in seeds]
+    if fam.startswith('cos'):
+      V[f'LP1 {fam}'] = 'not testable (90% not reached)' if None in p90 else verdict([x >= 1.15 for x in p90])
+      V[f'LP3 {fam}'] = verdict([gap[s] >= 0.01 for s in seeds]) if gap else 'not testable'
+    else:
+      V['LP2 geglu_w512_zinit'] = 'not testable (90% not reached)' if None in p90 else verdict([x <= 1.0 for x in p90])
+  L += table(['family', 'best scale for 90%, K = 1 / K = 4', 'P at 50 / 70 / 80 / 90%, seed 3 / seed 4',
+              'best scale for late acc, K = 1 / K = 4', 'late acc K = 4 − K = 1 (points), s3 / s4'], rows)
+  # LP4: decayed rate at D = 1,536
+  rows = []
+  for fam, scales in (('cos_w1536_s4_dec', (8, 16)), ('geglu_w512_zinit_dec', (2,))):
+    t95 = lambda r: tstep(r, 0.95)
+    b1, p1 = best_by(late_runs, fam, 1, scales, seeds, t95)
+    b4, p4 = best_by(late_runs, fam, 4, scales, seeds, t95)
+    if 'pending' in (b1, b4):
+      V[f'LP4 {fam}'] = 'pending'
+      continue
+    if p1 is None or p4 is None:
+      V[f'LP4 {fam}'] = 'not testable (95% not reached)'
+      continue
+    r95 = {s: tstep(p1[s], 0.95) / tstep(p4[s], 0.95) for s in seeds}
+    r99 = {s: (tstep(p1[s], 0.99) / tstep(p4[s], 0.99)) if tstep(p1[s], 0.99) and tstep(p4[s], 0.99) else None for s in seeds}
+    S[fam] = {'best95_scale_K1': b1, 'best95_scale_K4': b4, 'ratio95': r95, 'ratio99': r99,
+              'final_K1': {s: final(p1[s]) for s in seeds}, 'final_K4': {s: final(p4[s]) for s in seeds}}
+    rows.append([fam, f'{b1} / {b4}', ' / '.join(f(r95[s], 2) for s in seeds), ' / '.join(f(r99[s], 2) for s in seeds),
+                 ' / '.join(f(final(p1[s]), 4) for s in seeds), ' / '.join(f(final(p4[s]), 4) for s in seeds)])
+    if fam.startswith('cos'):
+      V['LP4'] = verdict([r95[s] >= 1.15 for s in seeds])
+  L += ['\nDecayed rate, 30,000 steps (LP4)\n']
+  L += table(['family', 'best scale for 95%, K = 1 / K = 4', 'ratio at 95%, s3 / s4', 'ratio at 99%', 'final acc K = 1',
+              'final acc K = 4'], rows)
+  # third seeds (majority of 3)
+  def majority(flags):
+    if any(x is None for x in flags):
+      return 'pending'
+    tested = [x for x in flags if x != 'nt']
+    if len(tested) < 2:
+      return 'not testable'
+    k = sum(1 for x in tested if x)
+    return f'{"holds" if k * 2 > len(tested) else "refuted"} ({k} of {len(tested)} seeds)'
+  def sp(base, var):
+    if base is None or var is None:
+      return None
+    ts = used([base, var])
+    return ratios(base, var, ts) if ts and len(ts) >= 2 else 'nt'
+  c2b, d2, b2 = [], [], []
+  for s in (1, 2, 3):
+    x = sp(get(why, 'geglu_w512', 1, s), get(why, 'geglu_w512_a4', 1, s))
+    c2b.append(x if x in (None, 'nt') else max(x) < 1)
+    x = sp(get(why, 'geglu_w512', 1, s), get(why, 'geglu_w512_a0p25', 4, s))
+    d2.append(x if x in (None, 'nt') else min(x) >= 0.95)
+    r = gate.get(f'geglu_w512_ds_K8_s{s}')
+    if r is None:
+      b2.append(None)
+    else:
+      a = r['loop_probe']['acc_by_K']
+      b2.append('nt' if a['8'] - a['1'] < 0.02 else a['8'] - a['16'] <= 0.02)
+  V['C2b (3 seeds)'], V['D2 (3 seeds)'], V['B2 geglu ds K=8 (3 seeds)'] = majority(c2b), majority(d2), majority(b2)
+  S['third_seed_flags'] = {'C2b': c2b, 'D2': d2, 'B2_geglu_ds_K8': b2}
+  return L, S, V
+
+
 def main():
   p = argparse.ArgumentParser()
-  for k in ('level', 'gate', 'why', 'grid', 'level2', 'width_old', 'infiloop_old', 'out'):
+  for k in ('level', 'gate', 'why', 'grid', 'level2', 'late', 'width_old', 'infiloop_old', 'out'):
     p.add_argument(f'--{k}', default=None)
   args = p.parse_args()
   level, why, gate = load(args.level), load(args.why), load(args.gate)
@@ -587,13 +690,14 @@ def main():
   LC, SC, VC = section_c(why, load(args.width_old) if args.width_old else None)
   LH, SH, VH = section_h(load(args.why, args.grid))
   LL, SL, VL = section_l(load(args.level2))
-  V = VA | VB | VC | VH | VL
-  lines = LA + LB + LC + LH + LL + ['\n## Verdicts\n'] + table(['prediction', 'verdict'], [[k, v] for k, v in V.items()])
+  LP, SP, VP = section_lp(load(args.grid), load(args.late), why, gate)
+  V = VA | VB | VC | VH | VL | VP
+  lines = LA + LB + LC + LH + LL + LP + ['\n## Verdicts\n'] + table(['prediction', 'verdict'], [[k, v] for k, v in V.items()])
   print('\n'.join(lines))
   if args.out:
     os.makedirs(args.out, exist_ok=True)
     open(os.path.join(args.out, 'tables.md'), 'w').write('\n'.join(lines) + '\n')
-    json.dump({'A': SA, 'B': SB, 'C': SC, 'H': SH, 'L': SL, 'verdicts': V}, open(os.path.join(args.out, 'summary.json'), 'w'),
+    json.dump({'A': SA, 'B': SB, 'C': SC, 'H': SH, 'L': SL, 'LP': SP, 'verdicts': V}, open(os.path.join(args.out, 'summary.json'), 'w'),
               indent=1, default=str)
 
 
