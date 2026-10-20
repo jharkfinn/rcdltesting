@@ -460,7 +460,7 @@ def section_c(why, width_old):
 # ---------------------------------------------------------------- amendment 2: readout-scale grid (H1-H3)
 
 FAMILIES = ('cos_w1536_s4', 'cos_w1536_s8', 'rfrelu_w1536', 'geglu_w512_zinit', 'relu_w768_zinit')
-SCALES = (1, 2, 4, 8, 16, 32)                     # 32: grid extension when the best scale is 16 (amendment 2)
+SCALES = (0.5, 1, 2, 4, 8, 16, 32)                # 0.5 and 32: grid extensions at the edges (amendment 2)
 
 
 def section_h(runs):
@@ -468,8 +468,9 @@ def section_h(runs):
   best, rows = {}, []
   for fam in FAMILIES:
     grid = {(K, sc): {s: get(runs, f'{fam}{atag(sc / K)}', K, s) for s in SEEDS} for K in (1, 4) for sc in SCALES}
-    if all(per[s] is None for k, per in grid.items() if k[1] == 32 for s in SEEDS):
-      grid = {k: v for k, v in grid.items() if k[1] != 32}          # not extended for this family
+    for ext in (0.5, 32):                            # grid extensions exist only for some families
+      if all(per[s] is None for k, per in grid.items() if k[1] == ext for s in SEEDS):
+        grid = {k: v for k, v in grid.items() if k[1] != ext}
     for (K, sc), per in grid.items():
       rows.append([fam, str(K), f'{sc / K:g}', str(sc), ' / '.join(f(late(per[s])) for s in SEEDS),
                    ' / '.join(' '.join(f(tstep(per[s], t), 0) if per[s] and tstep(per[s], t) else '-' for t in EARLY)
@@ -485,7 +486,7 @@ def section_h(runs):
     msteps = lambda k: mean(tstep(grid[k][s], t) for s in SEEDS for t in ts)
     b = {K: min((k for k in grid if k[0] == K and ok[k]), key=msteps) for K in (1, 4)}
     P = {s: ratios(grid[b[1]][s], grid[b[4]][s], ts) for s in SEEDS}
-    edge = [K for K in (1, 4) if b[K][1] in (1, max(k[1] for k in grid))]
+    edge = [K for K in (1, 4) if b[K][1] in (min(k[1] for k in grid), max(k[1] for k in grid))]
     best[fam] = {'grid': grid, 'best': b, 'P': P, 'thresholds': ts}
     S[fam] = {'best_scale_K1': b[1][1], 'best_scale_K4': b[4][1], 'thresholds': ts, 'P': P,
               'P_mean': {s: mean(P[s]) for s in SEEDS}, 'edge_of_grid': edge,
