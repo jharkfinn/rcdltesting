@@ -368,7 +368,7 @@ def test_pass_probe_measures_agree_with_direct_computation():
   v = h0.clone().requires_grad_(True)
   loss0 = F.cross_entropy(m.head(m.ln_f(v)), y, reduction='sum')
   g0, = torch.autograd.grad(loss0, v)
-  assert p['loss'][0] == pytest.approx(float(loss0) / len(y), rel=1e-5)
+  assert p["loss"][0] == pytest.approx(float(loss0.detach()) / len(y), rel=1e-5)
   assert p['descent_cos'][0] == pytest.approx(float(F.cosine_similarity(h1 - h0, -g0, dim=-1).median()), rel=1e-4)
   assert p['rel_step'][1] == pytest.approx(float(((h2 - h1).norm(dim=-1) / h1.norm(dim=-1)).median()), rel=1e-5)
   with torch.no_grad():
