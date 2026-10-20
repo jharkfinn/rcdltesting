@@ -1,4 +1,6 @@
-# Looping test data (REPRODUCTION.md §7.5d)
+# Looping test data (REPRODUCTION.md §7.5d and §7.5e)
+
+Result (study closed 2026-10-20): no interesting synergy between Cos-Bochner FFNs and weight-tied looping on the facts task. The early speed-up is a readout step-size effect, and looping does not beat twice the training in stored facts. A modest late-phase gain for looped Cos (about 1.2 times to 85–94% accuracy) replicated only in part. See REPRODUCTION.md §7.5e.
 
 | File | Content |
 |---|---|
@@ -23,7 +25,7 @@
 | `results/bios_loops/`, `results/bios_loops_infiloop/` | Biography runs: residual looping (K = 1, 2, 4) and InfiLoop gating (K = 4) |
 | `round1/tables.md`, `round1/summary.json` | Tables from `python -m experiments.loops_analysis --facts results/facts_loops --facts_ctrl results/facts_loops_ctrl --out round1` |
 | `interim_2110/` | Interim tables for the basis tests and width sweep |
-| `predictions_abc.md`, `predictions_abc_amendment_1.md` … `_4.md` | Tests A (level), B (gate and deep supervision), C (why the cosine gains), the 2 × 2 scale design, the readout-scale grid and the level test L; each written before its runs |
+| `predictions_abc.md`, `predictions_abc_amendment_1.md` … `_5.md` | Tests A (level), B (gate and deep supervision), C (why the cosine gains), the 2 × 2 scale design, the readout-scale grid and the level test L; each written before its runs |
 | `review_abc.json` | Design, code and config review of tests A-C (two skeptics per high-severity issue), and two literature reports (looped training speed; deep supervision and gates) |
 | `verify_75e.json`, `verify_75e_final.json` | Verifications of REPRODUCTION.md §7.5e (numbers, rules, skeptic; every issue applied) |
 | `code_versions.txt` | Commits and the sha256 of `rcdl/facts.py` used by each group of runs |

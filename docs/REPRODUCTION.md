@@ -958,6 +958,13 @@ Terms used below:
 - *Speed-up* is the step at which the baseline first reaches a given accuracy, divided by the step at which the variant does. Steps are interpolated between evaluations, which come every 500 steps. "Early" means 20–50% accuracy; "late" means 70–90%.
 - Scope: the facts task of §7.5d (2 layers, d = 128, 8,192 individuals, 32,768 facts, Adam 1e-3, about 607k trained parameters per arm, a zero-initialized Cos readout and no norm after the FFN). Nothing here was tested on the biography model, where each pass is post-normalized, or at larger scale.
 
+**Bottom line (2026-10-20, study closed).** The question was whether looping a Cos-Bochner FFN unlocks a special synergy compared with GeGLU and ordinary MLPs. On this task the answer is mostly negative.
+- The early speed-up that looked like a synergy is a readout step-size effect, which one pass with a larger step reproduces.
+- Looping does not beat twice the training in stored facts. It gave no generalization gain on the biographies.
+- One weak positive remains. With each model at its best step, looped Cos reaches 85–94% accuracy about 1.2 times sooner than one pass, and GeGLU does not get this.
+- That positive was found after the fact, replicated only in part, failed the decayed-rate test, is not exclusive to Cos, and holds only at equal parameter count.
+- A frozen-feature control that reaches 90% would decide whether even this is specific to the cosine. It was not run.
+
 **Short answer.**
 - **Early learning (to 50%): the looping speed-up is a readout step size.** One pass with a 4 times larger step gets all of it. At each family's own best readout scale, four passes are no faster than one to 50% (P 0.90–1.04).
 - **Late learning (80–98%): looped Cos keeps a modest gain that the step size does not explain. It is larger and more consistent than for the MLPs.** The gain grows from about 1.05 at 70% to 1.15–1.3 at 90%.
