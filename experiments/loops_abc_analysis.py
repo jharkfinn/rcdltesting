@@ -663,6 +663,13 @@ def section_lp(grid, late_runs, why, gate):
                  ' / '.join(f(final(p1[s]), 4) for s in seeds), ' / '.join(f(final(p4[s]), 4) for s in seeds)])
     if fam.startswith('cos'):
       V['LP4'] = verdict([r95[s] >= 1.15 for s in seeds])
+      if V['LP4'] == 'split':                         # amendment 5 addendum: seed 5 at the scales chosen on seeds 3-4
+        r1, r4 = get(late_runs, f'{fam}{atag(b1)}', 1, 5), get(late_runs, f'{fam}{atag(b4 / 4)}', 4, 5)
+        x5 = (tstep(r1, 0.95) / tstep(r4, 0.95)) if r1 and r4 and tstep(r1, 0.95) and tstep(r4, 0.95) else None
+        S[fam]['seed5_ratio95'] = x5
+        flags = [r95[s] >= 1.15 for s in seeds] + [None if x5 is None else x5 >= 1.15]
+        V['LP4 (3 seeds, amendment 5)'] = ('pending' if None in flags else
+                                           f'{"holds" if sum(flags) >= 2 else "refuted"} ({sum(flags)} of 3 seeds)')
   L += ['\nDecayed rate, 30,000 steps (LP4)\n']
   L += table(['family', 'best scale for 95%, K = 1 / K = 4', 'ratio at 95%, s3 / s4', 'ratio at 99%', 'final acc K = 1',
               'final acc K = 4'], rows)

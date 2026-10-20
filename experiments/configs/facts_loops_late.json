@@ -1,5 +1,5 @@
 {
- "_comment": "Amendment 4, section 3 (LP4): Cos sigma 4 at scales 8 and 16 and zero-initialized GeGLU at scale 2, K = 1 and 4, 30,000 steps with the Adam rate decayed to 0 by a cosine, seeds 3 and 4.",
+ "_comment": "Amendment 4, section 3 (LP4): Cos sigma 4 at scales 8 and 16 and zero-initialized GeGLU at scale 2, K = 1 and 4, 30,000 steps with the Adam rate decayed to 0 by a cosine, seeds 3 and 4. Amendment 5 addendum: seed 5 for LP4 at the best scales of seeds 3 and 4.",
  "experiments": {
   "cos_w1536_s4_dec_a8_K1_s3": {
    "name_tokens": 2,
@@ -227,6 +227,44 @@
    "ffn_zero_init": true,
    "loops": 4,
    "seed": 4,
+   "lr_schedule": "cosine"
+  },
+  "cos_w1536_s4_dec_a16_K1_s5": {
+   "name_tokens": 2,
+   "name_vocab": 256,
+   "n_filler": 10,
+   "random_name_pos": true,
+   "eval_facts": 4096,
+   "n_people": 8192,
+   "final_probe": true,
+   "train_probe": true,
+   "loop_alpha": 16.0,
+   "steps": 30000,
+   "eval_every": 1000,
+   "ffn": "cos",
+   "width": 1536,
+   "cos_sigma": 4.0,
+   "loops": 1,
+   "seed": 5,
+   "lr_schedule": "cosine"
+  },
+  "cos_w1536_s4_dec_a2_K4_s5": {
+   "name_tokens": 2,
+   "name_vocab": 256,
+   "n_filler": 10,
+   "random_name_pos": true,
+   "eval_facts": 4096,
+   "n_people": 8192,
+   "final_probe": true,
+   "train_probe": true,
+   "loop_alpha": 2.0,
+   "steps": 30000,
+   "eval_every": 1000,
+   "ffn": "cos",
+   "width": 1536,
+   "cos_sigma": 4.0,
+   "loops": 4,
+   "seed": 5,
    "lr_schedule": "cosine"
   }
  }

@@ -11,3 +11,5 @@ Amendment 2 gives a split rule one more seed. So seed 5 runs the same configurat
 - zero-initialized GeGLU 512 at K = 1, a = 2 and K = 4, a = 0.5.
 
 That makes 6 runs (`facts_loops_grid.json`). The best scale stays the one chosen on seeds 3 and 4. LP2 and LP3 (σ = 4) are then decided by majority over seeds 3, 4 and 5. No other rule changes.
+
+**Addendum (before its runs).** LP4 also split. Under the decayed rate, Cos σ = 4 reaches 95% 1.23 / 1.12 times sooner against ≥ 1.15; the best scales chosen on seeds 3 and 4 are 16 for K = 1 and 8 for K = 4. Seed 5 runs those two configurations (`cos_w1536_s4_dec_a16_K1_s5`, `cos_w1536_s4_dec_a2_K4_s5`, `facts_loops_late.json`). LP4 is decided by majority over seeds 3, 4 and 5. The seed-5 results of LP2 and LP3 had been seen when this was written.
