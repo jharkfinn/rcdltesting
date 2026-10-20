@@ -1718,6 +1718,12 @@ count with the held-out test is the sharper measure.
   started on a replaced sandbox first runs `loops_hf_sync.py --restore`, which brings back results and checkpoints.
   The token file is not restored by molab (only .py and .md are), so the local supervisor writes it again after each
   reopen.
+- 2026-10-20 02:44: sandbox D was lost again (HTTP 410) with one other notebook running. The keepalive reopened the
+  notebook on a new sandbox at about 02:50, but the supervisor hung for 25 minutes: it called the reopen step inside a
+  command substitution, and the keepalive process it starts kept that pipe open, so the call never returned (the same
+  code had worked before only because no eviction happened while it ran). Restarted by hand at 03:10. The interrupted
+  runs resumed from their checkpoints in the restored work directory (for example at steps 28,000, 8,000 and 4,000)
+  instead of from zero. The new supervisor calls the reopen step directly.
   - The heartbeat log kept as a .py file shows no memory spike before the 17:51 loss: 14.3 GB in use by 3 GPU
     processes. So memory is not the cause.
   - The account's list of running notebooks gives the cause. A new notebook on the account (not ours) started at the
