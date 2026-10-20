@@ -1,0 +1,376 @@
+{
+ "unit": "mixed4d:241",
+ "classes_by_mean_max": [
+  [
+   "ambulance",
+   478.2
+  ],
+  [
+   "minibus",
+   447.9
+  ],
+  [
+   "minivan",
+   441.1
+  ],
+  [
+   "Bouvier des Flandres",
+   426.1
+  ],
+  [
+   "otterhound",
+   421.9
+  ],
+  [
+   "Irish water spaniel",
+   417.3
+  ],
+  [
+   "Sussex spaniel",
+   398.0
+  ],
+  [
+   "police van",
+   397.7
+  ],
+  [
+   "beach wagon",
+   397.0
+  ],
+  [
+   "trolleybus",
+   391.1
+  ],
+  [
+   "pickup",
+   390.3
+  ],
+  [
+   "briard",
+   384.3
+  ],
+  [
+   "Tibetan mastiff",
+   383.9
+  ],
+  [
+   "Airedale",
+   381.4
+  ],
+  [
+   "Norfolk terrier",
+   376.1
+  ],
+  [
+   "Irish terrier",
+   367.1
+  ],
+  [
+   "soft-coated wheaten terrier",
+   365.0
+  ],
+  [
+   "Leonberg",
+   362.5
+  ],
+  [
+   "Australian terrier",
+   361.3
+  ],
+  [
+   "Border terrier",
+   360.1
+  ],
+  [
+   "silky terrier",
+   357.8
+  ],
+  [
+   "Norwich terrier",
+   355.6
+  ],
+  [
+   "Irish setter",
+   351.2
+  ],
+  [
+   "Afghan hound",
+   349.0
+  ],
+  [
+   "convertible",
+   349.0
+  ]
+ ],
+ "classes_by_mean_min": [
+  [
+   "monarch",
+   -467.4
+  ],
+  [
+   "daisy",
+   -446.5
+  ],
+  [
+   "dome",
+   -401.7
+  ],
+  [
+   "cabbage butterfly",
+   -394.1
+  ],
+  [
+   "damselfly",
+   -379.9
+  ],
+  [
+   "pirate",
+   -367.9
+  ],
+  [
+   "church",
+   -367.9
+  ],
+  [
+   "mosque",
+   -364.1
+  ],
+  [
+   "lycaenid",
+   -363.9
+  ],
+  [
+   "sulphur butterfly",
+   -361.9
+  ],
+  [
+   "stupa",
+   -359.1
+  ],
+  [
+   "magnetic compass",
+   -347.0
+  ],
+  [
+   "teapot",
+   -346.4
+  ],
+  [
+   "black and gold garden spider",
+   -345.2
+  ],
+  [
+   "king snake",
+   -345.0
+  ],
+  [
+   "ringlet",
+   -344.8
+  ],
+  [
+   "bell cote",
+   -343.3
+  ],
+  [
+   "bicycle-built-for-two",
+   -343.2
+  ],
+  [
+   "monastery",
+   -339.1
+  ],
+  [
+   "dragonfly",
+   -339.1
+  ],
+  [
+   "wall clock",
+   -339.1
+  ],
+  [
+   "papillon",
+   -338.1
+  ],
+  [
+   "saltshaker",
+   -335.5
+  ],
+  [
+   "green mamba",
+   -335.2
+  ],
+  [
+   "espresso",
+   -334.2
+  ]
+ ],
+ "vehicle_class_ranks_by_mean_max": [
+  [
+   0,
+   "ambulance",
+   478.2
+  ],
+  [
+   1,
+   "minibus",
+   447.9
+  ],
+  [
+   2,
+   "minivan",
+   441.1
+  ],
+  [
+   7,
+   "police van",
+   397.7
+  ],
+  [
+   8,
+   "beach wagon",
+   397.0
+  ],
+  [
+   9,
+   "trolleybus",
+   391.1
+  ],
+  [
+   10,
+   "pickup",
+   390.3
+  ],
+  [
+   24,
+   "convertible",
+   349.0
+  ],
+  [
+   31,
+   "limousine",
+   333.2
+  ],
+  [
+   34,
+   "sports car",
+   322.5
+  ],
+  [
+   39,
+   "recreational vehicle",
+   314.9
+  ],
+  [
+   40,
+   "jeep",
+   314.7
+  ],
+  [
+   41,
+   "tow truck",
+   312.8
+  ],
+  [
+   42,
+   "fire engine",
+   311.2
+  ],
+  [
+   52,
+   "moving van",
+   300.5
+  ],
+  [
+   67,
+   "cab",
+   267.1
+  ],
+  [
+   84,
+   "garbage truck",
+   246.3
+  ],
+  [
+   99,
+   "school bus",
+   225.0
+  ],
+  [
+   115,
+   "golfcart",
+   210.3
+  ],
+  [
+   136,
+   "racer",
+   188.4
+  ],
+  [
+   146,
+   "forklift",
+   182.3
+  ],
+  [
+   156,
+   "trailer truck",
+   175.0
+  ],
+  [
+   159,
+   "snowplow",
+   174.2
+  ],
+  [
+   171,
+   "Model T",
+   160.8
+  ],
+  [
+   173,
+   "streetcar",
+   160.1
+  ],
+  [
+   192,
+   "car wheel",
+   140.9
+  ],
+  [
+   212,
+   "tractor",
+   130.7
+  ],
+  [
+   221,
+   "amphibian",
+   124.5
+  ],
+  [
+   229,
+   "go-kart",
+   120.9
+  ],
+  [
+   251,
+   "half track",
+   108.8
+  ],
+  [
+   265,
+   "grille",
+   101.0
+  ],
+  [
+   370,
+   "tank",
+   66.8
+  ]
+ ],
+ "first_vehicle_image_rank_by_max": 4,
+ "all_images_max_percentiles": {
+  "50": 43.1,
+  "90": 239.4,
+  "99": 513.0,
+  "99.9": 703.0
+ }
+}

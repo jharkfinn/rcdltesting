@@ -1,0 +1,381 @@
+"""Optimizers, online train/eval steps and the experiment runner (notebook Section 4.1), with file logging."""
+
+import dataclasses as dc
+import json
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, Optional, Tuple
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+from rcdl.data import augment_epoch, standardize
+from rcdl.layers import RCDLConfig
+from rcdl.models import CifarRCDLClassifier, build_model
+
+
+class MultiOptimizer:
+  """Steps several torch optimizers as one."""
+
+  def __init__(self, opts):
+    self.opts = opts
+
+  def zero_grad(self, set_to_none: bool = True):
+    for o in self.opts:
+      o.zero_grad(set_to_none=set_to_none)
+
+  def step(self):
+    for o in self.opts:
+      o.step()
+
+
+class AdamFP32SecondMoment(torch.optim.Optimizer):
+  """Adam for bf16 parameters with the second moment v kept in fp32 (first moment m in the parameter dtype).
+
+  torch.optim.Adam stores m and v in the parameter dtype. In bf16 the update v <- β2 v + (1 - β2) g² with β2 = 0.999
+  changes v by at most 0.1% per step, below bf16's rounding step (~0.4%), so v can rise but never fall and the
+  effective step size m / sqrt(v) shrinks over training (tests/test_layers.py; this stalled the first full-scale Fig. 5
+  attempt). Here v is fp32 and the update is computed in fp32: on CUDA by one fused Triton kernel (rcdl/triton_adam.py,
+  no temporaries), elsewhere in row chunks, so no full-size fp32 copy is made.
+  Memory for the 2.56M x 3072 table: 15.7 GB parameters + 15.7 gradients + 15.7 m + 31.5 v = 78.6 GB.
+
+  stochastic_rounding=True writes the bf16 p and m with unbiased stochastic rounding (rcdl/triton_adam.py), so steps
+  smaller than half the bf16 spacing of a parameter are kept on average instead of being rounded away.
+  """
+
+  def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, chunk_rows=65536, stochastic_rounding=False,
+               seed=0, fused=None):
+    super().__init__(params, dict(lr=lr, betas=betas, eps=eps))
+    self.chunk_rows, self.stochastic, self.fused, self.seed, self.gens = chunk_rows, stochastic_rounding, fused, seed, {}
+
+  @torch.no_grad()
+  def step(self):
+    from rcdl import triton_adam
+    k = -1
+    for group in self.param_groups:
+      b1, b2 = group['betas']
+      for p in group['params']:
+        k += 1
+        if p.grad is None:
+          continue
+        st = self.state[p]
+        if not st:
+          st['step'] = 0
+          st['m'] = torch.zeros_like(p)
+          st['v'] = torch.zeros_like(p, dtype=torch.float32)
+        st['step'] += 1
+        t = st['step']
+        c1, c2 = 1.0 - b1 ** t, 1.0 - b2 ** t
+        fused = triton_adam.available(p) and p.grad.is_contiguous() if self.fused is None else self.fused
+        if fused:
+          seed = (self.seed * 1_000_003 + t * 7919 + k * 104_729) % (2 ** 31 - 1)   # fresh Philox stream per step
+          triton_adam.adam_fp32v_step_(p, p.grad, st['m'], st['v'], group['lr'], b1, b2, c1, c2, group['eps'],
+                                       seed=seed, stochastic=self.stochastic)
+          continue
+        P, G, M, V = (x.view(x.shape[0], -1) if x.dim() > 0 else x.view(1, 1) for x in (p, p.grad, st['m'], st['v']))
+        rnd = lambda x: x.to(P.dtype)
+        if self.stochastic and P.dtype == torch.bfloat16:
+          if P.device not in self.gens:
+            self.gens[P.device] = torch.Generator(P.device).manual_seed(self.seed)
+          gen = self.gens[P.device]
+          rnd = lambda x: triton_adam.stochastic_round_bf16(x, gen)
+        for i in range(0, P.shape[0], self.chunk_rows):
+          sl = slice(i, i + self.chunk_rows)
+          g = G[sl].float()
+          m = M[sl].float().mul_(b1).add_(g, alpha=1.0 - b1)
+          V[sl].mul_(b2).addcmul_(g, g, value=1.0 - b2)
+          upd = (m / c1) / (V[sl] / c2).sqrt_().add_(group['eps'])
+          M[sl] = rnd(m) if M.dtype == torch.bfloat16 else m.to(M.dtype)
+          P[sl] = rnd(P[sl].float() - group['lr'] * upd)
+
+
+def _store_input(module, inputs):
+  """Forward pre-hook: keeps the batch input X of an nn.Linear for the Mesa / Delta preconditioners."""
+  if module.training and torch.is_grad_enabled():
+    module._last_input = inputs[0].detach()
+
+
+def _store_output_grad(module, inputs, output):
+  """Forward hook: keeps D = dL/d(output) of an nn.Linear (B x d_out), so that G = D^T X (Mesa's low-rank solve)."""
+  if module.training and torch.is_grad_enabled() and output.requires_grad:
+    output.register_hook(lambda g: setattr(module, '_last_output_grad', g.detach()))
+
+
+class MesaOptimizer:
+  """Mesa-layer / FOOF optimizer (paper Sec. 4 and App. E.2, 'Algorithm B') for the nn.Linear weights W (d_out × d_in).
+
+  With X the layer's batch input (B × d_in), G = ∇_W L, forgetting factor γ and ridge λ, it keeps
+    Γ_T = γ Γ_{T-1} + 1,   Ψ_T = (γ Γ_{T-1} / Γ_T) Ψ_{T-1} + X^T X / (B d_in Γ_T)   (Γ_0 = 0, Ψ_0 = 0),
+  and replaces G by G (Ψ_T + λ I)^{-1} before the base step. The paper's table lists 'Optimizer: Adam, momentum 0.85',
+  read here as Adam with β1 = 0.85 on the preconditioned gradient (base='adam'); base='sgd' is plain SGD. The
+  inverse is solved exactly (Cholesky); the paper reports the same accuracy for 10 Newton-Schulz steps.
+  Low-rank solve: G = D^T X with D = dL/d(output) (B x d_out), so G (Ψ + λ I)^{-1} = D^T ((Ψ + λ I)^{-1} X^T)^T needs
+  B right-hand sides instead of d_out (64 instead of 3,072 for the 3,072-wide MLP; same result up to rounding).
+  """
+
+  def __init__(self, model, lr: float, gamma: float, lam: float, base: str = 'adam', b1: float = 0.85):
+    self.gamma, self.lam = gamma, lam
+    self.linears = [m for m in model.modules() if isinstance(m, torch.nn.Linear)]
+    for m in self.linears:
+      m.register_forward_pre_hook(_store_input)
+      m.register_forward_hook(_store_output_grad)
+    self.stats = {m: [0.0, torch.zeros(m.in_features, m.in_features, device=m.weight.device)] for m in self.linears}
+    params = [p for p in model.parameters() if p.requires_grad]
+    fused = os.environ.get('RCDL_FUSED_ADAM') == '1' and all(p.is_cuda for p in params)
+    self.base = (torch.optim.Adam(params, lr=lr, betas=(b1, 0.999), fused=fused or None) if base == 'adam'
+                 else torch.optim.SGD(params, lr=lr))
+
+  def zero_grad(self, set_to_none: bool = True):
+    self.base.zero_grad(set_to_none=set_to_none)
+
+  @torch.no_grad()
+  def step(self):
+    for m in self.linears:
+      X = m._last_input.reshape(-1, m.in_features)
+      B, d = X.shape
+      g_prev, psi = self.stats[m]
+      g_new = self.gamma * g_prev + 1.0
+      psi.mul_(self.gamma * g_prev / g_new).add_(X.T @ X, alpha=1.0 / (B * d * g_new))
+      self.stats[m][0] = g_new
+      A = psi + self.lam * torch.eye(d, device=psi.device)
+      chol = torch.linalg.cholesky_ex(A).L                   # no host synchronization for the error check
+      D = getattr(m, '_last_output_grad', None)
+      if D is not None and D.reshape(-1, m.out_features).shape[0] == B and B < m.out_features:
+        Z = torch.cholesky_solve(X.T.contiguous(), chol)     # (Ψ + λ I)^{-1} X^T: B right-hand sides
+        m.weight.grad = D.reshape(-1, m.out_features).T @ Z.T
+      else:
+        m.weight.grad = torch.cholesky_solve(m.weight.grad.T.contiguous(), chol).T
+      m._last_output_grad = None
+    self.base.step()
+
+
+class DeltaOptimizer:
+  """DeltaNet-style decay (paper Sec. 4, App. E.3): W <- W (I - λ η X^T X) - η G, i.e. SGD on G + λ W X^T X, with X
+  the layer's batch input (B × d_in), G = ∇_W L, step size η and decay rate λ. Other parameters get plain SGD."""
+
+  def __init__(self, model, lr: float, lam: float):
+    self.lam = lam
+    self.linears = [m for m in model.modules() if isinstance(m, torch.nn.Linear)]
+    for m in self.linears:
+      m.register_forward_pre_hook(_store_input)
+    self.base = torch.optim.SGD([p for p in model.parameters() if p.requires_grad], lr=lr)
+
+  def zero_grad(self, set_to_none: bool = True):
+    self.base.zero_grad(set_to_none=set_to_none)
+
+  @torch.no_grad()
+  def step(self):
+    for m in self.linears:
+      X = m._last_input.reshape(-1, m.in_features)
+      m.weight.grad.add_((m.weight @ X.T) @ X, alpha=self.lam)
+    self.base.step()
+
+
+def create_rcdl_optimizer(model: CifarRCDLClassifier, cfg: RCDLConfig):
+  """Optimizer over all nn.Parameters: the dense weights ('standard') or the stored tables ('hybrid', 'parametric_softmax').
+
+  The growing layers ('gws', 'gauge', 'rbf') have no trainable parameters, so None is returned for them.
+  """
+  params = [p for p in model.parameters() if p.requires_grad]
+  if not params:
+    return None
+  opt_name, lr = cfg.optimizer.lower(), cfg.learning_rate
+  if opt_name in ('mesa', 'mesa_sgd'):
+    return MesaOptimizer(model, lr, cfg.mesa_gamma, cfg.mesa_lambda, base='sgd' if opt_name == 'mesa_sgd' else 'adam')
+  if opt_name == 'delta':
+    return DeltaOptimizer(model, lr, cfg.delta_lambda)
+  if opt_name == 'muon':            # Muon on the weight matrices, Adam on the biases
+    mats, rest = [p for p in params if p.ndim == 2], [p for p in params if p.ndim != 2]
+    return MultiOptimizer([torch.optim.Muon(mats, lr=lr, weight_decay=cfg.weight_decay)]
+                          + ([torch.optim.Adam(rest, lr=lr)] if rest else []))
+  if opt_name == 'adamw':
+    return torch.optim.AdamW(params, lr=lr, weight_decay=cfg.weight_decay)
+  if opt_name == 'sgd':
+    return torch.optim.SGD(params, lr=lr, momentum=cfg.model_momentum)
+  if opt_name == 'rmsprop':         # decay 0.9, eps 1e-8
+    return torch.optim.RMSprop(params, lr=lr, alpha=0.9, eps=1e-8)
+  if any(p.dtype == torch.bfloat16 for p in params):   # bf16 tables (store_dtype): keep Adam's second moment in fp32
+    return AdamFP32SecondMoment(params, lr=lr, stochastic_rounding=cfg.bf16_stochastic_rounding,
+                                seed=cfg.global_init_seed)
+  # RCDL_FUSED_ADAM=1: one fused CUDA kernel per step (same update; floating-point order differs slightly). Default off.
+  fused = os.environ.get('RCDL_FUSED_ADAM') == '1' and all(p.is_cuda for p in params)
+  return torch.optim.Adam(params, lr=lr, fused=fused or None)
+
+
+def rcdl_train_step(model: CifarRCDLClassifier, opt, images: torch.Tensor, labels: torch.Tensor,
+                    input_grad: bool = False, as_tensors: bool = False):
+  """Single online training step for all RCDL models and baselines.
+
+  input_grad=True reproduces the notebook literally (images.requires_grad_), which also backpropagates through the
+  first layer's retrieval. The default skips that unused input gradient; the stored tuples are identical (tests).
+  as_tensors=True returns the loss and accuracy as device tensors (no host synchronization per step).
+  """
+  model.train()
+  logits = model(images.requires_grad_(True) if input_grad else images)
+  loss = F.cross_entropy(logits, labels)
+  if opt is not None:
+    opt.zero_grad()
+  loss.backward()                               # the RCDL layers' gradient hooks compute the new tuples here ...
+  if opt is not None:
+    opt.step()
+  for layer in model.rcdl_layers().values():
+    layer.commit()                              # ... which are appended to the databases at the end of the step
+  acc = (logits.argmax(-1) == labels).float().mean()
+  if as_tensors:
+    return loss.detach(), acc
+  return loss.item(), acc.item()
+
+
+@torch.no_grad()
+def rcdl_evaluate(model: CifarRCDLClassifier, images: torch.Tensor, labels: torch.Tensor,
+                  batch_size: int = 500) -> Tuple[float, float]:
+  """Mean test loss and accuracy (eval mode: no database growth)."""
+  model.eval()
+  total_loss = total_correct = 0.0
+  for i in range(0, len(images), batch_size):
+    logits = model(images[i:i + batch_size])
+    total_loss += F.cross_entropy(logits, labels[i:i + batch_size], reduction='sum').item()
+    total_correct += (logits.argmax(-1) == labels[i:i + batch_size]).sum().item()
+  return total_loss / len(images), total_correct / len(images)
+
+
+def get_per_layer_db_sizes(model: CifarRCDLClassifier, cfg: RCDLConfig) -> Dict[str, int]:
+  """Stored entries per RCDL layer (for 'standard': the fixed width hidden_dim of each dense block)."""
+  if cfg.kernel_type == 'standard':
+    return {f'layer_{i}': cfg.hidden_dim for i in range(cfg.num_layers)}
+  return {name: layer.size for name, layer in model.rcdl_layers().items()}
+
+
+def run_rcdl_experiment(cfg: RCDLConfig, data, out_dir: Optional[str] = None, eval_every: int = 250,
+                        eval_subset: Optional[int] = None, eval_batch_size: int = 500, input_grad: bool = False,
+                        train_u8: Optional[np.ndarray] = None, max_steps: Optional[int] = None,
+                        log_every: int = 100, keep_model: bool = False, linearize_eval: bool = False,
+                        train_eval_subset: Optional[int] = None, train_subset: Optional[int] = None) -> Dict[str, Any]:
+  """Online CIFAR-10 runner for all model kinds, with the notebook's stream order (torch.randperm, seed = init seed).
+
+  data: (train_x, train_y, test_x, test_y) tensors. eval_subset: intermediate evaluations on the first `eval_subset`
+  test images (the final evaluation always uses the full test set). train_u8: raw images, required if cfg.augment.
+  linearize_eval: after training, also evaluate with exp(z) replaced by 1 + z in every weighted-softmax layer (paper
+  Fig. 4 right). train_eval_subset: at every evaluation, also measure accuracy on the first `train_eval_subset`
+  (non-augmented) training images (paper Fig. 5). train_subset: train on the first `train_subset` training images only
+  (reduced-scale overfitting runs).
+  Writes config.json, evals.jsonl, train_curve.npz and summary.json to out_dir if given.
+  """
+  train_x, train_y, test_x, test_y = data
+  if train_subset:
+    train_x, train_y = train_x[:train_subset], train_y[:train_subset]
+    train_u8 = None if train_u8 is None else train_u8[:train_subset]
+  torch.manual_seed(cfg.global_init_seed)
+  model = build_model(cfg, device=train_x.device).to(train_x.device)
+  opt = create_rcdl_optimizer(model, cfg)
+  if out_dir:
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, 'config.json'), 'w') as f:
+      json.dump(dc.asdict(cfg) | {'eval_every': eval_every, 'eval_subset': eval_subset, 'input_grad': input_grad,
+                                  'train_subset': train_subset,
+                                  'max_steps': max_steps, 'torch': torch.__version__,
+                                  'threads': torch.get_num_threads(), 'device': str(train_x.device),
+                                  'tf32': torch.backends.cuda.matmul.allow_tf32}, f, indent=1)
+    eval_log = open(os.path.join(out_dir, 'evals.jsonl'), 'w')
+
+  n, B = len(train_x), cfg.batch_size
+  steps_per_epoch = n // B
+  total_steps = steps_per_epoch * cfg.num_epochs if max_steps is None else min(max_steps, steps_per_epoch * cfg.num_epochs)
+  layer_names = list(get_per_layer_db_sizes(model, cfg))
+  total_full_cap = max(1, len(layer_names)) * cfg.ref_capacity
+  train_losses, train_accs, evals = [], [], []
+  start_time = time.time()
+
+  def evaluate_and_log(step: int, final: bool = False):
+    m = len(test_x) if (final or eval_subset is None) else eval_subset
+    t0 = time.time()
+    test_loss, test_acc = rcdl_evaluate(model, test_x[:m], test_y[:m], eval_batch_size)
+    total = sum(get_per_layer_db_sizes(model, cfg).values())
+    rec = {'step': step, 'samples': step * B, 'n_test': m, 'test_loss': test_loss, 'test_acc': test_acc,
+           'capacity': total, 'capacity_frac': total / total_full_cap, 'eval_sec': time.time() - t0,
+           'wall_sec': time.time() - start_time}
+    if train_eval_subset:
+      rec['train_loss'], rec['train_acc'] = rcdl_evaluate(model, train_x[:train_eval_subset],
+                                                          train_y[:train_eval_subset], eval_batch_size)
+    evals.append(rec)
+    if out_dir:
+      eval_log.write(json.dumps(rec) + '\n')
+      eval_log.flush()
+    print(f'[eval] samples={step * B:,} n_test={m} loss={test_loss:.4f} acc={test_acc:.4f} '
+          f'cap={total:,}/{total_full_cap:,} ({rec["eval_sec"]:.1f}s)', flush=True)
+
+  evaluate_and_log(0, final=False)
+  step, perm, order_gen = 0, None, torch.Generator().manual_seed(cfg.global_init_seed)
+  aug_gen = np.random.default_rng(cfg.global_init_seed)
+  # Augmentation runs on the CPU (about 2.7 s per CIFAR epoch on a Colab VM). One worker thread prepares epoch e + 1
+  # while epoch e trains; it draws from aug_gen in the same order as a serial loop, so the images are identical.
+  pending = []                            # (loss, acc) device tensors not yet copied to the host
+
+  def flush():
+    if pending:
+      vals = torch.stack([torch.stack(p) for p in pending]).cpu().tolist()
+      train_losses.extend(v[0] for v in vals)
+      train_accs.extend(v[1] for v in vals)
+      pending.clear()
+
+  augment = lambda: standardize(augment_epoch(train_u8, aug_gen), cfg.dataset)
+  aug_pool = ThreadPoolExecutor(max_workers=1) if cfg.augment else None
+  next_aug = aug_pool.submit(augment) if cfg.augment else None
+  for epoch in range(cfg.num_epochs):
+    if step >= total_steps:                 # max_steps reached: skip the remaining epochs (and their augmentation)
+      break
+    perm = torch.randperm(n, generator=order_gen).to(train_x.device)
+    epoch_x = train_x
+    if cfg.augment:
+      epoch_np = next_aug.result()
+      if epoch + 1 < cfg.num_epochs and step < total_steps:
+        next_aug = aug_pool.submit(augment)
+      epoch_x = torch.as_tensor(epoch_np, device=train_x.device)
+    for batch_idx in range(steps_per_epoch):
+      if step >= total_steps:
+        break
+      idx = perm[batch_idx * B:(batch_idx + 1) * B]
+      pending.append(rcdl_train_step(model, opt, epoch_x[idx], train_y[idx], input_grad=input_grad, as_tensors=True))
+      step += 1
+      if step % log_every == 0 or step % eval_every == 0 or step == total_steps:
+        flush()                             # one host synchronization per logging interval instead of two per step
+      if step % log_every == 0:
+        el = time.time() - start_time
+        print(f'[train] step={step}/{total_steps} loss(avg{log_every})={np.mean(train_losses[-log_every:]):.4f} '
+              f'acc={np.mean(train_accs[-log_every:]):.3f} elapsed={el:.0f}s eta={el / step * (total_steps - step):.0f}s',
+              flush=True)
+      if step % eval_every == 0 and step != total_steps:
+        evaluate_and_log(step)
+  flush()
+  if aug_pool is not None:
+    aug_pool.shutdown(wait=False)
+  evaluate_and_log(step, final=True)
+
+  elapsed = time.time() - start_time
+  final_dbs = get_per_layer_db_sizes(model, cfg)
+  result = {'final_test_acc': evals[-1]['test_acc'], 'final_test_loss': evals[-1]['test_loss'],
+            'final_db_size': sum(final_dbs.values()), 'total_full_capacity': total_full_cap,
+            'per_layer_db': final_dbs, 'elapsed': elapsed, 'steps': step,
+            'final_train_loss_avg100': float(np.mean(train_losses[-100:]))}
+  lin_layers = [l for l in model.rcdl_layers().values() if l.kind in ('gws', 'gauge')]   # weighted-softmax layers only
+  if linearize_eval and lin_layers:
+    for layer in lin_layers:
+      layer.linearize = True
+    result['final_test_loss_linearized'], result['final_test_acc_linearized'] = rcdl_evaluate(
+        model, test_x, test_y, eval_batch_size)
+    for layer in lin_layers:
+      layer.linearize = False
+    print(f'[eval] linearized exp(z) -> 1 + z: acc={result["final_test_acc_linearized"]:.4f}', flush=True)
+  print(f'--> Finished in {elapsed:.1f}s | Final Test Accuracy: {result["final_test_acc"] * 100:.2f}%', flush=True)
+  if out_dir:
+    eval_log.close()
+    np.savez(os.path.join(out_dir, 'train_curve.npz'), loss=np.asarray(train_losses), acc=np.asarray(train_accs),
+             perm=perm.cpu().numpy() if perm is not None else np.zeros(0))
+    with open(os.path.join(out_dir, 'summary.json'), 'w') as f:
+      json.dump(result, f, indent=1)
+  result['evals'] = evals
+  if keep_model:
+    result['model'] = model
+  return result

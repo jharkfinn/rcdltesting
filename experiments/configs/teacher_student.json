@@ -1,0 +1,182 @@
+{
+ "_comment": "Paper Fig. 3 (teacher-student, d_in = 100, teacher: residual ReLU MLP, width 100, L = 2 blocks, d_out = 1, inputs on the unit sphere). Read off the plot at 200k steps: Weighted Softmax ~2.6e-4, Reference MLP ~1.7e-4, Parametric Softmax ~4e-3 (y axis 'Loss'; whether it is MSE or MSE/2 is not stated). Grids follow App. Tables 'Nonparametric GWS teacher-student' and 'MLP baseline teacher-student', shortened to `steps` for the sweeps.",
+ "experiments": {
+  "gws_sweep": {
+   "eval_every": 5000,
+   "base": {
+    "student": "gws",
+    "steps": 10000
+   },
+   "grid": {
+    "beta": [
+     0.1,
+     0.3,
+     1.0
+    ],
+    "eta": [
+     10.0,
+     30.0,
+     100.0
+    ],
+    "temperature": [
+     0.1,
+     1.0,
+     3.0,
+     10.0
+    ],
+    "momentum": [
+     0.6,
+     0.9
+    ]
+   }
+  },
+  "mlp_sweep": {
+   "eval_every": 5000,
+   "base": {
+    "student": "mlp",
+    "steps": 10000,
+    "mlp_width": 1024
+   },
+   "grid": {
+    "lr": [
+     0.003,
+     0.01,
+     0.03,
+     0.1,
+     0.3
+    ],
+    "mlp_momentum": [
+     0.0,
+     0.9
+    ],
+    "batch_size": [
+     64,
+     256
+    ]
+   }
+  },
+  "psm_sweep": {
+   "eval_every": 5000,
+   "base": {
+    "student": "psm",
+    "steps": 10000
+   },
+   "grid": {
+    "lr": [
+     0.0003,
+     0.001,
+     0.003,
+     0.01
+    ],
+    "temperature": [
+     0.01,
+     0.1,
+     1.0,
+     10.0
+    ]
+   }
+  },
+  "psm_sweep_small": {
+   "eval_every": 5000,
+   "base": {
+    "student": "psm",
+    "steps": 10000
+   },
+   "grid": {
+    "lr": [
+     0.001,
+     0.003
+    ],
+    "temperature": [
+     0.1,
+     1.0
+    ]
+   }
+  },
+  "gws_precision_check": {
+   "eval_every": 5000,
+   "base": {
+    "student": "gws",
+    "beta": 1.0,
+    "eta": 30.0,
+    "temperature": 1.0,
+    "momentum": 0.9,
+    "steps": 10000
+   },
+   "grid": {
+    "attn_impl": [
+     "dense",
+     "splitk",
+     "splitk_tf32"
+    ]
+   }
+  },
+  "gws_final": {
+   "eval_every": 10000,
+   "base": {
+    "student": "gws",
+    "beta": 1.0,
+    "eta": 30.0,
+    "temperature": 1.0,
+    "momentum": 0.9,
+    "steps": 200000,
+    "attn_impl": "splitk_tf32"
+   }
+  },
+  "mlp_final_bs256": {
+   "eval_every": 10000,
+   "base": {
+    "student": "mlp",
+    "steps": 200000,
+    "mlp_width": 1024,
+    "mlp_momentum": 0.9,
+    "lr": 0.3,
+    "batch_size": 256
+   }
+  },
+  "mlp_final_bs64": {
+   "eval_every": 10000,
+   "base": {
+    "student": "mlp",
+    "steps": 200000,
+    "mlp_width": 1024,
+    "mlp_momentum": 0.9,
+    "lr": 0.1,
+    "batch_size": 64
+   }
+  },
+  "psm_final": {
+   "eval_every": 10000,
+   "base": {
+    "student": "psm",
+    "steps": 200000,
+    "lr": 0.001,
+    "temperature": 0.1,
+    "psm_size": 640064
+   }
+  },
+  "psm_50k": {
+   "eval_every": 5000,
+   "base": {
+    "student": "psm",
+    "steps": 50000,
+    "lr": 0.001,
+    "temperature": 0.1,
+    "psm_size": 640064
+   }
+  },
+  "gws_100k": {
+   "eval_every": 10000,
+   "base": {
+    "student": "gws",
+    "beta": 1.0,
+    "eta": 30.0,
+    "temperature": 1.0,
+    "momentum": 0.9,
+    "steps": 100000,
+    "attn_impl": "splitk_tf32"
+   }
+  }
+ },
+ "_comment_final": "Final runs at the paper's 200,000 steps with the best 10k-step settings: GWS beta1_eta30_temperature1_momentum0.9 (test MSE 4.2e-4 at 10k), MLP lr 0.3 / momentum 0.9 / batch 256 (5.3e-4) and the sample-matched batch-64 MLP lr 0.1 (6.4e-4). gws_precision_check compares the dense path with the Triton split-key kernel (tf32x3 and tf32) at 10k steps. psm_final: best psm_sweep_small setting (lr 1e-3, T = 0.1; test MSE 2.5e-4 at 10k steps) with the 10k-step table size (640,064 trained keys) for 200,000 steps; the paper's 10.24M trained keys would need about 20 GB of parameters and Adam state."
+}

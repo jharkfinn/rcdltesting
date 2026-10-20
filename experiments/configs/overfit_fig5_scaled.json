@@ -1,0 +1,72 @@
+{
+ "_comment": "Claim 15 (paper Fig. 5) at 1/10 of the data with the paper's ratios kept: the parametric softmax has as many trained keys as the GWS database holds after 50 epochs (paper: 2.56M keys for 50,000 images; here 249,664 keys for 5,000 images, about 50 per image), and it trains for 2,000 epochs against 50 for GWS. The full-scale parametric run needs about 126 GB for parameters, gradients and Adam state. Learning rates 3e-3 and 1e-2 are the low end of the paper's grid [3e-3, 1e-2, 3e-2, 1e-1] (optimizer not stated; Adam here); T = 1 is inside the paper's T grid. Plain softmax (equal fixed weights), as the paper reports for this baseline. Train accuracy on the first 2,000 non-augmented training images, test accuracy on the first 2,000 test images (final: all 10,000).",
+ "experiments": {
+  "gws_L0_T10_sub5k_50ep": {
+   "run": {
+    "eval_subset": 2000,
+    "eval_batch_size": 64,
+    "train_eval_subset": 2000,
+    "train_subset": 5000,
+    "eval_every": 390
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "num_layers": 0,
+    "temperature": 10.0,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "db_size": 249664
+   }
+  },
+  "psm_L0_N250k_T1_lr0.003_sub5k_2000ep": {
+   "run": {
+    "eval_subset": 2000,
+    "eval_batch_size": 64,
+    "train_eval_subset": 2000,
+    "train_subset": 5000,
+    "eval_every": 1950
+   },
+   "cfg": {
+    "kernel_type": "parametric_softmax",
+    "hidden_dim": 3072,
+    "num_layers": 0,
+    "db_size": 249664,
+    "full_epoch_capacity": 249664,
+    "optimizer": "adam",
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 2000,
+    "learn_parametric_weights": false,
+    "temperature": 1.0,
+    "learning_rate": 0.003
+   }
+  },
+  "psm_L0_N250k_T1_lr0.01_sub5k_2000ep": {
+   "run": {
+    "eval_subset": 2000,
+    "eval_batch_size": 64,
+    "train_eval_subset": 2000,
+    "train_subset": 5000,
+    "eval_every": 1950
+   },
+   "cfg": {
+    "kernel_type": "parametric_softmax",
+    "hidden_dim": 3072,
+    "num_layers": 0,
+    "db_size": 249664,
+    "full_epoch_capacity": 249664,
+    "optimizer": "adam",
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 2000,
+    "learn_parametric_weights": false,
+    "temperature": 1.0,
+    "learning_rate": 0.01
+   }
+  }
+ }
+}

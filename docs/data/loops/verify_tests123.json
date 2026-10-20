@@ -1,0 +1,281 @@
+{
+ "workflow": "verify-looping-tests123",
+ "date": "2026-10-19",
+ "targets": "docs/REPRODUCTION.md 7.5d: initialization control, Tests 1-3, closing summary",
+ "applied": "all issues applied on 2026-10-19 23:40 UTC",
+ "result": {
+  "nums": {
+   "issues": [
+    {
+     "claim": "Initialization control bullet: \"Narrow-kernel Cos speeds up 1.33–1.53 times\"",
+     "problem": "The range does not cover the narrow-Cos K = 4 per-seed speed-ups now in the data. It looks like it was carried over from the interim speedup.json, which had only seed 1 for the width sweep. The block's own Test 2 table gives 1.31–1.40 (D = 256) and 1.45–1.54 (D = 1,536), which contradicts it.",
+     "evidence": "Speed-up K=1/K=4 at t = 0.2/0.3/0.4/0.5, facts_loops_width: cos_w256_s4 s2 = 1.369/1.399/1.336/1.314 (min 1.314). cos_w1024_s4 s2 = 1.482/1.544/1.488/1.449. cos_w1536_s4 s2 = 1.480/1.540/1.531/1.502. facts_loops_basis cos_w1536_s4_trainW s2 = 1.398/1.406/1.355/1.319. Over all narrow Cos (fixed D = 256 to 16,384 and trained-W), both seeds: 1.314–1.544.",
+     "severity": "misleading",
+     "fix": "Say \"1.31–1.54\" (narrow Cos at K = 4, fixed or trained W, both seeds), or name the subset the 1.33–1.53 range covers."
+    },
+    {
+     "claim": "Initialization control bullet: \"zero-initialized MLPs 0.90–1.04 times\"",
+     "problem": "The range leaves out the third zero-init arm. Zero-init GeGLU 4,096 speeds up only 0.37–0.43 (seed 2; seed 1 never trained), and the table one line above reports that.",
+     "evidence": "geglu_w4096_zinit_K4_s2 against K1_s2: 0.371/0.396/0.411/0.426. GeGLU 512 zinit K = 4: 0.948–1.038. ReLU 768 zinit K = 4: 0.902–0.962.",
+     "severity": "misleading",
+     "fix": "\"zero-initialized GeGLU 512 and ReLU 768: 0.90–1.04 times; GeGLU 4,096: 0.37–0.43\"."
+    },
+    {
+     "claim": "Initialization control: \"It does not make any MLP speed up from looping.\" Summary: \"Every trained MLP learns slower when looped: GeGLU 512 and 4,096, the ReLU MLP, zero-initialized or gated.\"",
+     "problem": "Zero-init GeGLU 512 is not slower everywhere. At K = 4, seed 1 is faster at the 20% threshold. At K = 2, seed 1 is faster at 3 of 4 thresholds (mean above 1). The section's own Z1 verdict is 'partial (neither all above nor all below)', which contradicts 'every trained MLP learns slower'.",
+     "evidence": "geglu_w512_zinit seed 1: K = 4 speed-ups 1.038/0.979/0.957/0.957; K = 2 speed-ups 1.049/1.027/1.012/0.993 (mean 1.020). Seed 2: K = 4 0.948–0.986; K = 2 0.987–0.995.",
+     "severity": "misleading",
+     "fix": "\"Zero-initialized GeGLU 512 is about as fast looped as unlooped (0.95–1.04 at K = 4); every other MLP arm, including gated GeGLU, is slower.\""
+    },
+    {
+     "claim": "Initialization control table, ReLU MLP 768 zero-init late gain at K = 4: \"−1.3 / −1.3\"",
+     "problem": "Seed 1 rounds to −1.2, not −1.3.",
+     "evidence": "relu_w768_zinit seed 1: late K1 0.84521, late K4 0.83276, gain −1.2451 points. Seed 2: −1.33.",
+     "severity": "minor",
+     "fix": "\"−1.2 / −1.3\" (and \"−8 to −1.2/−1.3 points\" in the bullet below)."
+    },
+    {
+     "claim": "Gating table, Cos σ = 4 D = 256, gated K = 4 late gain \"+7.9 / +8.6\"",
+     "problem": "Seed 2 rounds to +8.5, not +8.6.",
+     "evidence": "cos_w256_s4_infiloop_K4_s2 late 0.75285 against cos_w256_s4_K1_s2 (facts_loops_width) late 0.66674: gain = +8.549 points. Seed 1: +7.861.",
+     "severity": "minor",
+     "fix": "\"+7.9 / +8.5\"."
+    },
+    {
+     "claim": "Noise bullet: \"Cos D = 1,536: 0.55 against 0.92–0.94\"",
+     "problem": "The end-added range does not cover seed 2 of the gated K = 4 run.",
+     "evidence": "cos_w1536_s4_infiloop_K4 acc_by_noise_end['0.25']: s1 0.9355, s2 0.9146. acc_by_noise['0.25']: 0.5540 and 0.5498. Gated K = 8 gives end 0.938/0.917 but propagated 0.508/0.496, so no single run set gives '0.55 against 0.92–0.94'.",
+     "severity": "minor",
+     "fix": "\"0.55 against 0.91–0.94\"."
+    },
+    {
+     "claim": "Noise bullet: \"GeGLU: 0.85–0.88 against 0.91–0.93\"",
+     "problem": "The propagated range mixes runs. Gated GeGLU at K = 4 gives 0.85–0.86. The 0.88 comes only from gated K = 8 seed 1. The Cos rows use K = 4 values only; with K = 8 included, Cos D = 256 would read 0.37–0.43 and D = 1,536 0.50–0.55.",
+     "evidence": "geglu_w512_infiloop_K4 acc_by_noise['0.25']: s1 0.8616, s2 0.8494; end 0.9270, 0.9106. geglu_w512_infiloop_K8_s1 acc_by_noise['0.25'] = 0.8782 (s2 0.8560).",
+     "severity": "misleading",
+     "fix": "Use gated K = 4 throughout: \"GeGLU: 0.85–0.86 against 0.91–0.93\", or state that the K = 8 runs are included and widen the Cos ranges to match."
+    },
+    {
+     "claim": "G1 bullet: \"Accuracy at twice the trained pass count falls 12–25 points for every arm in both seeds, about as much as without gating.\"",
+     "problem": "The range matches neither run set. Gated K = 4 (the table column) gives 11.9–24.4, i.e. 12–24. With gated K = 8 (8 → 16) included it is 10.6–26.5. Also, 'about as much as without gating' does not hold for GeGLU: gating cuts its K = 4 drop from 16.7/17.3 to 13.0/11.9 points.",
+     "evidence": "Gated K → 2K drops (acc_by_K): D256 23.5/24.4 (K4), 26.5/25.2 (K8); D1536 22.6/22.1 (K4), 24.6/24.4 (K8); GeGLU 13.0/11.9 (K4), 10.6/12.0 (K8). Residual K = 4 drops: D256 24.1/24.2, D1536 21.2/20.3, GeGLU 16.7/17.3.",
+     "severity": "minor",
+     "fix": "\"falls 12–24 points at K = 4 (11–26 including K = 8)\"; note that gating reduces GeGLU's drop by about 4–5 points."
+    },
+    {
+     "claim": "G3 bullet: \"Under gating Cos still learns faster (1.27–1.68) and GeGLU slower (0.81–0.91).\"",
+     "problem": "G3 is pre-registered at K = 4, but these ranges pool K = 4 and K = 8. The K = 4 ranges are 1.27–1.49 (Cos) and 0.88–0.91 (GeGLU). The verdict is unaffected.",
+     "evidence": "Gated K = 4 speed-ups: D256 1.274–1.359, D1536 1.415–1.493, GeGLU 0.883–0.909. Gated K = 8: D256 1.333–1.429, D1536 1.581–1.681, GeGLU 0.814–0.845.",
+     "severity": "minor",
+     "fix": "\"at K = 4 Cos 1.27–1.49 against GeGLU 0.88–0.91 (with K = 8: 1.27–1.68 and 0.81–0.91)\"."
+    },
+    {
+     "claim": "Test 3: \"the unlooped 279,200-parameter model stores all 32,768 facts too\" (and the summary's \"the small unlooped layer also stores every fact\")",
+     "problem": "Accuracy is measured on a fixed random subset of 4,096 facts, not all 32,768. 100% on that sample does not show all 32,768 are stored.",
+     "evidence": "cos_w256_s4_longcos_K1 cfg: n_people 8192, n_attrs 4, eval_facts 4096. rcdl/facts.py lines 87 and 416–417 evaluate on a fixed random subset of size eval_facts. Late acc 0.999985 / 0.999924 on that subset.",
+     "severity": "misleading",
+     "fix": "\"answers all 4,096 evaluated facts (a random eighth of the 32,768 trained facts)\"."
+    },
+    {
+     "claim": "Test 3: \"Unlooped runs oscillated below 100% and looped runs touched it.\"",
+     "problem": "Of the constant-rate D = 256 looped runs, only K = 8 reached 100%. K = 4 peaked at 0.9995 (the section's own C2 row says 'max 0.9995').",
+     "evidence": "facts_loops_long: cos_w256_s4_long_K4_s1 max acc 0.99951; cos_w256_s4_long_K8_s1 max 1.0000; cos_w256_s4_long_K1_s1 max 0.9788.",
+     "severity": "minor",
+     "fix": "\"looped runs came within 0.05 points of it (K = 4) or touched it (K = 8)\"."
+    },
+    {
+     "claim": "Initialization control verdicts: \"Z2 and Z3: ... speed-up below 1.0 at every threshold in both seeds that trained\"",
+     "problem": "For Z3 (GeGLU 4,096 zero-init) only one seed trained. Seed 1 never reached 20%, so its speed-up is undefined (or zero). 'Both seeds that trained' is true for Z2 only.",
+     "evidence": "geglu_w4096_zinit_K4_s1: late 0.0324, max acc 0.039, never crosses 0.2. Seed 2: 0.371–0.426. ReLU 768 zinit: 0.902–0.962 in both seeds.",
+     "severity": "minor",
+     "fix": "\"Z2: below 1.0 at every threshold in both seeds; Z3: below 1.0 in seed 2, and seed 1 did not train at K = 4\"."
+    },
+    {
+     "claim": "Summary: \"a looped Cos-Bochner layer learns the facts 1.3 to 1.8 times faster than unlooped, with plain or gated passes\"",
+     "problem": "This holds only at K ≥ 4 (1.27–1.78). At K = 2, plain narrow Cos speeds up 1.14–1.25, so the unqualified 'looped' range overstates.",
+     "evidence": "facts_loops_width cos_w*_s4 K = 2 (D = 256 to 8,192) and facts_loops cos_w16384_s4 K = 2: speed-ups 1.143–1.247. K = 4 plain: 1.314–1.544. Gated K = 4/8 and residual K = 8: 1.274–1.776.",
+     "severity": "minor",
+     "fix": "\"at K = 4 and 8, ... 1.3 to 1.8 times faster (1.1–1.25 at K = 2)\"."
+    }
+   ],
+   "checked": "I recomputed every number in both targets from the raw result.json files with my own Python (helper at /tmp/claude-0/-home-user-rcdltesting/67502866-e3ee-5513-b270-94b7a7c21d08/scratchpad/lib.py). Rules used: late window 0.75*steps to steps (6 evaluations for facts, 16 for long runs and biographies, steps 4,500–6,000); speed-up by linear interpolation at t = 0.2/0.3/0.4/0.5 against the same-arm, same-seed residual K = 1 run.\n\nConfirmed beyond the issues listed:\n- (a) Initialization control table: GeGLU 512 zinit −0.92/−1.19 and 0.948–1.038; default init 0.845–0.885. ReLU 768 zinit s2 −1.33 and 0.902–0.962; default 0.852–0.903 with gains −7.58/−8.93. GeGLU 4,096 zinit s1 late 0.032 (did not train), s2 −6.82 and 0.371–0.426. Z1 partial is correct; the \"0.86 to about 0.98\" means (0.863 → 0.976) are correct.\n- (b) Test 3: late K1 1.0000/0.9999, K4 0.9997/0.9999, K8 0.9999/0.9999; maximum window SD 0.110 points (sample; 0.106 population); R2 −0.026/+0.002 points; 279,200 params; unlooped constant-rate max 0.9788.\n- Test 2 facts table: all other late gains and every speed-up range match (D256 residual K4 +9.27/+9.44, 1.31–1.40; gated K8 +8.29/+8.08, 1.33–1.43; residual K8 +9.30/+9.43, 1.37–1.51; D1536 every cell; GeGLU every cell). All six overthinking pairs match (0.804→0.569, 0.799→0.555, 0.955→0.729, 0.942→0.721, 0.934→0.804, 0.9175→0.799). G2 numbers and the K = 8 cut (−4.10/−6.18 to −1.23/−1.45) match. Noise values for D256 (0.43 against 0.75–0.76) match.\n- Biography table: all 12 cells match, including held-out/seen/gap; s2 gaps 0.0275 and 0.1125. The G4 (2.7 points) and G5 (0.572 against 0.655) numbers match. Gated T = 2 seed 1 acc_by_K: 0.9995/0.9989/0.9793 at K = 4/6/8, then 0.683/0.328 at 12/16, matching the text.\n- No number was attributed to the wrong run or seed. Discrepancies are limited to the items listed."
+  },
+  "rules": {
+   "issues": [
+    {
+     "claim": "G5 paragraph: \"Gating does not fix Cos T = 1's wording memorization ... That memorization belongs to the narrow kernel, not to looping.\"",
+     "problem": "G5 predicted that gated K = 4 would not lose held-out accuracy. It was refuted, which means gated looping does lose held-out accuracy. The base memorization (gap 0.343 at K = 1) does come from the kernel, but the extra loss is a looping effect. The sentence turns a 'looping harms' result into 'not looping's fault'.",
+     "evidence": "bios_loops_infiloop/cosT1_D4k_infiloop_K4_s1: held-out late 0.5723 against residual K = 1 s1 0.6551 (-8.3 points), and below residual K = 4 s1 0.5860. The gap widens 0.343 -> 0.385. The doc's own L4 row has residual held-out falling from 0.633 to 0.593 / 0.598 (mean of seeds) with looping.",
+     "severity": "wrong",
+     "fix": "Say: 'Gated looping lowers Cos T = 1 held-out accuracy by 8.3 points (seed 1), slightly more than plain looping (-6.9), so G5 is refuted. The K = 1 memorization comes from the kernel; looping adds to it, with or without gating.'"
+    },
+    {
+     "claim": "Closing summary, Generalization: \"plain looping can harm it ... Gating removes most of that harm. GeGLU is unaffected either way.\"",
+     "problem": "This leaves out the G5 refutation. For Cos T = 1, gating does not remove the harm from looping and makes it slightly worse. The bullet only holds for Cos T = 2.",
+     "evidence": "Seed 1 held-out: K = 1 0.655, residual K = 4 0.586, gated K = 4 0.572 (G5 refuted, -8.3 points against the 2-point rule).",
+     "severity": "misleading",
+     "fix": "Say: 'Gating removes most of the harm for Cos T = 2 (fully in seed 1, partly in seed 2) but not for Cos T = 1, where gated K = 4 loses 8.3 held-out points (G5 refuted).'"
+    },
+    {
+     "claim": "\"G4 holds. Gating removes most of the K = 4 wording memorization ... The gap stays above 2 points in seed 2 (2.7), but the rule needs both seeds to refute.\"",
+     "problem": "The rule only defines refutation, so the right verdict is 'not refuted'. The prediction ('gating stops the memorization') is met in seed 1 only; seed 2 crosses the 2-point line. In seed 2, gated held-out is also 2.7 points below its own K = 1 run. And the seed-1 K = 1 baseline is itself above the 2-point line, so the threshold sits inside the K = 1 seed spread. 'Holds' states a split result too strongly.",
+     "evidence": "Late gaps (steps 4,500-6,000). Gated: s1 +0.0006, s2 +0.0275. Residual K = 1: s1 +0.0236, s2 +0.0006. Held-out in s2: gated 0.972 against K = 1 0.999.",
+     "severity": "misleading",
+     "fix": "Say 'G4 not refuted (split: seed 1 gap 0.1 points, seed 2 gap 2.7 points)', and note that the residual K = 1 seed-1 gap is already 2.4 points."
+    },
+    {
+     "claim": "\"The gated biography model also tolerates extra passes. Held-out accuracy is 1.000 at the trained K = 4, 0.999 at 6 and 0.979 at 8 (seed 1), against a fall at 12 and 16.\"",
+     "problem": "This reports seed 1 only. Seed 2 drops more at twice the trained K. By the G1 criterion (a drop of more than 2 points at 2K in both seeds), gated biographies also overthink at 2K. 'Tolerates' is too strong; the result is only milder than plain looping.",
+     "evidence": "loop_probe.acc_by_K held-out at K_test 4 / 8. Seed 1: 0.9995 / 0.979 (-2.1 points). Seed 2: 0.972 / 0.924 (-4.8). Residual T = 2 K = 4 s1: 0.834 / 0.743.",
+     "severity": "misleading",
+     "fix": "Give both seeds and say the drop at 2K is 2.1 / 4.8 points, smaller than plain looping (9 points) but above G1's 2-point line."
+    },
+    {
+     "claim": "Initialization control: \"Z2 and Z3: the reuse explanation holds (speed-up below 1.0 at every threshold in both seeds that trained).\"",
+     "problem": "For Z3 only one seed trained. GeGLU 4,096 zero-init K = 4 seed 1 sat at chance (late 0.032, max 0.039) and never reached 20%. 'Both seeds that trained' is false for Z3. The rule needs both seeds. It is met only if the failed run is counted as a speed-up of 0, and the doc does not say it does that. A run that fails to train is not clearly evidence for 'reusing one trained map'.",
+     "evidence": "facts_loops_zeroinit/geglu_w4096_zinit_K4_s1: final 0.031, no threshold crossed. Seed 2: speed-up 0.371-0.426, the same as default init seed 2 (0.380-0.441).",
+     "severity": "misleading",
+     "fix": "Say: 'Z3: seed 2 speed-up 0.37-0.43; seed 1 at K = 4 failed to train (counted as speed-up 0 under the rule). The verdict rests on one trained seed.'"
+    },
+    {
+     "claim": "Closing summary: \"Every trained MLP learns slower when looped: GeGLU 512 and 4,096, the ReLU MLP, zero-initialized or gated.\" Also in the init bullet: \"It does not make any MLP speed up from looping.\"",
+     "problem": "This contradicts the section's own Z1 verdict, which is 'partial'. Zero-init GeGLU 512 is not slower at every threshold.",
+     "evidence": "geglu_w512_zinit K = 4 speed-ups. s1: 1.038 / 0.979 / 0.957 / 0.957. s2: 0.948-0.986. At K = 2, s1: 1.049 / 1.027 / 1.012 / 0.993.",
+     "severity": "misleading",
+     "fix": "Say 'every trained MLP is slower or about level (zero-init GeGLU 512: 0.95-1.04, Z1 partial); none approaches the narrow-Cos 1.3x'."
+    },
+    {
+     "claim": "Closing summary: \"Learning speed: yes, robustly. ... a looped Cos-Bochner layer learns the facts 1.3 to 1.8 times faster than unlooped\".",
+     "problem": "The speed-up is measured to 20-50% accuracy only. In the only runs trained to convergence (D = 256, 60k steps), the speed-up fades to about 1.0-1.1 at 90-99%. So 'learns the facts 1.3-1.8x faster' overstates for small D.",
+     "evidence": "facts_loops_long_cosine K = 4 against K = 1. Speed-up at 50%: 1.31 / 1.37. At 90%: 1.10 / 1.09. At 99%: 1.07 / 1.04 (K = 8: 1.00 / 0.99). Every run crosses 99% at steps 27.9k-29.9k. Constant-rate long runs at 90%: 1.13-1.14. The 10k-step width runs at D >= 1,024 keep 1.34-1.45 at 90%.",
+     "severity": "misleading",
+     "fix": "Say 'reaches 20-50% accuracy 1.3-1.8x sooner; at D = 256 the lead shrinks to about 1.1x by 90% and about 1.0x by 99%'."
+    },
+    {
+     "claim": "Long-runs block (later in 7.5d): \"Long runs: does looping let D = 256 converge?\" answered with \"**Looped D = 256 does reach 100%. Without looping it does not, within 60,000 steps.**\"",
+     "problem": "Test 3 supersedes this. With the rate decayed, K = 1 also reaches 100%. The correction appears only earlier in the document, in Test 3. The later bold answer has no superseded marker or pointer, so a reader of that block still gets the old 'yes, looping enables convergence' reading.",
+     "evidence": "facts_loops_long_cosine late accuracy, K = 1: 0.99998 / 0.99992; first eval at 1.0 at steps 34k / 39k; R2 refuted (K = 4 - K = 1 = -0.03 / +0.00 points).",
+     "severity": "misleading",
+     "fix": "Add in place: 'Superseded by Test 3: with a cosine-decayed rate, K = 1 also reaches 100% (late 1.0000 / 0.9999); the gap here came from the constant rate.'"
+    },
+    {
+     "claim": "C1 bullet in the long-runs block: \"Two causes cannot be told apart here ... A run with the rate decayed to zero ... would separate a better reachable level from more oscillation. That run has not been done.\" Also \"The final-step and best-evaluation numbers point the other way: looped runs reach 100%, the unlooped run does not.\"",
+     "problem": "Stale. Test 3 is exactly that run, and it settled the question: no level gain (R2 refuted) and no late oscillation under decay (R1 holds).",
+     "evidence": "facts_loops_long_cosine: within-window SD at most 0.11 points; every run reaches 1.0.",
+     "severity": "misleading",
+     "fix": "Replace with: 'Test 3 (cosine decay) decides it: every K reaches 100%, so the constant-rate gap was oscillation, not a level difference.'"
+    },
+    {
+     "claim": "Verdict table, C2 row: \"holds, narrowly (K = 4 is 0.3 points short)\".",
+     "problem": "The verdict is correct by the rule for the constant-rate runs. But with the rate decayed, every D = 256 run (K = 1, 4, 8) is above the large-layer reference. So C2's shortfall is a constant-rate effect, not a capacity limit. The row reads as evidence of a capacity gap that Test 3 removes, and it carries no note.",
+     "evidence": "Decayed D = 256 late accuracy: 0.9997-1.0000 at every K, both seeds. Constant-rate D = 16,384 reference: 0.996.",
+     "severity": "misleading",
+     "fix": "Annotate: 'with the rate decayed, all D = 256 runs reach 0.9997-1.0000 (Test 3); the C2 margin reflects the constant rate'."
+    },
+    {
+     "claim": "Test 3: \"With the rate decayed, the unlooped 279,200-parameter model stores all 32,768 facts too.\" Closing summary: \"the small unlooped layer also stores every fact.\"",
+     "problem": "Accuracy is measured on a fixed random subset of 4,096 of the 32,768 facts, so 'all 32,768' is an extrapolation. R2 was also tested only at D = 256, sigma = 4.",
+     "evidence": "cfg eval_facts = 4096; rcdl/facts.py lines 416-417 pick a randperm subset. Seed-2 K = 1 late accuracy is 0.9999, not 1.",
+     "severity": "minor",
+     "fix": "Say 'reaches 100% on the 4,096 evaluated facts (late 1.0000 / 0.9999)'."
+    },
+    {
+     "claim": "G3 support: \"Under gating Cos still learns faster (1.27-1.68) and GeGLU slower (0.81-0.91).\"",
+     "problem": "G3's measure is the gated speed-up at K = 4. The quoted ranges also include the gated K = 8 runs, so the rule is reported on a pooled measure. The verdict does not change.",
+     "evidence": "Gated K = 4 only: Cos D = 256 1.27-1.36, Cos D = 1,536 1.41-1.49, GeGLU 0.88-0.91. The 1.58-1.68 and 0.81-0.84 values are gated K = 8.",
+     "severity": "minor",
+     "fix": "Quote the K = 4 ranges for G3 (Cos 1.27-1.49 against GeGLU 0.88-0.91) and give K = 8 separately."
+    },
+    {
+     "claim": "G1: \"Accuracy at twice the trained pass count falls 12-25 points for every arm in both seeds\".",
+     "problem": "The range covers the gated K = 4 arms only. G1's rule applies to every gated arm, including K = 8 tested at K = 16, where the drops fall partly outside that range. The verdict does not change.",
+     "evidence": "Gated K = 4 drops: 23.5 / 24.4, 22.6 / 22.1, 13.0 / 11.9. Gated K = 8 drops: 26.5 / 25.2, 24.6 / 24.4, 10.6 / 12.0.",
+     "severity": "minor",
+     "fix": "Say 'falls 11-26 points for every gated arm (K = 4 and K = 8) in both seeds'."
+    },
+    {
+     "claim": "Noise under gating: \"Cos D = 1,536: 0.55 against 0.92-0.94; GeGLU: 0.85-0.88 against 0.91-0.93.\"",
+     "problem": "One range is misquoted and the pooling is inconsistent. The D = 1,536 end-added seed-2 value is 0.915. The GeGLU ranges mix gated K = 4 and K = 8, while the Cos rows are K = 4 only.",
+     "evidence": "Gated K = 4 at noise 0.25, propagated / end-added. Cos D = 1,536: 0.554 / 0.936 and 0.550 / 0.915. GeGLU: 0.862 / 0.927 and 0.849 / 0.911. GeGLU gated K = 8 propagated: 0.878 / 0.856.",
+     "severity": "minor",
+     "fix": "Use K = 4 throughout: Cos D = 1,536 0.55 against 0.91-0.94; GeGLU 0.85-0.86 against 0.91-0.93."
+    },
+    {
+     "claim": "Init-control bullet: \"Narrow-kernel Cos speeds up 1.33-1.53 times; zero-initialized MLPs 0.90-1.04 times.\"",
+     "problem": "Both ranges are off. The Cos range is the seed-1-only interim range. The MLP range leaves out zero-init GeGLU 4,096, which is far slower (or failed to train).",
+     "evidence": "Fixed narrow Cos K = 4, both seeds, D = 256-16,384: 1.31-1.54. Zero-init GeGLU 4,096 s2: 0.37-0.43; s1 failed.",
+     "severity": "minor",
+     "fix": "Say 'Cos 1.31-1.54 (both seeds); zero-init GeGLU 512 / ReLU 768 0.90-1.04, zero-init GeGLU 4,096 0.37-0.43 (one seed failed)'."
+    },
+    {
+     "claim": "Round-1 bullet: \"So the narrow-kernel map is the most stable under extra passes.\"",
+     "problem": "This holds only at D = 16,384. The Test 2 widths show the opposite: at D = 256 and 1,536, narrow Cos loses more at 2K than GeGLU does, plain or gated. It fits the closing 'overshoots with more passes' only once restricted by width.",
+     "evidence": "At K_test 2K: D = 16,384 Cos drops about 5 points; GeGLU 512 drops 16.7-17.3. Cos D = 256 drops 24.1 / 24.1 and D = 1,536 drops 21.2 / 20.3 (residual K = 4). Gated GeGLU drops 13.0 / 11.9.",
+     "severity": "minor",
+     "fix": "Qualify: 'at D = 16,384; at D <= 1,536 narrow Cos overshoots more than GeGLU (Test 2)'."
+    },
+    {
+     "claim": "Other stale status lines in 7.5d: \"Status 2026-10-19 18:30 UTC ... running ... will be updated\", \"(user question, interim)\", \"C2 and C3 are pending\", \"Verdict on the pre-registered rule (predictions_basis.md): pending\", \"The fixed-Cos rows at D <= 8,192 have seed 1 only; seed 2 is still running\", the Pending block (\"the T-rule verdict waits for ...\"), W4 \"The ordering at convergence is open. The long runs (C3) test it\", the interim \"Initialization is a confound ... may come partly from ...\", and the InfiLoop note \"suggests a direct test on our task\".",
+     "problem": "These were all overtaken by results later reported in the same section: C2 and C3 in the verdict table, the T-rule verdict, width seed 2, Z1-Z3 and G1-G5. None of them is marked or points to the result.",
+     "evidence": "Verdict table rows C2, C3 and T-rule; facts_loops_width seed-2 runs exist; facts_loops_zeroinit and facts_loops_infiloop are complete.",
+     "severity": "minor",
+     "fix": "Update the status line, and add short '(resolved: see verdicts / Tests 1-3)' pointers or strike the pending sentences."
+    }
+   ],
+   "checked": "I recomputed every number in the Initialization control bullet and in the whole Tests 1-3 block, including the closing summary, from result.json. I used the stated definitions: late window 0.75*steps to steps (biographies 4,500-6,000), gain against the same-arm, same-seed K = 1 run, and linear-interpolated speed-ups at 0.2-0.5. Baselines came from facts_loops_width, facts_loops, facts_loops_zeroinit and bios_loops. I checked each verdict against the rules in predictions_zeroinit.md and predictions_gating_lr.md (seeds and thresholds) and against amendments 1 and 2. I also scanned all of 7.5d for statements the new results make stale.\n\nThese match the data:\n- Z1 is partial; Z2 is all eight values below 1.0.\n- R1 holds: the largest within-window SD is 0.11 points. R2 is refuted: -0.03 / +0.00 points.\n- G1 and G2 are correctly refuted, and G3 is correctly not refuted.\n- All table numbers in the Test 2 facts table and the biography table match to rounding.\n\nScripts are in /tmp/claude-0/-home-user-rcdltesting/67502866-e3ee-5513-b270-94b7a7c21d08/scratchpad (an.py, z.py, g.py, r.py, b.py, s.py, s2.py). No repository files were edited."
+  },
+  "skeptic": {
+   "issues": [
+    {
+     "claim": "Test 2, facts: 'G1 is refuted. Gating does not remove overthinking here', and the closing Mechanism line: the looped Cos map 'overshoots with more passes, and it amplifies noise in the state, with or without gating'.",
+     "problem": "The gate in rcdl/facts.py follows the paper's streaming rule, so the code is not the problem. The facts setting just gives the gate nothing to learn. (1) With q = 0, the score is constant, and the rule reduces exactly to a residual loop with step a_k = 1/(1+β+…+β^k): 0.645, 0.535, … → 1−β at β = 0.55. The facts FFN has no post-norm and a trained readout, so it can absorb that step size. (2) The loss is applied only after pass K, with no deep supervision. Nothing rewards a high score for a correct state, and nothing penalises drift after pass K. The paper's own q = 0 ablation and its self-verification evidence both come from deep supervision. (3) q and β were not logged, so we cannot tell whether the gate did anything. The facts probes suggest it did very little, because the gated runs track the residual runs almost exactly. (4) Overshoot after K is generic to training at a fixed K, and GeGLU shows it too, so it does not describe the Cos map in particular. (5) In the biographies, where the post-norm fixes the size of each write, gating does reduce overshoot. That contradicts 'with or without gating' as a general statement.",
+     "evidence": "Cos D = 256, seed 1, acc_by_K at K_test 1/2/4/8/16. Residual K = 4 (facts_loops_width/cos_w256_s4_K4_s1): 0.340 / 0.595 / 0.828 / 0.588 / 0.245. Gated K = 4 (facts_loops_infiloop/cos_w256_s4_infiloop_K4_s1): 0.325 / 0.587 / 0.804 / 0.569 / 0.242. Noise at 0.25, propagated / end-added: residual 0.434 / 0.790, gated 0.430 / 0.764. The gated run's params are 279,329 = 279,200 + 129, and result.json holds no q or r value. GeGLU residual runs overshoot as well: trained at K = 2, 0.938 → 0.683 at K_test 4; trained at K = 4, 0.929 → 0.763 at K_test 8 (facts_loops/geglu_w512_K{2,4}_s1). Biographies (bios_loops_infiloop and bios_loops), drop in held-out accuracy from pass 4 to pass 8 for Cos T = 2: gated 1.000 → 0.979 and 0.972 → 0.924, residual 0.834 → 0.743 and 0.886 → 0.778. GeGLU at K_test 16: gated 0.965, residual 0.768.",
+     "severity": "misleading",
+     "fix": "Word G1 as a test of a convex-step residual loop trained only at K, not of InfiLoop's content gating. Log q and β, or re-run the probe with q set to 0, to show whether the gate is active. Remove 'with or without gating' from the Mechanism line, or limit it to the facts task and add the biography result. State that overshoot after K appears in every arm, GeGLU included, and is expected when only pass K is supervised.",
+     "severity_rank": 1
+    },
+    {
+     "claim": "Closing summary: 'Reachable level: no. With a decayed learning rate the small unlooped layer also stores every fact. The level gain seen with a constant rate was oscillation.' Test 3: 'R2 is refuted … So looping does not raise the level the small layer reaches.'",
+     "problem": "The test had no room for a level gain. Under decay, the unlooped D = 256 model already reaches 100%, so R2 had to come out refuted whatever looping does. The run shows that this task does not push D = 256 to its capacity. It does not show that looping cannot raise the reachable level. The constant-rate gap was also not only oscillation: at 60,000 steps the constant-rate K = 1 run was still improving, so part of the gap was learning it had not finished, which is the speed effect again.",
+     "evidence": "facts_loops_long_cosine, late accuracy: K = 1 0.99998 / 0.99992, K = 4 0.99973 / 0.99994, K = 8 0.99991 / 0.99991. Every run reaches 99% by about step 28,000–30,000 and is at 1.000 from step 40,000. The model has 279,200 trained parameters for 32,768 facts × log2(32) = 163,840 bits, about 0.59 bits per parameter, well below a capacity limit. Constant-rate K = 1 (facts_loops_long/cos_w256_s4_long_K1_s1): 0.947 at step 30,000, 0.956 at 40,000, 0.978 at 50,000, still rising.",
+     "severity": "misleading",
+     "fix": "Change the summary to say the reachable level cannot be tested on this task, because every size tested, looped or not, reaches 100% once the rate is decayed. Testing it needs a setting where unlooped K = 1 stalls below 100% even with decay, for example D = 64 or many more individuals per parameter. In Test 3, say the constant-rate gap came from the constant rate: oscillation, plus K = 1 not having converged by step 60,000.",
+     "severity_rank": 2
+    },
+    {
+     "claim": "Closing summary: 'Learning speed: yes, robustly. With a narrow kernel, a looped Cos-Bochner layer learns the facts 1.3 to 1.8 times faster than unlooped'.",
+     "problem": "The 1.3–1.8 range is measured at the 20–50% accuracy thresholds. Amendment 2 named the steps to 50% and to 90% as the secondary measure. At the smallest layer the lead from looping fades as accuracy rises. At D = 256, looping gives a head start, but looped and unlooped models reach near-full recall at about the same step, under both a constant and a decayed rate. The speed-up does hold up to 80–90% for D ≥ 1,024.",
+     "evidence": "D = 256, 60,000 steps, decayed rate (facts_loops_long_cosine), K = 4 against K = 1: 1.31 / 1.37 at 50%, 1.10 / 1.09 at 90%, 1.08 / 0.99 at 95%, 1.07 / 1.04 at 99%. Steps to 99%: K = 1 29,895 / 29,702, K = 4 27,913 / 28,598. K = 8 reaches 99% at 1.00 / 0.99 times the K = 1 speed. Constant rate (facts_loops_long), K = 4: 1.34 at 50%, 1.14 at 90%, 1.10 at 95%. Ten-thousand-step D = 256 runs: 1.33–1.40 at 20–50%, falling to 1.26–1.27 at 70%. Gated D = 256: 1.30 / 1.31 at 50%, 1.22 / 1.22 at 70%. D = 1,024–2,048: still 1.35–1.47 at 80–90%. D = 1,536 at 60,000 steps: 1.40 at 95%, 1.13 at 99%.",
+     "severity": "misleading",
+     "fix": "Give the thresholds explicitly, for example '1.3–1.8 times faster to reach 20–50% accuracy; 1.3–1.5 times faster to 90% for D ≥ 1,024; at D = 256 the lead shrinks to about 1.1 at 90% and about 1.0 at 99%'. Report the 90% speed-up that amendment 2 named.",
+     "severity_rank": 3
+    },
+    {
+     "claim": "Closing summary: 'Every trained MLP learns slower when looped: GeGLU 512 and 4,096, the ReLU MLP, zero-initialized or gated.' Initialization bullet: zero-initialized MLPs 0.90–1.04 times, 'So the Cos-against-MLP contrast survives'. The heading frames the result as something Cos-Bochner unlocks.",
+     "problem": "Zero-initialised GeGLU 512 is neutral, not slower, and the doc's own Z1 verdict is 'partial'. The trained-W cosine MLP (T2), which is a trained MLP, speeds up almost as much as fixed narrow Cos. Fixed Bochner features with the wide σ = 8 kernel speed up only a little. So the data point to a cosine nonlinearity at the σ = 4 scale, fixed or trained, against GeGLU/ReLU. Random Fourier (Bochner) features as such are not what produces the speed-up.",
+     "evidence": "Zero-init GeGLU 512 at K = 4 (facts_loops_zeroinit): seed 1 1.04 / 0.98 / 0.96 / 0.96, seed 2 0.95 / 0.99 / 0.98 / 0.97 (20–50%). At K = 2, seed 1: 1.05 / 1.03 / 1.01 / 0.99. Zero-init ReLU 768 reaches 1.00 at 70% in seed 2. T2 (facts_loops_basis/cos_w1536_s4_trainW): 1.32–1.45 at 20–50%, 1.21–1.26 at 80–90%. σ = 8, D = 16,384 (facts_loops, v2 seed 3): 1.06–1.21, above 1.1 at every threshold from 30% to 90% in all 3 seeds. ReLU random features: 0.94–1.12.",
+     "severity": "misleading",
+     "fix": "Rewrite the summary: 'a cosine layer with a narrow kernel (σ = 4) learns 1.3–1.5 times faster when looped, with fixed or trained features; the wide σ = 8 kernel gains about 1.1–1.2 times; GeGLU and ReLU MLPs are neutral (zero-initialized) to slower (default init)'. Drop 'every trained MLP'.",
+     "severity_rank": 4
+    },
+    {
+     "claim": "G5: 'Gating does not fix Cos T = 1's wording memorization … That memorization belongs to the narrow kernel, not to looping.' Closing summary: 'Gating removes most of that harm.'",
+     "problem": "The base seen/held-out gap comes from the kernel, but looping adds to it: the doc's own L4 verdict says looping widens the gap. Gating does not remove that extra loss for T = 1; the gated run's held-out accuracy is even below residual K = 4. Saying 'not to looping' contradicts L4. 'Gating removes most of the harm' holds for T = 2 only. The gated T = 1 run also has lower seen accuracy, so part of its held-out drop may be undertraining. There is one seed.",
+     "evidence": "Seed 1, late window, held-out / seen (bios_loops, bios_loops_infiloop): residual K = 1 0.655 / 0.998, residual K = 2 0.613 / 0.998, residual K = 4 0.586 / 0.998, gated K = 4 0.572 / 0.957. Gap: 0.343, 0.384, 0.412, 0.385.",
+     "severity": "misleading",
+     "fix": "Write: 'the base gap comes from the narrow kernel; plain looping lowers T = 1 held-out by 4–7 points and gating does not recover this (0.572 against 0.586 residual; seen also falls to 0.957), one seed.' Limit 'gating removes most of that harm' to T = 2.",
+     "severity_rank": 5
+    },
+    {
+     "claim": "'Cos still amplifies a push of the state under gating; gated GeGLU barely does', with Cos D = 1,536 at 0.55 propagated against 0.92–0.94 end-added, and GeGLU at 0.85–0.88 against 0.91–0.93.",
+     "problem": "The claim survives the check for different accuracy levels: Cos D = 1,536 and GeGLU have about the same clean accuracy and still differ sharply. But the K = 1 baseline that amendment 1 requires is missing. About half of the Cos–GeGLU difference is already there with one unlooped pass, as single-pass sensitivity of the narrow kernel. Looping adds roughly the other half. The sentence reads as if all of it comes from the passes.",
+     "evidence": "Noise at 0.25, propagated against end-added accuracy, K = 1 runs. Cos D = 256: 0.564 / 0.711 and 0.531 / 0.681, a loss of about 15 points. Cos D = 1,536: 0.710 / 0.890 and 0.721 / 0.899, about 18 points. GeGLU (facts_loops_v2/geglu_w512_K1_s3): 0.864 / 0.933, and zero-init 0.876 / 0.938, about 6–7 points. Gated K = 4: Cos D = 1,536 loses 36–38 points; GeGLU loses 6–7 (0.862 / 0.927, 0.849 / 0.911). Clean accuracy: Cos D = 1,536 gated 0.955 / 0.942, GeGLU gated 0.934 / 0.917.",
+     "severity": "minor",
+     "fix": "Add the K = 1 margins and state the increment: 'narrow Cos already loses 15–18 points to the push at K = 1 against 6–7 for GeGLU; looping adds about 18–20 points for Cos and about 0 for GeGLU.'",
+     "severity_rank": 6
+    }
+   ],
+   "checked": "I recomputed every figure in the Test 2 facts table from the result.json files in facts_loops_width, facts_loops_infiloop and facts_loops: late gains, speed-ups at 20–50% and overthinking. All match the doc. So do the gated noise figures, the biography table (late window 4,500–6,000), the Test 3 late accuracies and standard deviations, and the initialization-control gains and speed-ups (facts_loops_zeroinit, facts_loops_basis, facts_loops_ctrl). I also ran checks the doc does not report: speed-ups at the 60–90% thresholds for every arm, and at 50–99% for the 60,000-step runs at D = 256 and D = 1,536 under both rate schedules. I compared propagated against end-added noise at K = 1, read rcdl/facts.py infiloop and the loop probe, rcdl/bios.py, the InfiLoop paper notes, and predictions_zeroinit.md, predictions_gating_lr.md and amendments 1 and 2. Points that hold up: the gated implementation matches the paper's streaming rule (z_0 = h_0 included, with a clamp added). Using the residual K = 1 run as the reference for gated speed-ups does not change G2 or G3: gated K = 4 speed-ups are within 0.03–0.05 of residual K = 4, and the convex step can only make a gated K = 1 run slower. The noise contrast is not caused by different accuracy levels, since Cos D = 1,536 and GeGLU have about the same clean accuracy. The narrow-Cos speed-up holds in every seed and up to 90% accuracy for D ≥ 1,024. Z3 counts zero-init GeGLU 4,096 seed 1, which never trained (0.031), as slower, which is a minor departure from its two-seed rule."
+  }
+ }
+}

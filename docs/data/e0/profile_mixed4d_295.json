@@ -1,0 +1,376 @@
+{
+ "unit": "mixed4d:295",
+ "classes_by_mean_max": [
+  [
+   "wire-haired fox terrier",
+   375.0
+  ],
+  [
+   "beach wagon",
+   352.3
+  ],
+  [
+   "minivan",
+   345.4
+  ],
+  [
+   "ambulance",
+   340.6
+  ],
+  [
+   "pickup",
+   339.0
+  ],
+  [
+   "Bedlington terrier",
+   338.9
+  ],
+  [
+   "convertible",
+   337.3
+  ],
+  [
+   "West Highland white terrier",
+   331.2
+  ],
+  [
+   "Lakeland terrier",
+   330.0
+  ],
+  [
+   "limousine",
+   312.5
+  ],
+  [
+   "sports car",
+   308.4
+  ],
+  [
+   "Airedale",
+   304.3
+  ],
+  [
+   "soft-coated wheaten terrier",
+   302.2
+  ],
+  [
+   "miniature poodle",
+   299.5
+  ],
+  [
+   "Dandie Dinmont",
+   296.4
+  ],
+  [
+   "Old English sheepdog",
+   294.8
+  ],
+  [
+   "minibus",
+   293.9
+  ],
+  [
+   "otterhound",
+   284.9
+  ],
+  [
+   "police van",
+   279.0
+  ],
+  [
+   "standard poodle",
+   273.3
+  ],
+  [
+   "Maltese dog",
+   269.1
+  ],
+  [
+   "standard schnauzer",
+   267.3
+  ],
+  [
+   "Tibetan terrier",
+   265.2
+  ],
+  [
+   "toy poodle",
+   264.8
+  ],
+  [
+   "komondor",
+   261.8
+  ]
+ ],
+ "classes_by_mean_min": [
+  [
+   "mosque",
+   -258.9
+  ],
+  [
+   "dome",
+   -239.7
+  ],
+  [
+   "barometer",
+   -235.4
+  ],
+  [
+   "cocktail shaker",
+   -234.9
+  ],
+  [
+   "banjo",
+   -233.9
+  ],
+  [
+   "balloon",
+   -232.4
+  ],
+  [
+   "stopwatch",
+   -231.8
+  ],
+  [
+   "magnetic compass",
+   -230.8
+  ],
+  [
+   "ringlet",
+   -228.6
+  ],
+  [
+   "measuring cup",
+   -228.3
+  ],
+  [
+   "water tower",
+   -227.5
+  ],
+  [
+   "analog clock",
+   -227.3
+  ],
+  [
+   "abacus",
+   -226.7
+  ],
+  [
+   "table lamp",
+   -224.9
+  ],
+  [
+   "whiskey jug",
+   -220.8
+  ],
+  [
+   "lotion",
+   -220.1
+  ],
+  [
+   "wall clock",
+   -219.1
+  ],
+  [
+   "beacon",
+   -217.9
+  ],
+  [
+   "altar",
+   -217.3
+  ],
+  [
+   "beer bottle",
+   -217.1
+  ],
+  [
+   "barn",
+   -216.8
+  ],
+  [
+   "combination lock",
+   -216.7
+  ],
+  [
+   "cellular telephone",
+   -216.1
+  ],
+  [
+   "bee eater",
+   -216.1
+  ],
+  [
+   "pop bottle",
+   -214.8
+  ]
+ ],
+ "vehicle_class_ranks_by_mean_max": [
+  [
+   1,
+   "beach wagon",
+   352.3
+  ],
+  [
+   2,
+   "minivan",
+   345.4
+  ],
+  [
+   3,
+   "ambulance",
+   340.6
+  ],
+  [
+   4,
+   "pickup",
+   339.0
+  ],
+  [
+   6,
+   "convertible",
+   337.3
+  ],
+  [
+   9,
+   "limousine",
+   312.5
+  ],
+  [
+   10,
+   "sports car",
+   308.4
+  ],
+  [
+   16,
+   "minibus",
+   293.9
+  ],
+  [
+   18,
+   "police van",
+   279.0
+  ],
+  [
+   31,
+   "tow truck",
+   246.2
+  ],
+  [
+   35,
+   "cab",
+   238.9
+  ],
+  [
+   44,
+   "jeep",
+   226.8
+  ],
+  [
+   47,
+   "trolleybus",
+   217.1
+  ],
+  [
+   49,
+   "recreational vehicle",
+   213.5
+  ],
+  [
+   54,
+   "fire engine",
+   207.6
+  ],
+  [
+   55,
+   "moving van",
+   207.4
+  ],
+  [
+   78,
+   "car wheel",
+   169.2
+  ],
+  [
+   96,
+   "Model T",
+   158.8
+  ],
+  [
+   97,
+   "garbage truck",
+   158.7
+  ],
+  [
+   103,
+   "racer",
+   155.1
+  ],
+  [
+   106,
+   "golfcart",
+   153.4
+  ],
+  [
+   107,
+   "school bus",
+   152.9
+  ],
+  [
+   112,
+   "snowplow",
+   150.2
+  ],
+  [
+   150,
+   "grille",
+   135.8
+  ],
+  [
+   195,
+   "amphibian",
+   126.7
+  ],
+  [
+   217,
+   "trailer truck",
+   122.4
+  ],
+  [
+   263,
+   "tractor",
+   116.3
+  ],
+  [
+   269,
+   "forklift",
+   115.6
+  ],
+  [
+   364,
+   "half track",
+   104.1
+  ],
+  [
+   464,
+   "go-kart",
+   91.4
+  ],
+  [
+   492,
+   "streetcar",
+   87.3
+  ],
+  [
+   591,
+   "tank",
+   76.1
+  ]
+ ],
+ "first_vehicle_image_rank_by_max": 0,
+ "all_images_max_percentiles": {
+  "50": 84.1,
+  "90": 185.1,
+  "99": 371.5,
+  "99.9": 527.5
+ }
+}

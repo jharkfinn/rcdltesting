@@ -1,0 +1,52 @@
+{
+ "_comment": "Test 2 on the biography task: the K = 4 runs of bios_loops.json with the last FFN's passes combined by the loop-native attention residual (ffn_loop_mode = infiloop). Cos-Bochner 4k at T = 2 (whose K = 4 residual runs memorised wording: held-out 0.84 / 0.89 against seen 0.98 / 1.00), seeds 1 and 2; Cos T = 1 and GeGLU at K = 4, seed 1.",
+ "defaults": {
+  "seq_len": 512,
+  "batch_size": 64,
+  "d_model": 256,
+  "layers": 6,
+  "heads": 4,
+  "kv_heads": 1,
+  "head_dim": 64,
+  "ffn_width": 1024,
+  "steps": 6000,
+  "eval_every": 100,
+  "eval_bios": 1024,
+  "lr": 0.0004,
+  "rbf_capacity": 4000000,
+  "n_people": 8192,
+  "eval_seen_templates": true,
+  "final_probe": true,
+  "ffn_loop_alpha": 1.0
+ },
+ "experiments": {
+  "cosT2_D4k_infiloop_K4_s1": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_T": 2.0,
+   "ffn_loops": 4,
+   "ffn_loop_mode": "infiloop",
+   "seed": 1
+  },
+  "cosT2_D4k_infiloop_K4_s2": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "cos_T": 2.0,
+   "ffn_loops": 4,
+   "ffn_loop_mode": "infiloop",
+   "seed": 2
+  },
+  "cosT1_D4k_infiloop_K4_s1": {
+   "ffn": "cos",
+   "cos_width": 4096,
+   "ffn_loops": 4,
+   "ffn_loop_mode": "infiloop",
+   "seed": 1
+  },
+  "geglu_infiloop_K4_s1": {
+   "ffn_loops": 4,
+   "ffn_loop_mode": "infiloop",
+   "seed": 1
+  }
+ }
+}

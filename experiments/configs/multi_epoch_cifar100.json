@@ -1,0 +1,189 @@
+{
+ "_comment": "CIFAR-100, 50 epochs, augmentation, batch 64 (paper Fig. 2 left, CIFAR-100 panel; values read off the plot). GWS at L=0 only (L=2 does not fit one GPU). gws_L2_T10_50ep_c100_bf16: L = 2 with bf16 storage (77 GB; multi_epoch_bf16.json). Tuning for the claim 'Mesa is best on CIFAR-100': five Mesa settings from the paper's grid (lr in [1e-4 .. 1e-2], gamma in [0.9, 0.99, 1], lambda in [0.001, 0.01, 0.1], L in [2, 4]) and one more Muon rate.",
+ "dataset": "cifar100",
+ "defaults": {
+  "eval_every": 3905,
+  "eval_subset": 2000,
+  "eval_batch_size": 64
+ },
+ "experiments": {
+  "gws_L0_T10_50ep_c100": {
+   "paper_acc": "GWS (L=2) ~39.1 (Fig. 2 left)",
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 0,
+    "temperature": 10.0,
+    "db_size": 2499264,
+    "num_epochs": 50,
+    "num_classes": 100
+   }
+  },
+  "mlp_muon_lr0.001_50ep_c100": {
+   "paper_acc": "~39.2",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "muon",
+    "learning_rate": 0.001,
+    "num_classes": 100
+   }
+  },
+  "mlp_adam_lr0.0003_50ep_c100": {
+   "paper_acc": "~37",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "adam",
+    "learning_rate": 0.0003,
+    "num_classes": 100
+   }
+  },
+  "mlp_mesa_lr0.0003_50ep_c100": {
+   "paper_acc": "~40.4",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "mesa",
+    "learning_rate": 0.0003,
+    "num_classes": 100
+   }
+  },
+  "gws_L2_T10_50ep_c100_bf16": {
+   "paper_acc": "~39.1 (Fig. 2 left, CIFAR-100)",
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "db_size": 2499264,
+    "num_epochs": 50,
+    "store_dtype": "bfloat16",
+    "num_classes": 100
+   }
+  },
+  "mlp_mesa_lr0.0001_50ep_c100": {
+   "paper_acc": "~40.4 (Mesa, best in the paper)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "mesa",
+    "learning_rate": 0.0001,
+    "num_classes": 100
+   }
+  },
+  "mlp_mesa_lr0.001_50ep_c100": {
+   "paper_acc": "~40.4 (Mesa, best in the paper)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "mesa",
+    "learning_rate": 0.001,
+    "num_classes": 100
+   }
+  },
+  "mlp_mesa_lr0.0003_g1_50ep_c100": {
+   "paper_acc": "~40.4 (Mesa, best in the paper)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "mesa",
+    "learning_rate": 0.0003,
+    "num_classes": 100,
+    "mesa_gamma": 1.0
+   }
+  },
+  "mlp_mesa_lr0.0003_lam0.1_50ep_c100": {
+   "paper_acc": "~40.4 (Mesa, best in the paper)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "mesa",
+    "learning_rate": 0.0003,
+    "num_classes": 100,
+    "mesa_lambda": 0.1
+   }
+  },
+  "mlp_mesa_L4_lr0.0003_50ep_c100": {
+   "paper_acc": "~40.4 (Mesa, best in the paper)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 4,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "mesa",
+    "learning_rate": 0.0003,
+    "num_classes": 100
+   }
+  },
+  "mlp_muon_lr0.003_50ep_c100": {
+   "paper_acc": "~39.2",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "muon",
+    "learning_rate": 0.003,
+    "num_classes": 100
+   }
+  }
+ }
+}

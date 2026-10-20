@@ -1,0 +1,21 @@
+WARNING: --no_full: history snapshots dropped (no full state): [1000, 3000, 5000, 7500, 9000, 11000, 13000, 15000, 17500, 19000, 21000, 23000, 24000]
+{"block": "stage0.block0", "exits": 1270, "entries": 3824, "complete": 2.4660795782084564e-08, "sec": 63}
+{"block": "stage0.block1", "exits": 2011, "entries": 4571, "complete": 2.266735301378635e-08, "sec": 142}
+{"block": "stage0.block2", "exits": 1835, "entries": 4393, "complete": 2.022845172752078e-08, "sec": 218}
+{"block": "stage1.block0", "exits": 1528, "entries": 4087, "complete": 1.930004608583901e-08, "sec": 280}
+{"block": "stage1.block1", "exits": 1902, "entries": 4369, "complete": 1.442738920405601e-08, "sec": 353}
+{"block": "stage1.block2", "exits": 1360, "entries": 3919, "complete": 1.1478616720129915e-08, "sec": 417}
+{"block": "stage2.block0", "exits": 1819, "entries": 4378, "complete": 1.0564053649346196e-08, "sec": 493}
+{"block": "stage2.block1", "exits": 1490, "entries": 4042, "complete": 8.927235933107185e-09, "sec": 562}
+{"block": "stage2.block2", "exits": 1771, "entries": 4330, "complete": 1.0511995674458286e-08, "sec": 635}
+{"block": "stage2.block3", "exits": 1240, "entries": 3799, "complete": 1.2288137520995682e-08, "sec": 696}
+{"block": "stage2.block4", "exits": 1783, "entries": 4342, "complete": 1.0368636955937757e-08, "sec": 770}
+{"block": "stage2.block5", "exits": 2058, "entries": 4618, "complete": 1.1166187287761478e-08, "sec": 851}
+{"block": "stage2.block6", "exits": 2137, "entries": 4697, "complete": 9.156394623347844e-09, "sec": 931}
+{"block": "stage2.block7", "exits": 1769, "entries": 4328, "complete": 1.8079183005419646e-08, "sec": 1004}
+{"block": "stage2.block8", "exits": 1782, "entries": 4341, "complete": 1.1503841834110752e-08, "sec": 1075}
+{"block": "stage3.block0", "exits": 1593, "entries": 4153, "complete": 1.2004702440062698e-08, "sec": 1145}
+{"block": "stage3.block1", "exits": 1245, "entries": 3805, "complete": 1.0590833897257643e-08, "sec": 1203}
+{"block": "stage3.block2", "exits": 1506, "entries": 4062, "complete": 9.479092772483195e-09, "sec": 1270}
+{"estimates": {"X1_own_excess_share": 0.8442336059807274, "X2_own_rise_dropped_minus_persistent": -1.3783696127700282, "X3_S1_withdrawn_minus_C1": 0.006086005830903794, "X4_F2_relatives": -0.025251146765574058, "X5_loop_own": 0.841440523893268}, "ci": {"X1_own_excess_share": [0.3674362850864081, 1.5072536980487454], "X2_own_rise_dropped_minus_persistent": [-1.8170467285269958, -0.9396281983145782], "X3_S1_withdrawn_minus_C1": [-0.026546686619453263, 0.037682428508067925], "X4_F2_relatives": [-0.02940034484792711, -0.021144720428526022], "X5_loop_own": null}, "null": {"X1_own_excess_share": 0.0, "X2_own_rise_dropped_minus_persistent": 0.0, "X3_S1_withdrawn_minus_C1": 0.0, "X4_F2_relatives": 0.0, "X5_loop_own": 0.6588856182061493}, "p": {"X1_own_excess_share": 0.001999000499750125, "X2_own_rise_dropped_minus_persistent": 0.0009995002498750624, "X3_S1_withdrawn_minus_C1": 0.7226386806596702, "X4_F2_relatives": 0.0009995002498750624, "X5_loop_own": 0.000999000999000999}, "holm": {"X5_loop_own": 0.004995004995004995, "X2_own_rise_dropped_minus_persistent": 0.004995004995004995, "X4_F2_relatives": 0.004995004995004995, "X1_own_excess_share": 0.004995004995004995, "X3_S1_withdrawn_minus_C1": 0.7226386806596702}}
+EXITS_TESTS_DONE

@@ -1,0 +1,886 @@
+{
+ "n_images": 50000,
+ "top1_acc_note": "inception5h has 1,008 outputs in its own order; not scored",
+ "car_classes": [
+  "Model T",
+  "ambulance",
+  "beach wagon",
+  "cab",
+  "convertible",
+  "jeep",
+  "limousine",
+  "minivan",
+  "racer",
+  "sports car"
+ ],
+ "mixed4e:55": {
+  "positive": {
+   "top_classes": [
+    [
+     "tabby",
+     7
+    ],
+    [
+     "red fox",
+     6
+    ],
+    [
+     "kit fox",
+     5
+    ],
+    [
+     "tiger cat",
+     5
+    ],
+    [
+     "Persian cat",
+     5
+    ],
+    [
+     "Pomeranian",
+     4
+    ],
+    [
+     "weasel",
+     3
+    ],
+    [
+     "lesser panda",
+     3
+    ],
+    [
+     "papillon",
+     3
+    ],
+    [
+     "Arctic fox",
+     2
+    ],
+    [
+     "Japanese spaniel",
+     1
+    ],
+    [
+     "dhole",
+     1
+    ]
+   ],
+   "dogs": 8,
+   "cars": 0,
+   "values": [
+    478.25,
+    355.75
+   ]
+  },
+  "negative": {
+   "top_classes": [
+    [
+     "bull mastiff",
+     6
+    ],
+    [
+     "Doberman",
+     5
+    ],
+    [
+     "pug",
+     3
+    ],
+    [
+     "boxer",
+     3
+    ],
+    [
+     "Airedale",
+     2
+    ],
+    [
+     "black-and-tan coonhound",
+     2
+    ],
+    [
+     "golf ball",
+     2
+    ],
+    [
+     "Tibetan mastiff",
+     1
+    ],
+    [
+     "tailed frog",
+     1
+    ],
+    [
+     "lorikeet",
+     1
+    ],
+    [
+     "silky terrier",
+     1
+    ],
+    [
+     "standard schnauzer",
+     1
+    ]
+   ],
+   "dogs": 34,
+   "cars": 0,
+   "values": [
+    -217.25,
+    -173.75
+   ]
+  },
+  "strongest_inputs_4d": [
+   {
+    "channel": 493,
+    "weight": 0.31134575605392456,
+    "positive": [
+     [
+      "kit fox",
+      6
+     ],
+     [
+      "papillon",
+      6
+     ],
+     [
+      "red fox",
+      5
+     ],
+     [
+      "Pomeranian",
+      5
+     ],
+     [
+      "lesser panda",
+      5
+     ],
+     [
+      "weasel",
+      4
+     ]
+    ]
+   },
+   {
+    "channel": 511,
+    "weight": 0.12793533504009247,
+    "positive": [
+     [
+      "mantis",
+      7
+     ],
+     [
+      "tiger beetle",
+      5
+     ],
+     [
+      "grasshopper",
+      3
+     ],
+     [
+      "lacewing",
+      3
+     ],
+     [
+      "green snake",
+      3
+     ],
+     [
+      "acorn",
+      3
+     ]
+    ]
+   },
+   {
+    "channel": 61,
+    "weight": 0.11573648452758789,
+    "positive": [
+     [
+      "tench",
+      2
+     ],
+     [
+      "lipstick",
+      2
+     ],
+     [
+      "barracouta",
+      2
+     ],
+     [
+      "bicycle-built-for-two",
+      2
+     ],
+     [
+      "coho",
+      2
+     ],
+     [
+      "bolete",
+      1
+     ]
+    ]
+   },
+   {
+    "channel": 352,
+    "weight": 0.10230536758899689,
+    "positive": [
+     [
+      "minivan",
+      9
+     ],
+     [
+      "ambulance",
+      7
+     ],
+     [
+      "cab",
+      5
+     ],
+     [
+      "limousine",
+      4
+     ],
+     [
+      "beach wagon",
+      4
+     ],
+     [
+      "police van",
+      4
+     ]
+    ]
+   },
+   {
+    "channel": 334,
+    "weight": 0.08038917183876038,
+    "positive": [
+     [
+      "iPod",
+      4
+     ],
+     [
+      "oil filter",
+      3
+     ],
+     [
+      "drum",
+      2
+     ],
+     [
+      "saltshaker",
+      2
+     ],
+     [
+      "lens cap",
+      2
+     ],
+     [
+      "paper towel",
+      2
+     ]
+    ]
+   },
+   {
+    "channel": 383,
+    "weight": 0.07930634915828705,
+    "positive": [
+     [
+      "papillon",
+      5
+     ],
+     [
+      "Appenzeller",
+      3
+     ],
+     [
+      "Siberian husky",
+      3
+     ],
+     [
+      "Bernese mountain dog",
+      3
+     ],
+     [
+      "Border collie",
+      3
+     ],
+     [
+      "beagle",
+      2
+     ]
+    ]
+   }
+  ],
+  "most_negative_inputs_4d": [
+   {
+    "channel": 345,
+    "weight": -0.07161999493837357,
+    "positive": [
+     [
+      "clumber",
+      7
+     ],
+     [
+      "Welsh springer spaniel",
+      6
+     ],
+     [
+      "West Highland white terrier",
+      3
+     ],
+     [
+      "beagle",
+      3
+     ],
+     [
+      "otterhound",
+      3
+     ],
+     [
+      "Great Pyrenees",
+      2
+     ]
+    ]
+   },
+   {
+    "channel": 456,
+    "weight": -0.0668293833732605,
+    "positive": [
+     [
+      "electric locomotive",
+      8
+     ],
+     [
+      "streetcar",
+      6
+     ],
+     [
+      "school bus",
+      4
+     ],
+     [
+      "trolleybus",
+      4
+     ],
+     [
+      "ambulance",
+      2
+     ],
+     [
+      "rain barrel",
+      2
+     ]
+    ]
+   },
+   {
+    "channel": 349,
+    "weight": -0.061636678874492645,
+    "positive": [
+     [
+      "house finch",
+      6
+     ],
+     [
+      "quail",
+      6
+     ],
+     [
+      "barracouta",
+      4
+     ],
+     [
+      "cicada",
+      4
+     ],
+     [
+      "redshank",
+      4
+     ],
+     [
+      "red-backed sandpiper",
+      3
+     ]
+    ]
+   },
+   {
+    "channel": 381,
+    "weight": -0.058162134140729904,
+    "positive": [
+     [
+      "oystercatcher",
+      10
+     ],
+     [
+      "maillot",
+      7
+     ],
+     [
+      "magpie",
+      6
+     ],
+     [
+      "white stork",
+      3
+     ],
+     [
+      "albatross",
+      2
+     ],
+     [
+      "crane",
+      2
+     ]
+    ]
+   }
+  ]
+ },
+ "mixed4c:447": {
+  "positive": {
+   "top_classes": [
+    [
+     "ambulance",
+     11
+    ],
+    [
+     "minibus",
+     7
+    ],
+    [
+     "minivan",
+     7
+    ],
+    [
+     "police van",
+     5
+    ],
+    [
+     "limousine",
+     4
+    ],
+    [
+     "cab",
+     3
+    ],
+    [
+     "moving van",
+     3
+    ],
+    [
+     "fire engine",
+     2
+    ],
+    [
+     "trolleybus",
+     2
+    ],
+    [
+     "beach wagon",
+     2
+    ],
+    [
+     "snowplow",
+     1
+    ],
+    [
+     "passenger car",
+     1
+    ]
+   ],
+   "dogs": 0,
+   "cars": 28,
+   "values": [
+    2678.0,
+    2050.0
+   ]
+  },
+  "negative": {
+   "top_classes": [
+    [
+     "papillon",
+     3
+    ],
+    [
+     "Bernese mountain dog",
+     3
+    ],
+    [
+     "white wolf",
+     3
+    ],
+    [
+     "otterhound",
+     3
+    ],
+    [
+     "Border collie",
+     2
+    ],
+    [
+     "Pembroke",
+     2
+    ],
+    [
+     "golden retriever",
+     2
+    ],
+    [
+     "malamute",
+     2
+    ],
+    [
+     "miniature poodle",
+     2
+    ],
+    [
+     "gibbon",
+     2
+    ],
+    [
+     "Norfolk terrier",
+     1
+    ],
+    [
+     "soft-coated wheaten terrier",
+     1
+    ]
+   ],
+   "dogs": 39,
+   "cars": 0,
+   "values": [
+    -1393.0,
+    -1169.0
+   ]
+  },
+  "readers_4d": [
+   {
+    "channel": 417,
+    "weight": 0.76712566614151,
+    "corr_with_447": 0.28485913921173106,
+    "dogs_in_top50": 0,
+    "cars_in_top50": 32,
+    "top_classes": [
+     [
+      "ambulance",
+      21
+     ],
+     [
+      "minibus",
+      7
+     ],
+     [
+      "minivan",
+      5
+     ],
+     [
+      "police van",
+      4
+     ],
+     [
+      "moving van",
+      4
+     ],
+     [
+      "limousine",
+      3
+     ],
+     [
+      "cab",
+      2
+     ],
+     [
+      "fire engine",
+      2
+     ]
+    ]
+   },
+   {
+    "channel": 352,
+    "weight": 0.5165053606033325,
+    "corr_with_447": 0.7187781730039265,
+    "dogs_in_top50": 0,
+    "cars_in_top50": 37,
+    "top_classes": [
+     [
+      "minivan",
+      9
+     ],
+     [
+      "ambulance",
+      7
+     ],
+     [
+      "cab",
+      5
+     ],
+     [
+      "limousine",
+      4
+     ],
+     [
+      "beach wagon",
+      4
+     ],
+     [
+      "police van",
+      4
+     ],
+     [
+      "sports car",
+      3
+     ],
+     [
+      "convertible",
+      3
+     ]
+    ]
+   },
+   {
+    "channel": 455,
+    "weight": 0.46167683601379395,
+    "corr_with_447": 0.33819221088566054,
+    "dogs_in_top50": 2,
+    "cars_in_top50": 26,
+    "top_classes": [
+     [
+      "ambulance",
+      11
+     ],
+     [
+      "minibus",
+      6
+     ],
+     [
+      "minivan",
+      5
+     ],
+     [
+      "limousine",
+      5
+     ],
+     [
+      "police van",
+      4
+     ],
+     [
+      "moving van",
+      4
+     ],
+     [
+      "cab",
+      2
+     ],
+     [
+      "fire engine",
+      2
+     ]
+    ]
+   },
+   {
+    "channel": 295,
+    "weight": 0.41522422432899475,
+    "corr_with_447": 0.27660261598406805,
+    "dogs_in_top50": 26,
+    "cars_in_top50": 22,
+    "top_classes": [
+     [
+      "limousine",
+      6
+     ],
+     [
+      "sports car",
+      5
+     ],
+     [
+      "Lakeland terrier",
+      4
+     ],
+     [
+      "West Highland white terrier",
+      4
+     ],
+     [
+      "Bedlington terrier",
+      4
+     ],
+     [
+      "minivan",
+      4
+     ],
+     [
+      "Airedale",
+      4
+     ],
+     [
+      "cab",
+      3
+     ]
+    ]
+   },
+   {
+    "channel": 167,
+    "weight": 0.41111573576927185,
+    "corr_with_447": 0.49288098678107134,
+    "dogs_in_top50": 0,
+    "cars_in_top50": 21,
+    "top_classes": [
+     [
+      "ambulance",
+      17
+     ],
+     [
+      "minibus",
+      13
+     ],
+     [
+      "police van",
+      4
+     ],
+     [
+      "fire engine",
+      3
+     ],
+     [
+      "recreational vehicle",
+      3
+     ],
+     [
+      "minivan",
+      2
+     ],
+     [
+      "moving van",
+      1
+     ],
+     [
+      "trailer truck",
+      1
+     ]
+    ]
+   },
+   {
+    "channel": 277,
+    "weight": 0.40845900774002075,
+    "corr_with_447": 0.3534747357438203,
+    "dogs_in_top50": 0,
+    "cars_in_top50": 15,
+    "top_classes": [
+     [
+      "ambulance",
+      13
+     ],
+     [
+      "wood rabbit",
+      7
+     ],
+     [
+      "hare",
+      4
+     ],
+     [
+      "minibus",
+      3
+     ],
+     [
+      "fire engine",
+      3
+     ],
+     [
+      "wolf spider",
+      3
+     ],
+     [
+      "harvestman",
+      3
+     ],
+     [
+      "police van",
+      2
+     ]
+    ]
+   },
+   {
+    "channel": 241,
+    "weight": 0.3984866142272949,
+    "corr_with_447": 0.357299731642839,
+    "dogs_in_top50": 29,
+    "cars_in_top50": 16,
+    "top_classes": [
+     [
+      "limousine",
+      4
+     ],
+     [
+      "ambulance",
+      4
+     ],
+     [
+      "cab",
+      3
+     ],
+     [
+      "briard",
+      3
+     ],
+     [
+      "minivan",
+      3
+     ],
+     [
+      "otterhound",
+      3
+     ],
+     [
+      "Leonberg",
+      2
+     ],
+     [
+      "Airedale",
+      2
+     ]
+    ]
+   },
+   {
+    "channel": 139,
+    "weight": 0.3900757431983948,
+    "corr_with_447": 0.1504281804983279,
+    "dogs_in_top50": 39,
+    "cars_in_top50": 0,
+    "top_classes": [
+     [
+      "Samoyed",
+      10
+     ],
+     [
+      "kuvasz",
+      5
+     ],
+     [
+      "Maltese dog",
+      4
+     ],
+     [
+      "Old English sheepdog",
+      3
+     ],
+     [
+      "Great Pyrenees",
+      3
+     ],
+     [
+      "Lhasa",
+      3
+     ],
+     [
+      "otterhound",
+      2
+     ],
+     [
+      "Sealyham terrier",
+      2
+     ]
+    ]
+   }
+  ]
+ }
+}

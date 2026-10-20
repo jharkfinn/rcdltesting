@@ -1,0 +1,2654 @@
+{
+ "n_val": 50000,
+ "vehicle_classes": [
+  "Model T",
+  "ambulance",
+  "amphibian",
+  "beach wagon",
+  "cab",
+  "car wheel",
+  "convertible",
+  "fire engine",
+  "forklift",
+  "garbage truck",
+  "go-kart",
+  "golfcart",
+  "grille",
+  "half track",
+  "jeep",
+  "limousine",
+  "minibus",
+  "minivan",
+  "moving van",
+  "pickup",
+  "police van",
+  "racer",
+  "recreational vehicle",
+  "school bus",
+  "snowplow",
+  "sports car",
+  "streetcar",
+  "tank",
+  "tow truck",
+  "tractor",
+  "trailer truck",
+  "trolleybus"
+ ],
+ "vehicle_names_not_found": [],
+ "readers": {
+  "mixed4d:167": {
+   "branch": "mixed4d_3x3_pre_relu_conv",
+   "branch_channel": 55,
+   "n_images": 100,
+   "stats_check_max_abs_diff": 0.9241943359375,
+   "bias_part_mean_share": 0.008324143500411753,
+   "n_vehicles": 94,
+   "n_dogs": 3,
+   "groups": {
+    "vehicles": {
+     "n": 94,
+     "mean_z": 568.2772171345163,
+     "share_447": 0.8753774506633055,
+     "ablate_447_mean_drop": 0.734204621568646,
+     "top_inputs": [
+      {
+       "channel": 447,
+       "share": 0.8753774506633055,
+       "top_classes": [
+        [
+         "ambulance",
+         11
+        ],
+        [
+         "minibus",
+         7
+        ],
+        [
+         "minivan",
+         7
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "limousine",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 49
+      },
+      {
+       "channel": 350,
+       "share": 0.08155814646347447,
+       "top_classes": [
+        [
+         "German shepherd",
+         3
+        ],
+        [
+         "Cardigan",
+         2
+        ],
+        [
+         "Border collie",
+         2
+        ],
+        [
+         "Welsh springer spaniel",
+         2
+        ],
+        [
+         "Great Pyrenees",
+         2
+        ]
+       ],
+       "dogs": 37,
+       "vehicles": 3
+      },
+      {
+       "channel": 405,
+       "share": 0.031202158820969696,
+       "top_classes": [
+        [
+         "fire engine",
+         7
+        ],
+        [
+         "school bus",
+         6
+        ],
+        [
+         "moving van",
+         5
+        ],
+        [
+         "trolleybus",
+         5
+        ],
+        [
+         "ambulance",
+         4
+        ]
+       ],
+       "dogs": 1,
+       "vehicles": 43
+      },
+      {
+       "channel": 292,
+       "share": 0.030749481392935814,
+       "top_classes": [
+        [
+         "ambulance",
+         6
+        ],
+        [
+         "trolleybus",
+         6
+        ],
+        [
+         "minibus",
+         5
+        ],
+        [
+         "police van",
+         4
+        ],
+        [
+         "fire engine",
+         3
+        ]
+       ],
+       "dogs": 1,
+       "vehicles": 40
+      },
+      {
+       "channel": 296,
+       "share": 0.02954107887912992,
+       "top_classes": [
+        [
+         "minibus",
+         5
+        ],
+        [
+         "cash machine",
+         3
+        ],
+        [
+         "ambulance",
+         3
+        ],
+        [
+         "microwave",
+         2
+        ],
+        [
+         "bathtub",
+         2
+        ]
+       ],
+       "dogs": 2,
+       "vehicles": 16
+      },
+      {
+       "channel": 67,
+       "share": 0.027750065901004848,
+       "top_classes": [
+        [
+         "minivan",
+         4
+        ],
+        [
+         "suit",
+         3
+        ],
+        [
+         "groom",
+         3
+        ],
+        [
+         "Welsh springer spaniel",
+         2
+        ],
+        [
+         "power drill",
+         2
+        ]
+       ],
+       "dogs": 5,
+       "vehicles": 7
+      },
+      {
+       "channel": 429,
+       "share": 0.027195463866138976,
+       "top_classes": [
+        [
+         "Leonberg",
+         7
+        ],
+        [
+         "otterhound",
+         2
+        ],
+        [
+         "standard schnauzer",
+         2
+        ],
+        [
+         "brown bear",
+         2
+        ],
+        [
+         "brassiere",
+         2
+        ]
+       ],
+       "dogs": 27,
+       "vehicles": 2
+      },
+      {
+       "channel": 224,
+       "share": 0.026262283984979488,
+       "top_classes": [
+        [
+         "Bernese mountain dog",
+         8
+        ],
+        [
+         "Appenzeller",
+         6
+        ],
+        [
+         "Cardigan",
+         5
+        ],
+        [
+         "Saint Bernard",
+         4
+        ],
+        [
+         "Border collie",
+         4
+        ]
+       ],
+       "dogs": 49,
+       "vehicles": 0
+      }
+     ]
+    },
+    "dogs": {
+     "n": 3,
+     "mean_z": 521.9834899902344,
+     "share_447": 0.0,
+     "ablate_447_mean_drop": 0.0,
+     "top_inputs": [
+      {
+       "channel": 409,
+       "share": 0.14829876660066982,
+       "top_classes": [
+        [
+         "oystercatcher",
+         4
+        ],
+        [
+         "coucal",
+         4
+        ],
+        [
+         "redshank",
+         4
+        ],
+        [
+         "red-backed sandpiper",
+         3
+        ],
+        [
+         "indigo bunting",
+         3
+        ]
+       ],
+       "dogs": 3,
+       "vehicles": 0
+      },
+      {
+       "channel": 264,
+       "share": 0.1319305911662069,
+       "top_classes": [
+        [
+         "Cardigan",
+         4
+        ],
+        [
+         "Pomeranian",
+         3
+        ],
+        [
+         "papillon",
+         3
+        ],
+        [
+         "Pembroke",
+         3
+        ],
+        [
+         "dingo",
+         2
+        ]
+       ],
+       "dogs": 31,
+       "vehicles": 0
+      },
+      {
+       "channel": 262,
+       "share": 0.10829952128176323,
+       "top_classes": [
+        [
+         "Eskimo dog",
+         4
+        ],
+        [
+         "Samoyed",
+         4
+        ],
+        [
+         "toy terrier",
+         2
+        ],
+        [
+         "malamute",
+         2
+        ],
+        [
+         "kelpie",
+         2
+        ]
+       ],
+       "dogs": 39,
+       "vehicles": 0
+      },
+      {
+       "channel": 472,
+       "share": 0.08927614487655337,
+       "top_classes": [
+        [
+         "kuvasz",
+         5
+        ],
+        [
+         "dingo",
+         5
+        ],
+        [
+         "collie",
+         4
+        ],
+        [
+         "white wolf",
+         3
+        ],
+        [
+         "Great Pyrenees",
+         3
+        ]
+       ],
+       "dogs": 36,
+       "vehicles": 0
+      },
+      {
+       "channel": 54,
+       "share": 0.06762539423439236,
+       "top_classes": [
+        [
+         "monarch",
+         5
+        ],
+        [
+         "damselfly",
+         5
+        ],
+        [
+         "parachute",
+         3
+        ],
+        [
+         "black widow",
+         3
+        ],
+        [
+         "mountain bike",
+         2
+        ]
+       ],
+       "dogs": 3,
+       "vehicles": 0
+      },
+      {
+       "channel": 37,
+       "share": 0.06154852691999592,
+       "top_classes": [
+        [
+         "West Highland white terrier",
+         5
+        ],
+        [
+         "hamster",
+         4
+        ],
+        [
+         "Shetland sheepdog",
+         3
+        ],
+        [
+         "ice bear",
+         2
+        ],
+        [
+         "guinea pig",
+         2
+        ]
+       ],
+       "dogs": 20,
+       "vehicles": 0
+      },
+      {
+       "channel": 219,
+       "share": 0.05872141797610413,
+       "top_classes": [
+        [
+         "Saluki",
+         3
+        ],
+        [
+         "kuvasz",
+         3
+        ],
+        [
+         "borzoi",
+         2
+        ],
+        [
+         "Gordon setter",
+         2
+        ],
+        [
+         "Cardigan",
+         2
+        ]
+       ],
+       "dogs": 42,
+       "vehicles": 0
+      },
+      {
+       "channel": 121,
+       "share": 0.05574908438279803,
+       "top_classes": [
+        [
+         "Brittany spaniel",
+         5
+        ],
+        [
+         "black-footed ferret",
+         3
+        ],
+        [
+         "marmoset",
+         3
+        ],
+        [
+         "capuchin",
+         2
+        ],
+        [
+         "collie",
+         2
+        ]
+       ],
+       "dogs": 25,
+       "vehicles": 0
+      }
+     ]
+    },
+    "other": {
+     "n": 3,
+     "mean_z": 535.8817138671875,
+     "share_447": 0.8797842591578068,
+     "ablate_447_mean_drop": 0.7717885355473774,
+     "top_inputs": [
+      {
+       "channel": 447,
+       "share": 0.8797842591578068,
+       "top_classes": [
+        [
+         "ambulance",
+         11
+        ],
+        [
+         "minibus",
+         7
+        ],
+        [
+         "minivan",
+         7
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "limousine",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 49
+      },
+      {
+       "channel": 350,
+       "share": 0.062163426960593036,
+       "top_classes": [
+        [
+         "German shepherd",
+         3
+        ],
+        [
+         "Cardigan",
+         2
+        ],
+        [
+         "Border collie",
+         2
+        ],
+        [
+         "Welsh springer spaniel",
+         2
+        ],
+        [
+         "Great Pyrenees",
+         2
+        ]
+       ],
+       "dogs": 37,
+       "vehicles": 3
+      },
+      {
+       "channel": 405,
+       "share": 0.047308834885023944,
+       "top_classes": [
+        [
+         "fire engine",
+         7
+        ],
+        [
+         "school bus",
+         6
+        ],
+        [
+         "moving van",
+         5
+        ],
+        [
+         "trolleybus",
+         5
+        ],
+        [
+         "ambulance",
+         4
+        ]
+       ],
+       "dogs": 1,
+       "vehicles": 43
+      },
+      {
+       "channel": 338,
+       "share": 0.032829959829489816,
+       "top_classes": [
+        [
+         "stopwatch",
+         8
+        ],
+        [
+         "barometer",
+         5
+        ],
+        [
+         "magnetic compass",
+         4
+        ],
+        [
+         "CD player",
+         2
+        ],
+        [
+         "grille",
+         2
+        ]
+       ],
+       "dogs": 3,
+       "vehicles": 11
+      },
+      {
+       "channel": 420,
+       "share": 0.03211540666644191,
+       "top_classes": [
+        [
+         "fountain pen",
+         7
+        ],
+        [
+         "ballpoint",
+         5
+        ],
+        [
+         "airliner",
+         4
+        ],
+        [
+         "power drill",
+         3
+        ],
+        [
+         "hand blower",
+         2
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 0
+      },
+      {
+       "channel": 173,
+       "share": 0.03210469029248595,
+       "top_classes": [
+        [
+         "minivan",
+         4
+        ],
+        [
+         "pickup",
+         4
+        ],
+        [
+         "minibus",
+         3
+        ],
+        [
+         "sports car",
+         3
+        ],
+        [
+         "beach wagon",
+         3
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 30
+      },
+      {
+       "channel": 429,
+       "share": 0.029160570168090264,
+       "top_classes": [
+        [
+         "Leonberg",
+         7
+        ],
+        [
+         "otterhound",
+         2
+        ],
+        [
+         "standard schnauzer",
+         2
+        ],
+        [
+         "brown bear",
+         2
+        ],
+        [
+         "brassiere",
+         2
+        ]
+       ],
+       "dogs": 27,
+       "vehicles": 2
+      },
+      {
+       "channel": 37,
+       "share": 0.02756503259267831,
+       "top_classes": [
+        [
+         "West Highland white terrier",
+         5
+        ],
+        [
+         "hamster",
+         4
+        ],
+        [
+         "Shetland sheepdog",
+         3
+        ],
+        [
+         "ice bear",
+         2
+        ],
+        [
+         "guinea pig",
+         2
+        ]
+       ],
+       "dogs": 20,
+       "vehicles": 0
+      }
+     ]
+    }
+   }
+  },
+  "mixed4d:241": {
+   "branch": "mixed4d_3x3_pre_relu_conv",
+   "branch_channel": 129,
+   "n_images": 100,
+   "stats_check_max_abs_diff": 1.3118896484375,
+   "bias_part_mean_share": 0.0053003239623864926,
+   "n_vehicles": 46,
+   "n_dogs": 52,
+   "groups": {
+    "vehicles": {
+     "n": 46,
+     "mean_z": 710.1094214397928,
+     "share_447": 0.7561843045104868,
+     "ablate_447_mean_drop": 0.7874329041985836,
+     "top_inputs": [
+      {
+       "channel": 447,
+       "share": 0.7561843045104868,
+       "top_classes": [
+        [
+         "ambulance",
+         11
+        ],
+        [
+         "minibus",
+         7
+        ],
+        [
+         "minivan",
+         7
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "limousine",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 49
+      },
+      {
+       "channel": 401,
+       "share": 0.06865576014625006,
+       "top_classes": [
+        [
+         "jinrikisha",
+         2
+        ],
+        [
+         "Leonberg",
+         2
+        ],
+        [
+         "sturgeon",
+         2
+        ],
+        [
+         "oxcart",
+         1
+        ],
+        [
+         "banjo",
+         1
+        ]
+       ],
+       "dogs": 9,
+       "vehicles": 4
+      },
+      {
+       "channel": 434,
+       "share": 0.06774747864849381,
+       "top_classes": [
+        [
+         "minibus",
+         10
+        ],
+        [
+         "ambulance",
+         10
+        ],
+        [
+         "fire engine",
+         4
+        ],
+        [
+         "police van",
+         4
+        ],
+        [
+         "tow truck",
+         3
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 50
+      },
+      {
+       "channel": 41,
+       "share": 0.052989679495585064,
+       "top_classes": [
+        [
+         "beach wagon",
+         4
+        ],
+        [
+         "pickup",
+         3
+        ],
+        [
+         "Irish terrier",
+         3
+        ],
+        [
+         "Yorkshire terrier",
+         2
+        ],
+        [
+         "black widow",
+         2
+        ]
+       ],
+       "dogs": 20,
+       "vehicles": 18
+      },
+      {
+       "channel": 135,
+       "share": 0.05082723957738241,
+       "top_classes": [
+        [
+         "teapot",
+         3
+        ],
+        [
+         "white stork",
+         3
+        ],
+        [
+         "kelpie",
+         3
+        ],
+        [
+         "Arabian camel",
+         3
+        ],
+        [
+         "pitcher",
+         2
+        ]
+       ],
+       "dogs": 10,
+       "vehicles": 5
+      },
+      {
+       "channel": 143,
+       "share": 0.04304035738690476,
+       "top_classes": [
+        [
+         "ambulance",
+         5
+        ],
+        [
+         "beach wagon",
+         5
+        ],
+        [
+         "police van",
+         4
+        ],
+        [
+         "trolleybus",
+         4
+        ],
+        [
+         "snowplow",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 45
+      },
+      {
+       "channel": 57,
+       "share": 0.03930290560497926,
+       "top_classes": [
+        [
+         "reflex camera",
+         2
+        ],
+        [
+         "racer",
+         2
+        ],
+        [
+         "table lamp",
+         2
+        ],
+        [
+         "cab",
+         2
+        ],
+        [
+         "aircraft carrier",
+         1
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 11
+      },
+      {
+       "channel": 173,
+       "share": 0.039239790472623465,
+       "top_classes": [
+        [
+         "minivan",
+         4
+        ],
+        [
+         "pickup",
+         4
+        ],
+        [
+         "minibus",
+         3
+        ],
+        [
+         "sports car",
+         3
+        ],
+        [
+         "beach wagon",
+         3
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 30
+      }
+     ]
+    },
+    "dogs": {
+     "n": 52,
+     "mean_z": 727.3433368389423,
+     "share_447": -9.652115131851623e-12,
+     "ablate_447_mean_drop": 0.0,
+     "top_inputs": [
+      {
+       "channel": 460,
+       "share": 0.1524062432426081,
+       "top_classes": [
+        [
+         "West Highland white terrier",
+         9
+        ],
+        [
+         "Norwich terrier",
+         5
+        ],
+        [
+         "Norfolk terrier",
+         4
+        ],
+        [
+         "Tibetan terrier",
+         4
+        ],
+        [
+         "standard schnauzer",
+         4
+        ]
+       ],
+       "dogs": 50,
+       "vehicles": 0
+      },
+      {
+       "channel": 112,
+       "share": 0.09950879684215448,
+       "top_classes": [
+        [
+         "academic gown",
+         5
+        ],
+        [
+         "coho",
+         3
+        ],
+        [
+         "poncho",
+         2
+        ],
+        [
+         "groom",
+         2
+        ],
+        [
+         "bulletproof vest",
+         2
+        ]
+       ],
+       "dogs": 3,
+       "vehicles": 0
+      },
+      {
+       "channel": 219,
+       "share": 0.09675660994485921,
+       "top_classes": [
+        [
+         "Saluki",
+         3
+        ],
+        [
+         "kuvasz",
+         3
+        ],
+        [
+         "borzoi",
+         2
+        ],
+        [
+         "Gordon setter",
+         2
+        ],
+        [
+         "Cardigan",
+         2
+        ]
+       ],
+       "dogs": 42,
+       "vehicles": 0
+      },
+      {
+       "channel": 506,
+       "share": 0.09040108954525984,
+       "top_classes": [
+        [
+         "Great Pyrenees",
+         6
+        ],
+        [
+         "kuvasz",
+         4
+        ],
+        [
+         "clumber",
+         3
+        ],
+        [
+         "Old English sheepdog",
+         2
+        ],
+        [
+         "Appenzeller",
+         2
+        ]
+       ],
+       "dogs": 49,
+       "vehicles": 0
+      },
+      {
+       "channel": 451,
+       "share": 0.06221572838396116,
+       "top_classes": [
+        [
+         "horizontal bar",
+         3
+        ],
+        [
+         "candle",
+         3
+        ],
+        [
+         "shower cap",
+         2
+        ],
+        [
+         "swing",
+         2
+        ],
+        [
+         "pajama",
+         2
+        ]
+       ],
+       "dogs": 9,
+       "vehicles": 1
+      },
+      {
+       "channel": 41,
+       "share": 0.058415869207008274,
+       "top_classes": [
+        [
+         "beach wagon",
+         4
+        ],
+        [
+         "pickup",
+         3
+        ],
+        [
+         "Irish terrier",
+         3
+        ],
+        [
+         "Yorkshire terrier",
+         2
+        ],
+        [
+         "black widow",
+         2
+        ]
+       ],
+       "dogs": 20,
+       "vehicles": 18
+      },
+      {
+       "channel": 267,
+       "share": 0.05812291612554816,
+       "top_classes": [
+        [
+         "West Highland white terrier",
+         6
+        ],
+        [
+         "Norwich terrier",
+         5
+        ],
+        [
+         "Norfolk terrier",
+         4
+        ],
+        [
+         "Australian terrier",
+         4
+        ],
+        [
+         "Great Pyrenees",
+         3
+        ]
+       ],
+       "dogs": 47,
+       "vehicles": 0
+      },
+      {
+       "channel": 262,
+       "share": 0.04753423497999708,
+       "top_classes": [
+        [
+         "Eskimo dog",
+         4
+        ],
+        [
+         "Samoyed",
+         4
+        ],
+        [
+         "toy terrier",
+         2
+        ],
+        [
+         "malamute",
+         2
+        ],
+        [
+         "kelpie",
+         2
+        ]
+       ],
+       "dogs": 39,
+       "vehicles": 0
+      }
+     ]
+    },
+    "other": {
+     "n": 2,
+     "mean_z": 721.1017456054688,
+     "share_447": 0.7402104450866479,
+     "ablate_447_mean_drop": 0.7692367323603639,
+     "top_inputs": [
+      {
+       "channel": 447,
+       "share": 0.7402104450866479,
+       "top_classes": [
+        [
+         "ambulance",
+         11
+        ],
+        [
+         "minibus",
+         7
+        ],
+        [
+         "minivan",
+         7
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "limousine",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 49
+      },
+      {
+       "channel": 135,
+       "share": 0.0644906762485959,
+       "top_classes": [
+        [
+         "teapot",
+         3
+        ],
+        [
+         "white stork",
+         3
+        ],
+        [
+         "kelpie",
+         3
+        ],
+        [
+         "Arabian camel",
+         3
+        ],
+        [
+         "pitcher",
+         2
+        ]
+       ],
+       "dogs": 10,
+       "vehicles": 5
+      },
+      {
+       "channel": 434,
+       "share": 0.06396281991642326,
+       "top_classes": [
+        [
+         "minibus",
+         10
+        ],
+        [
+         "ambulance",
+         10
+        ],
+        [
+         "fire engine",
+         4
+        ],
+        [
+         "police van",
+         4
+        ],
+        [
+         "tow truck",
+         3
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 50
+      },
+      {
+       "channel": 401,
+       "share": 0.05728331757308013,
+       "top_classes": [
+        [
+         "jinrikisha",
+         2
+        ],
+        [
+         "Leonberg",
+         2
+        ],
+        [
+         "sturgeon",
+         2
+        ],
+        [
+         "oxcart",
+         1
+        ],
+        [
+         "banjo",
+         1
+        ]
+       ],
+       "dogs": 9,
+       "vehicles": 4
+      },
+      {
+       "channel": 384,
+       "share": 0.04875187703176707,
+       "top_classes": [
+        [
+         "bluetick",
+         4
+        ],
+        [
+         "Rottweiler",
+         4
+        ],
+        [
+         "Appenzeller",
+         3
+        ],
+        [
+         "beagle",
+         3
+        ],
+        [
+         "Weimaraner",
+         2
+        ]
+       ],
+       "dogs": 34,
+       "vehicles": 7
+      },
+      {
+       "channel": 236,
+       "share": 0.04851727583388626,
+       "top_classes": [
+        [
+         "hand blower",
+         2
+        ],
+        [
+         "water tower",
+         2
+        ],
+        [
+         "miniskirt",
+         2
+        ],
+        [
+         "croquet ball",
+         2
+        ],
+        [
+         "suit",
+         2
+        ]
+       ],
+       "dogs": 4,
+       "vehicles": 1
+      },
+      {
+       "channel": 57,
+       "share": 0.04433372133011459,
+       "top_classes": [
+        [
+         "reflex camera",
+         2
+        ],
+        [
+         "racer",
+         2
+        ],
+        [
+         "table lamp",
+         2
+        ],
+        [
+         "cab",
+         2
+        ],
+        [
+         "aircraft carrier",
+         1
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 11
+      },
+      {
+       "channel": 173,
+       "share": 0.04306257216219586,
+       "top_classes": [
+        [
+         "minivan",
+         4
+        ],
+        [
+         "pickup",
+         4
+        ],
+        [
+         "minibus",
+         3
+        ],
+        [
+         "sports car",
+         3
+        ],
+        [
+         "beach wagon",
+         3
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 30
+      }
+     ]
+    }
+   },
+   "vehicle_vs_dog": {
+    "cosine_of_mean_shares": 0.08292189046421308,
+    "cosine_between_random_halves_vehicles": 0.9987222427344368,
+    "cosine_between_random_halves_dogs": 0.9868908186657299,
+    "dog_z_written_by_top10_vehicle_channels": 0.13911604802566427,
+    "vehicle_z_written_by_top10_vehicle_channels": 1.1978443268214967,
+    "vehicle_z_written_by_top10_dog_channels": 0.1409370115997627,
+    "dog_z_written_by_top10_dog_channels": 0.7609337128636532
+   }
+  },
+  "mixed4d:295": {
+   "branch": "mixed4d_3x3_pre_relu_conv",
+   "branch_channel": 183,
+   "n_images": 100,
+   "stats_check_max_abs_diff": 1.815673828125,
+   "bias_part_mean_share": 0.001726798243163291,
+   "n_vehicles": 49,
+   "n_dogs": 49,
+   "groups": {
+    "vehicles": {
+     "n": 49,
+     "mean_z": 541.9125322614398,
+     "share_447": 0.4469981898412922,
+     "ablate_447_mean_drop": 0.47908003969929075,
+     "top_inputs": [
+      {
+       "channel": 447,
+       "share": 0.4469981898412922,
+       "top_classes": [
+        [
+         "ambulance",
+         11
+        ],
+        [
+         "minibus",
+         7
+        ],
+        [
+         "minivan",
+         7
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "limousine",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 49
+      },
+      {
+       "channel": 41,
+       "share": 0.1059487001670864,
+       "top_classes": [
+        [
+         "beach wagon",
+         4
+        ],
+        [
+         "pickup",
+         3
+        ],
+        [
+         "Irish terrier",
+         3
+        ],
+        [
+         "Yorkshire terrier",
+         2
+        ],
+        [
+         "black widow",
+         2
+        ]
+       ],
+       "dogs": 20,
+       "vehicles": 18
+      },
+      {
+       "channel": 434,
+       "share": 0.05651144613740363,
+       "top_classes": [
+        [
+         "minibus",
+         10
+        ],
+        [
+         "ambulance",
+         10
+        ],
+        [
+         "fire engine",
+         4
+        ],
+        [
+         "police van",
+         4
+        ],
+        [
+         "tow truck",
+         3
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 50
+      },
+      {
+       "channel": 66,
+       "share": 0.038472481600508056,
+       "top_classes": [
+        [
+         "West Highland white terrier",
+         7
+        ],
+        [
+         "Lakeland terrier",
+         3
+        ],
+        [
+         "Great Pyrenees",
+         3
+        ],
+        [
+         "Border terrier",
+         2
+        ],
+        [
+         "dingo",
+         2
+        ]
+       ],
+       "dogs": 42,
+       "vehicles": 3
+      },
+      {
+       "channel": 57,
+       "share": 0.03819911790996293,
+       "top_classes": [
+        [
+         "reflex camera",
+         2
+        ],
+        [
+         "racer",
+         2
+        ],
+        [
+         "table lamp",
+         2
+        ],
+        [
+         "cab",
+         2
+        ],
+        [
+         "aircraft carrier",
+         1
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 11
+      },
+      {
+       "channel": 206,
+       "share": 0.03664421647939297,
+       "top_classes": [
+        [
+         "espresso",
+         4
+        ],
+        [
+         "toilet seat",
+         3
+        ],
+        [
+         "oil filter",
+         3
+        ],
+        [
+         "coffee mug",
+         2
+        ],
+        [
+         "loupe",
+         2
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 2
+      },
+      {
+       "channel": 181,
+       "share": 0.03495471336963376,
+       "top_classes": [
+        [
+         "jeep",
+         5
+        ],
+        [
+         "French bulldog",
+         3
+        ],
+        [
+         "Boston bull",
+         3
+        ],
+        [
+         "bull mastiff",
+         3
+        ],
+        [
+         "Brabancon griffon",
+         3
+        ]
+       ],
+       "dogs": 28,
+       "vehicles": 20
+      },
+      {
+       "channel": 135,
+       "share": 0.034240087739590946,
+       "top_classes": [
+        [
+         "teapot",
+         3
+        ],
+        [
+         "white stork",
+         3
+        ],
+        [
+         "kelpie",
+         3
+        ],
+        [
+         "Arabian camel",
+         3
+        ],
+        [
+         "pitcher",
+         2
+        ]
+       ],
+       "dogs": 10,
+       "vehicles": 5
+      }
+     ]
+    },
+    "dogs": {
+     "n": 49,
+     "mean_z": 549.0153908242985,
+     "share_447": -2.2971376195967673e-12,
+     "ablate_447_mean_drop": 0.0,
+     "top_inputs": [
+      {
+       "channel": 460,
+       "share": 0.3685581560868763,
+       "top_classes": [
+        [
+         "West Highland white terrier",
+         9
+        ],
+        [
+         "Norwich terrier",
+         5
+        ],
+        [
+         "Norfolk terrier",
+         4
+        ],
+        [
+         "Tibetan terrier",
+         4
+        ],
+        [
+         "standard schnauzer",
+         4
+        ]
+       ],
+       "dogs": 50,
+       "vehicles": 0
+      },
+      {
+       "channel": 452,
+       "share": 0.14468019460788875,
+       "top_classes": [
+        [
+         "miniature poodle",
+         7
+        ],
+        [
+         "wire-haired fox terrier",
+         6
+        ],
+        [
+         "West Highland white terrier",
+         4
+        ],
+        [
+         "toy poodle",
+         3
+        ],
+        [
+         "Bedlington terrier",
+         3
+        ]
+       ],
+       "dogs": 48,
+       "vehicles": 0
+      },
+      {
+       "channel": 66,
+       "share": 0.13844460804757544,
+       "top_classes": [
+        [
+         "West Highland white terrier",
+         7
+        ],
+        [
+         "Lakeland terrier",
+         3
+        ],
+        [
+         "Great Pyrenees",
+         3
+        ],
+        [
+         "Border terrier",
+         2
+        ],
+        [
+         "dingo",
+         2
+        ]
+       ],
+       "dogs": 42,
+       "vehicles": 3
+      },
+      {
+       "channel": 41,
+       "share": 0.07866689580110951,
+       "top_classes": [
+        [
+         "beach wagon",
+         4
+        ],
+        [
+         "pickup",
+         3
+        ],
+        [
+         "Irish terrier",
+         3
+        ],
+        [
+         "Yorkshire terrier",
+         2
+        ],
+        [
+         "black widow",
+         2
+        ]
+       ],
+       "dogs": 20,
+       "vehicles": 18
+      },
+      {
+       "channel": 65,
+       "share": 0.07012460049389367,
+       "top_classes": [
+        [
+         "Samoyed",
+         10
+        ],
+        [
+         "kuvasz",
+         3
+        ],
+        [
+         "guinea pig",
+         2
+        ],
+        [
+         "standard poodle",
+         2
+        ],
+        [
+         "white wolf",
+         2
+        ]
+       ],
+       "dogs": 37,
+       "vehicles": 0
+      },
+      {
+       "channel": 267,
+       "share": 0.06891966119776798,
+       "top_classes": [
+        [
+         "West Highland white terrier",
+         6
+        ],
+        [
+         "Norwich terrier",
+         5
+        ],
+        [
+         "Norfolk terrier",
+         4
+        ],
+        [
+         "Australian terrier",
+         4
+        ],
+        [
+         "Great Pyrenees",
+         3
+        ]
+       ],
+       "dogs": 47,
+       "vehicles": 0
+      },
+      {
+       "channel": 245,
+       "share": 0.0561921532677351,
+       "top_classes": [
+        [
+         "Bernese mountain dog",
+         6
+        ],
+        [
+         "papillon",
+         6
+        ],
+        [
+         "Appenzeller",
+         4
+        ],
+        [
+         "Border collie",
+         4
+        ],
+        [
+         "Yorkshire terrier",
+         2
+        ]
+       ],
+       "dogs": 45,
+       "vehicles": 0
+      },
+      {
+       "channel": 127,
+       "share": 0.055702588917546064,
+       "top_classes": [
+        [
+         "kuvasz",
+         3
+        ],
+        [
+         "Saluki",
+         2
+        ],
+        [
+         "mountain bike",
+         2
+        ],
+        [
+         "Samoyed",
+         2
+        ],
+        [
+         "vizsla",
+         2
+        ]
+       ],
+       "dogs": 26,
+       "vehicles": 0
+      }
+     ]
+    },
+    "other": {
+     "n": 2,
+     "mean_z": 537.7349090576172,
+     "share_447": 0.4190557474327839,
+     "ablate_447_mean_drop": 0.45467784056108446,
+     "top_inputs": [
+      {
+       "channel": 447,
+       "share": 0.4190557474327839,
+       "top_classes": [
+        [
+         "ambulance",
+         11
+        ],
+        [
+         "minibus",
+         7
+        ],
+        [
+         "minivan",
+         7
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "limousine",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 49
+      },
+      {
+       "channel": 41,
+       "share": 0.1039091511178955,
+       "top_classes": [
+        [
+         "beach wagon",
+         4
+        ],
+        [
+         "pickup",
+         3
+        ],
+        [
+         "Irish terrier",
+         3
+        ],
+        [
+         "Yorkshire terrier",
+         2
+        ],
+        [
+         "black widow",
+         2
+        ]
+       ],
+       "dogs": 20,
+       "vehicles": 18
+      },
+      {
+       "channel": 434,
+       "share": 0.051213948414339606,
+       "top_classes": [
+        [
+         "minibus",
+         10
+        ],
+        [
+         "ambulance",
+         10
+        ],
+        [
+         "fire engine",
+         4
+        ],
+        [
+         "police van",
+         4
+        ],
+        [
+         "tow truck",
+         3
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 50
+      },
+      {
+       "channel": 119,
+       "share": 0.04678134619922054,
+       "top_classes": [
+        [
+         "pickup",
+         3
+        ],
+        [
+         "carpenter's kit",
+         2
+        ],
+        [
+         "Polaroid camera",
+         2
+        ],
+        [
+         "buckle",
+         2
+        ],
+        [
+         "digital watch",
+         2
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 16
+      },
+      {
+       "channel": 106,
+       "share": 0.041870865255790875,
+       "top_classes": [
+        [
+         "school bus",
+         4
+        ],
+        [
+         "grand piano",
+         3
+        ],
+        [
+         "projectile",
+         3
+        ],
+        [
+         "limousine",
+         2
+        ],
+        [
+         "fire engine",
+         2
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 15
+      },
+      {
+       "channel": 57,
+       "share": 0.037638799642291595,
+       "top_classes": [
+        [
+         "reflex camera",
+         2
+        ],
+        [
+         "racer",
+         2
+        ],
+        [
+         "table lamp",
+         2
+        ],
+        [
+         "cab",
+         2
+        ],
+        [
+         "aircraft carrier",
+         1
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 11
+      },
+      {
+       "channel": 118,
+       "share": 0.037578355123060514,
+       "top_classes": [
+        [
+         "hand blower",
+         2
+        ],
+        [
+         "swab",
+         2
+        ],
+        [
+         "cucumber",
+         2
+        ],
+        [
+         "airship",
+         2
+        ],
+        [
+         "projectile",
+         2
+        ]
+       ],
+       "dogs": 2,
+       "vehicles": 1
+      },
+      {
+       "channel": 236,
+       "share": 0.03513684311410617,
+       "top_classes": [
+        [
+         "hand blower",
+         2
+        ],
+        [
+         "water tower",
+         2
+        ],
+        [
+         "miniskirt",
+         2
+        ],
+        [
+         "croquet ball",
+         2
+        ],
+        [
+         "suit",
+         2
+        ]
+       ],
+       "dogs": 4,
+       "vehicles": 1
+      }
+     ]
+    }
+   },
+   "vehicle_vs_dog": {
+    "cosine_of_mean_shares": 0.11607367564409826,
+    "cosine_between_random_halves_vehicles": 0.9968972007413808,
+    "cosine_between_random_halves_dogs": 0.9928636368747614,
+    "dog_z_written_by_top10_vehicle_channels": 0.293010390236764,
+    "vehicle_z_written_by_top10_vehicle_channels": 0.857871968300948,
+    "vehicle_z_written_by_top10_dog_channels": 0.16086698946863182,
+    "dog_z_written_by_top10_dog_channels": 1.0789797398715826
+   }
+  },
+  "mixed4d:417": {
+   "branch": "mixed4d_5x5_pre_relu_conv",
+   "branch_channel": 17,
+   "n_images": 100,
+   "stats_check_max_abs_diff": 0.99041748046875,
+   "bias_part_mean_share": -0.0008713981706807011,
+   "n_vehicles": 98,
+   "n_dogs": 0,
+   "groups": {
+    "vehicles": {
+     "n": 98,
+     "mean_z": 963.3417084363042,
+     "share_447": 0.5392817291344854,
+     "ablate_447_mean_drop": 0.597381411537699,
+     "top_inputs": [
+      {
+       "channel": 447,
+       "share": 0.5392817291344854,
+       "top_classes": [
+        [
+         "ambulance",
+         11
+        ],
+        [
+         "minibus",
+         7
+        ],
+        [
+         "minivan",
+         7
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "limousine",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 49
+      },
+      {
+       "channel": 143,
+       "share": 0.1796749360242282,
+       "top_classes": [
+        [
+         "ambulance",
+         5
+        ],
+        [
+         "beach wagon",
+         5
+        ],
+        [
+         "police van",
+         4
+        ],
+        [
+         "trolleybus",
+         4
+        ],
+        [
+         "snowplow",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 45
+      },
+      {
+       "channel": 398,
+       "share": 0.0888032326227875,
+       "top_classes": [
+        [
+         "ambulance",
+         15
+        ],
+        [
+         "minivan",
+         6
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "minibus",
+         5
+        ],
+        [
+         "fire engine",
+         2
+        ]
+       ],
+       "dogs": 5,
+       "vehicles": 43
+      },
+      {
+       "channel": 159,
+       "share": 0.07465244803870852,
+       "top_classes": [
+        [
+         "kit fox",
+         9
+        ],
+        [
+         "red fox",
+         7
+        ],
+        [
+         "Pomeranian",
+         4
+        ],
+        [
+         "Samoyed",
+         4
+        ],
+        [
+         "Arctic fox",
+         4
+        ]
+       ],
+       "dogs": 15,
+       "vehicles": 0
+      },
+      {
+       "channel": 384,
+       "share": 0.04774890481539083,
+       "top_classes": [
+        [
+         "bluetick",
+         4
+        ],
+        [
+         "Rottweiler",
+         4
+        ],
+        [
+         "Appenzeller",
+         3
+        ],
+        [
+         "beagle",
+         3
+        ],
+        [
+         "Weimaraner",
+         2
+        ]
+       ],
+       "dogs": 34,
+       "vehicles": 7
+      },
+      {
+       "channel": 429,
+       "share": 0.044793955098436485,
+       "top_classes": [
+        [
+         "Leonberg",
+         7
+        ],
+        [
+         "otterhound",
+         2
+        ],
+        [
+         "standard schnauzer",
+         2
+        ],
+        [
+         "brown bear",
+         2
+        ],
+        [
+         "brassiere",
+         2
+        ]
+       ],
+       "dogs": 27,
+       "vehicles": 2
+      },
+      {
+       "channel": 41,
+       "share": 0.04432238399917168,
+       "top_classes": [
+        [
+         "beach wagon",
+         4
+        ],
+        [
+         "pickup",
+         3
+        ],
+        [
+         "Irish terrier",
+         3
+        ],
+        [
+         "Yorkshire terrier",
+         2
+        ],
+        [
+         "black widow",
+         2
+        ]
+       ],
+       "dogs": 20,
+       "vehicles": 18
+      },
+      {
+       "channel": 289,
+       "share": 0.0354278023920346,
+       "top_classes": [
+        [
+         "jeep",
+         5
+        ],
+        [
+         "triumphal arch",
+         5
+        ],
+        [
+         "school bus",
+         4
+        ],
+        [
+         "ambulance",
+         4
+        ],
+        [
+         "fire engine",
+         3
+        ]
+       ],
+       "dogs": 8,
+       "vehicles": 29
+      }
+     ]
+    },
+    "other": {
+     "n": 2,
+     "mean_z": 885.5917358398438,
+     "share_447": 0.31529128933551837,
+     "ablate_447_mean_drop": 0.2993799185985843,
+     "top_inputs": [
+      {
+       "channel": 447,
+       "share": 0.31529128933551837,
+       "top_classes": [
+        [
+         "ambulance",
+         11
+        ],
+        [
+         "minibus",
+         7
+        ],
+        [
+         "minivan",
+         7
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "limousine",
+         4
+        ]
+       ],
+       "dogs": 0,
+       "vehicles": 49
+      },
+      {
+       "channel": 471,
+       "share": 0.2722011594444619,
+       "top_classes": [
+        [
+         "tabby",
+         7
+        ],
+        [
+         "tiger cat",
+         5
+        ],
+        [
+         "hamster",
+         5
+        ],
+        [
+         "weasel",
+         5
+        ],
+        [
+         "polecat",
+         3
+        ]
+       ],
+       "dogs": 4,
+       "vehicles": 0
+      },
+      {
+       "channel": 159,
+       "share": 0.11265251393307918,
+       "top_classes": [
+        [
+         "kit fox",
+         9
+        ],
+        [
+         "red fox",
+         7
+        ],
+        [
+         "Pomeranian",
+         4
+        ],
+        [
+         "Samoyed",
+         4
+        ],
+        [
+         "Arctic fox",
+         4
+        ]
+       ],
+       "dogs": 15,
+       "vehicles": 0
+      },
+      {
+       "channel": 470,
+       "share": 0.06213670874221873,
+       "top_classes": [
+        [
+         "great grey owl",
+         18
+        ],
+        [
+         "tabby",
+         5
+        ],
+        [
+         "Persian cat",
+         5
+        ],
+        [
+         "guenon",
+         3
+        ],
+        [
+         "tiger cat",
+         2
+        ]
+       ],
+       "dogs": 5,
+       "vehicles": 0
+      },
+      {
+       "channel": 398,
+       "share": 0.05405958143496781,
+       "top_classes": [
+        [
+         "ambulance",
+         15
+        ],
+        [
+         "minivan",
+         6
+        ],
+        [
+         "police van",
+         5
+        ],
+        [
+         "minibus",
+         5
+        ],
+        [
+         "fire engine",
+         2
+        ]
+       ],
+       "dogs": 5,
+       "vehicles": 43
+      },
+      {
+       "channel": 41,
+       "share": 0.05387399130985245,
+       "top_classes": [
+        [
+         "beach wagon",
+         4
+        ],
+        [
+         "pickup",
+         3
+        ],
+        [
+         "Irish terrier",
+         3
+        ],
+        [
+         "Yorkshire terrier",
+         2
+        ],
+        [
+         "black widow",
+         2
+        ]
+       ],
+       "dogs": 20,
+       "vehicles": 18
+      },
+      {
+       "channel": 479,
+       "share": 0.052067042680899144,
+       "top_classes": [
+        [
+         "ruddy turnstone",
+         7
+        ],
+        [
+         "papillon",
+         4
+        ],
+        [
+         "tabby",
+         3
+        ],
+        [
+         "Welsh springer spaniel",
+         3
+        ],
+        [
+         "collie",
+         3
+        ]
+       ],
+       "dogs": 23,
+       "vehicles": 0
+      },
+      {
+       "channel": 294,
+       "share": 0.0474890380274075,
+       "top_classes": [
+        [
+         "Border collie",
+         4
+        ],
+        [
+         "Greater Swiss Mountain dog",
+         3
+        ],
+        [
+         "Appenzeller",
+         3
+        ],
+        [
+         "pretzel",
+         2
+        ],
+        [
+         "groenendael",
+         2
+        ]
+       ],
+       "dogs": 31,
+       "vehicles": 4
+      }
+     ]
+    }
+   }
+  }
+ }
+}

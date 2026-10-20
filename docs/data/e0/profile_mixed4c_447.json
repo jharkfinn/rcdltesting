@@ -1,0 +1,376 @@
+{
+ "unit": "mixed4c:447",
+ "classes_by_mean_max": [
+  [
+   "ambulance",
+   1675.9
+  ],
+  [
+   "minibus",
+   1561.7
+  ],
+  [
+   "minivan",
+   1380.9
+  ],
+  [
+   "trolleybus",
+   1341.2
+  ],
+  [
+   "police van",
+   1321.4
+  ],
+  [
+   "beach wagon",
+   1178.8
+  ],
+  [
+   "pickup",
+   1119.0
+  ],
+  [
+   "recreational vehicle",
+   1105.1
+  ],
+  [
+   "limousine",
+   1079.9
+  ],
+  [
+   "moving van",
+   1056.3
+  ],
+  [
+   "fire engine",
+   1054.8
+  ],
+  [
+   "convertible",
+   1032.7
+  ],
+  [
+   "garbage truck",
+   1025.2
+  ],
+  [
+   "sports car",
+   1019.8
+  ],
+  [
+   "tow truck",
+   980.8
+  ],
+  [
+   "jeep",
+   925.5
+  ],
+  [
+   "school bus",
+   909.5
+  ],
+  [
+   "cab",
+   879.0
+  ],
+  [
+   "golfcart",
+   732.8
+  ],
+  [
+   "forklift",
+   717.9
+  ],
+  [
+   "streetcar",
+   702.7
+  ],
+  [
+   "electric locomotive",
+   694.0
+  ],
+  [
+   "snowplow",
+   627.4
+  ],
+  [
+   "racer",
+   615.7
+  ],
+  [
+   "trailer truck",
+   579.6
+  ]
+ ],
+ "classes_by_mean_min": [
+  [
+   "Pomeranian",
+   -818.0
+  ],
+  [
+   "papillon",
+   -800.3
+  ],
+  [
+   "Border collie",
+   -778.7
+  ],
+  [
+   "collie",
+   -772.5
+  ],
+  [
+   "Norwich terrier",
+   -764.6
+  ],
+  [
+   "chow",
+   -755.4
+  ],
+  [
+   "golden retriever",
+   -753.3
+  ],
+  [
+   "beagle",
+   -752.3
+  ],
+  [
+   "Great Pyrenees",
+   -749.6
+  ],
+  [
+   "Pekinese",
+   -740.8
+  ],
+  [
+   "Samoyed",
+   -740.7
+  ],
+  [
+   "West Highland white terrier",
+   -739.3
+  ],
+  [
+   "keeshond",
+   -734.9
+  ],
+  [
+   "Chihuahua",
+   -734.0
+  ],
+  [
+   "Pembroke",
+   -730.2
+  ],
+  [
+   "Japanese spaniel",
+   -729.9
+  ],
+  [
+   "Eskimo dog",
+   -728.5
+  ],
+  [
+   "Norfolk terrier",
+   -727.0
+  ],
+  [
+   "Shih-Tzu",
+   -725.2
+  ],
+  [
+   "cocker spaniel",
+   -722.6
+  ],
+  [
+   "Bernese mountain dog",
+   -721.1
+  ],
+  [
+   "Dandie Dinmont",
+   -721.0
+  ],
+  [
+   "great grey owl",
+   -721.0
+  ],
+  [
+   "Brabancon griffon",
+   -721.0
+  ],
+  [
+   "Australian terrier",
+   -717.6
+  ]
+ ],
+ "vehicle_class_ranks_by_mean_max": [
+  [
+   0,
+   "ambulance",
+   1675.9
+  ],
+  [
+   1,
+   "minibus",
+   1561.7
+  ],
+  [
+   2,
+   "minivan",
+   1380.9
+  ],
+  [
+   3,
+   "trolleybus",
+   1341.2
+  ],
+  [
+   4,
+   "police van",
+   1321.4
+  ],
+  [
+   5,
+   "beach wagon",
+   1178.8
+  ],
+  [
+   6,
+   "pickup",
+   1119.0
+  ],
+  [
+   7,
+   "recreational vehicle",
+   1105.1
+  ],
+  [
+   8,
+   "limousine",
+   1079.9
+  ],
+  [
+   9,
+   "moving van",
+   1056.3
+  ],
+  [
+   10,
+   "fire engine",
+   1054.8
+  ],
+  [
+   11,
+   "convertible",
+   1032.7
+  ],
+  [
+   12,
+   "garbage truck",
+   1025.2
+  ],
+  [
+   13,
+   "sports car",
+   1019.8
+  ],
+  [
+   14,
+   "tow truck",
+   980.8
+  ],
+  [
+   15,
+   "jeep",
+   925.5
+  ],
+  [
+   16,
+   "school bus",
+   909.5
+  ],
+  [
+   17,
+   "cab",
+   879.0
+  ],
+  [
+   18,
+   "golfcart",
+   732.8
+  ],
+  [
+   19,
+   "forklift",
+   717.9
+  ],
+  [
+   20,
+   "streetcar",
+   702.7
+  ],
+  [
+   22,
+   "snowplow",
+   627.4
+  ],
+  [
+   23,
+   "racer",
+   615.7
+  ],
+  [
+   24,
+   "trailer truck",
+   579.6
+  ],
+  [
+   25,
+   "Model T",
+   570.5
+  ],
+  [
+   27,
+   "half track",
+   510.6
+  ],
+  [
+   28,
+   "car wheel",
+   508.6
+  ],
+  [
+   29,
+   "tractor",
+   481.0
+  ],
+  [
+   31,
+   "amphibian",
+   438.7
+  ],
+  [
+   32,
+   "grille",
+   421.8
+  ],
+  [
+   36,
+   "go-kart",
+   354.5
+  ],
+  [
+   40,
+   "tank",
+   315.7
+  ]
+ ],
+ "first_vehicle_image_rank_by_max": 0,
+ "all_images_max_percentiles": {
+  "50": 41.8,
+  "90": 206.1,
+  "99": 1142.0,
+  "99.9": 2047.0
+ }
+}

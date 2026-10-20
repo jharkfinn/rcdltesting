@@ -1,0 +1,143 @@
+{
+ "_comment": "Cos-Bochner (random Fourier features of the RBF kernel; the article's finite-width form of the growing RBF layer) on CIFAR-10, L = 2, width 3,072, batch 64, augmentation, 50 epochs. cos_frozen_*: frozen Omega ~ N(0, 1/(T sqrt(d))), b ~ U[0, 2 pi), only the readout A trained by plain SGD at rate eta * B = 640, which is the growing RBF layer's write rule in feature space (tests/test_cos_bochner.py); T = 10, eta = 10 as the growing RBF run. Width D scanned 3,072 .. 196,608 (the growing table holds 2.5M rows). cos_trained_*: Omega, b and A trained with Muon or Adam (the article's parametric Cos-Bochner FFN).",
+ "defaults": {
+  "eval_every": 3905,
+  "eval_subset": 2000,
+  "eval_batch_size": 250
+ },
+ "experiments": {
+  "cos_frozen_L2_D3072_50ep": {
+   "paper_acc": "growing RBF L2 50ep: 66.83 (2 seeds)",
+   "cfg": {
+    "kernel_type": "cos",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "eta": 10.0,
+    "cos_width": 3072,
+    "optimizer": "sgd",
+    "learning_rate": 640.0
+   },
+   "run": {
+    "train_eval_subset": 2000
+   }
+  },
+  "cos_frozen_L2_D12288_50ep": {
+   "paper_acc": "growing RBF L2 50ep: 66.83 (2 seeds)",
+   "cfg": {
+    "kernel_type": "cos",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "eta": 10.0,
+    "cos_width": 12288,
+    "optimizer": "sgd",
+    "learning_rate": 640.0
+   },
+   "run": {
+    "train_eval_subset": 2000
+   }
+  },
+  "cos_frozen_L2_D49152_50ep": {
+   "paper_acc": "growing RBF L2 50ep: 66.83 (2 seeds)",
+   "cfg": {
+    "kernel_type": "cos",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "eta": 10.0,
+    "cos_width": 49152,
+    "optimizer": "sgd",
+    "learning_rate": 640.0
+   },
+   "run": {
+    "train_eval_subset": 2000
+   }
+  },
+  "cos_frozen_L2_D196608_50ep": {
+   "paper_acc": "growing RBF L2 50ep: 66.83 (2 seeds)",
+   "cfg": {
+    "kernel_type": "cos",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "eta": 10.0,
+    "cos_width": 196608,
+    "optimizer": "sgd",
+    "learning_rate": 640.0
+   },
+   "run": {
+    "train_eval_subset": 2000
+   }
+  },
+  "cos_trained_L2_D3072_muon_lr0.001_50ep": {
+   "cfg": {
+    "kernel_type": "cos",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "eta": 10.0,
+    "cos_width": 3072,
+    "cos_train_features": true,
+    "optimizer": "muon",
+    "learning_rate": 0.001
+   },
+   "run": {
+    "train_eval_subset": 2000
+   }
+  },
+  "cos_trained_L2_D12288_muon_lr0.001_50ep": {
+   "cfg": {
+    "kernel_type": "cos",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "eta": 10.0,
+    "cos_width": 12288,
+    "cos_train_features": true,
+    "optimizer": "muon",
+    "learning_rate": 0.001
+   },
+   "run": {
+    "train_eval_subset": 2000
+   }
+  },
+  "cos_trained_L2_D12288_adam_lr0.0003_50ep": {
+   "cfg": {
+    "kernel_type": "cos",
+    "hidden_dim": 3072,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "eta": 10.0,
+    "cos_width": 12288,
+    "cos_train_features": true,
+    "optimizer": "adam",
+    "learning_rate": 0.0003
+   },
+   "run": {
+    "train_eval_subset": 2000
+   }
+  }
+ }
+}

@@ -1,0 +1,390 @@
+{
+ "_comment": "Multi-epoch CIFAR-10 (augmentation, batch 64). Growing layers use eta=0.003, beta=10 (best beta/eta ratio of sweep_L0_5ep; only the ratio matters). gws_L0_*_50ep: paper Fig. 4 left (L=0 curve) and Fig. 4 right (linearize_eval). gws_L*_10ep: depth at 10 epochs, since L>=1 at 50 epochs needs >150 GB. mlp_*_50ep: parametric baselines of Fig. 2 left (L=2, GELU; the paper grid is L in [2,4], lr in [1e-4 .. 1e-2], batch [16, 64]). psm: Fig. 5 at reduced scale (N = 250k rows instead of 2.56M, 50 instead of 2000 epochs). eval batch 64 keeps the logit matrix small. AdamW and RMSprop at 50 epochs (third round; paper grid: lr [1e-4 .. 1e-2], AdamW weight decay [1e-4, 0.01], momentum 0).",
+ "defaults": {
+  "eval_every": 3905,
+  "eval_subset": 2000,
+  "eval_batch_size": 64
+ },
+ "experiments": {
+  "gws_L0_T3_50ep": {
+   "paper_acc": "~59 (Fig. 4 left, L=0)",
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 0,
+    "temperature": 3.0,
+    "db_size": 2499264,
+    "num_epochs": 50
+   }
+  },
+  "gws_L0_T10_50ep": {
+   "paper_acc": "~64 (Fig. 4 left, L=0)",
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 0,
+    "temperature": 10.0,
+    "db_size": 2499264,
+    "num_epochs": 50
+   }
+  },
+  "gws_L0_T30_50ep": {
+   "paper_acc": "~61 (Fig. 4 left, L=0)",
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 0,
+    "temperature": 30.0,
+    "db_size": 2499264,
+    "num_epochs": 50
+   }
+  },
+  "gws_L0_T10_10ep": {
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 0,
+    "temperature": 10.0,
+    "db_size": 499904,
+    "num_epochs": 10
+   }
+  },
+  "gws_L1_T10_10ep": {
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 1,
+    "temperature": 10.0,
+    "db_size": 499904,
+    "num_epochs": 10
+   }
+  },
+  "gws_L2_T10_10ep": {
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 2,
+    "temperature": 10.0,
+    "db_size": 499904,
+    "num_epochs": 10
+   }
+  },
+  "mlp_adam_lr0.0001_50ep": {
+   "paper_acc": "~65 (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "adam",
+    "learning_rate": 0.0001
+   }
+  },
+  "mlp_adam_lr0.0003_50ep": {
+   "paper_acc": "~65 (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "adam",
+    "learning_rate": 0.0003
+   }
+  },
+  "mlp_muon_lr0.001_50ep": {
+   "paper_acc": "~69.5 (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "muon",
+    "learning_rate": 0.001
+   }
+  },
+  "mlp_muon_lr0.003_50ep": {
+   "paper_acc": "~69.5 (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "muon",
+    "learning_rate": 0.003
+   }
+  },
+  "mlp_sgd_lr0.01_50ep": {
+   "paper_acc": "~61 (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "sgd",
+    "learning_rate": 0.01
+   }
+  },
+  "mlp_mesa_lr0.0003_50ep": {
+   "paper_acc": "~67.8 (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "mesa",
+    "learning_rate": 0.0003
+   }
+  },
+  "mlp_L0_muon_10ep": {
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 10,
+    "optimizer": "muon",
+    "learning_rate": 0.001
+   }
+  },
+  "mlp_L0_adam_10ep": {
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 0,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 10,
+    "optimizer": "adam",
+    "learning_rate": 0.0003
+   }
+  },
+  "mlp_L2_muon_10ep": {
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 10,
+    "optimizer": "muon",
+    "learning_rate": 0.001
+   }
+  },
+  "mlp_L2_adam_10ep": {
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 10,
+    "optimizer": "adam",
+    "learning_rate": 0.0003
+   }
+  },
+  "psm_L0_N250k_T1_50ep": {
+   "paper_acc": "train ~0.89, test peaks ~0.55 then falls to ~0.49 (Fig. 5; paper: N=2.56M, 2000 epochs)",
+   "run": {
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "parametric_softmax",
+    "hidden_dim": 3072,
+    "num_layers": 0,
+    "temperature": 1.0,
+    "db_size": 250000,
+    "full_epoch_capacity": 250000,
+    "optimizer": "adam",
+    "learning_rate": 0.001,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50
+   }
+  },
+  "gws_L0_T3_10ep": {
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 0,
+    "temperature": 3.0,
+    "db_size": 499904,
+    "num_epochs": 10
+   }
+  },
+  "gws_L0_T30_10ep": {
+   "run": {
+    "linearize_eval": true,
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "gws",
+    "hidden_dim": 3072,
+    "eta": 0.003,
+    "beta": 10.0,
+    "batch_size": 64,
+    "augment": true,
+    "num_layers": 0,
+    "temperature": 30.0,
+    "db_size": 499904,
+    "num_epochs": 10
+   }
+  },
+  "psm_L0_N250k_T1_50ep_unweighted": {
+   "paper_acc": "train ~0.89, test peaks ~0.55 then falls to ~0.49 (Fig. 5; paper: N=2.56M, 2000 epochs); unweighted softmax as in paper App. E.4 (learned weights diverged in a CPU test)",
+   "run": {
+    "train_eval_subset": 2000
+   },
+   "cfg": {
+    "kernel_type": "parametric_softmax",
+    "hidden_dim": 3072,
+    "num_layers": 0,
+    "temperature": 1.0,
+    "db_size": 250000,
+    "full_epoch_capacity": 250000,
+    "optimizer": "adam",
+    "learning_rate": 0.001,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "learn_parametric_weights": false
+   }
+  },
+  "mlp_adamw_lr0.0003_wd0.01_50ep": {
+   "paper_acc": "below GWS (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "adamw",
+    "learning_rate": 0.0003,
+    "weight_decay": 0.01
+   }
+  },
+  "mlp_adamw_lr0.0001_wd0.01_50ep": {
+   "paper_acc": "below GWS (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "adamw",
+    "learning_rate": 0.0001,
+    "weight_decay": 0.01
+   }
+  },
+  "mlp_rmsprop_lr0.0001_50ep": {
+   "paper_acc": "below GWS (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "rmsprop",
+    "learning_rate": 0.0001
+   }
+  },
+  "mlp_rmsprop_lr0.0003_50ep": {
+   "paper_acc": "below GWS (Fig. 2 left)",
+   "cfg": {
+    "kernel_type": "standard",
+    "hidden_dim": 3072,
+    "nonlinearity": "gelu",
+    "num_layers": 2,
+    "batch_size": 64,
+    "augment": true,
+    "num_epochs": 50,
+    "optimizer": "rmsprop",
+    "learning_rate": 0.0003
+   }
+  }
+ }
+}

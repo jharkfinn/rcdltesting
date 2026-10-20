@@ -1,0 +1,18 @@
+{
+  "_comment": "Diagnostic ablations of the best single-pass GWS config (T=6, beta=3, eta=0.003, L=2, B=16). Questions: (1) eta0: does the learned denominator matter, or is GWS an unnormalized exp-kernel machine with a fixed D_0 normalizer? (2) noclip: effect of the undocumented clip of <s,g>/B to [-1,1]. (3) eta_hi: larger weight learning rate. (4) rbf_T6: RBF at the same temperature as GWS; on the sphere RBF == exp(-sqrt(d)/T) * exp(<q,k>/(T sqrt d)), so this isolates normalization. (5) L0/L1: depth.",
+  "defaults": {"eval_every": 625, "eval_subset": 2000, "eval_batch_size": 500},
+  "experiments": {
+    "gws_eta0": {"cfg": {"kernel_type": "gws", "num_layers": 2, "temperature": 6.0, "beta": 3.0, "eta": 0.0,
+                         "db_size": 50016, "batch_size": 16}},
+    "gws_noclip": {"cfg": {"kernel_type": "gws", "num_layers": 2, "temperature": 6.0, "beta": 3.0, "eta": 0.003,
+                           "delta_clip": null, "db_size": 50016, "batch_size": 16}},
+    "gws_eta0p1": {"cfg": {"kernel_type": "gws", "num_layers": 2, "temperature": 6.0, "beta": 3.0, "eta": 0.1,
+                           "db_size": 50016, "batch_size": 16}},
+    "rbf_T6": {"cfg": {"kernel_type": "rbf", "num_layers": 2, "temperature": 6.0, "eta": 10.0, "db_size": 50000,
+                       "batch_size": 16}},
+    "gws_L0": {"cfg": {"kernel_type": "gws", "num_layers": 0, "temperature": 6.0, "beta": 3.0, "eta": 0.003,
+                       "db_size": 50016, "batch_size": 16}},
+    "gws_L1": {"cfg": {"kernel_type": "gws", "num_layers": 1, "temperature": 6.0, "beta": 3.0, "eta": 0.003,
+                       "db_size": 50016, "batch_size": 16}}
+  }
+}

@@ -1,0 +1,5961 @@
+{
+ "summary": {
+  "seed": 29,
+  "cross_set_related_pairs": 70,
+  "n_selected": 128,
+  "strata_sizes": {
+   "dense": 412,
+   "iso": 136
+  },
+  "cells": {
+   "A/dense/0": 4,
+   "A/dense/10": 14,
+   "A/dense/100": 14,
+   "A/iso/0": 4,
+   "A/iso/10": 14,
+   "A/iso/100": 14,
+   "B/dense/0": 4,
+   "B/dense/10": 14,
+   "B/dense/100": 14,
+   "B/iso/0": 4,
+   "B/iso/10": 14,
+   "B/iso/100": 14
+  },
+  "median_nW": {
+   "dense": 14.0,
+   "iso": 2.0
+  },
+  "median_cos10": {
+   "dense": 0.5155000000000001,
+   "iso": 0.6565000000000001
+  },
+  "max_rand_decoy_reuse": 1,
+  "n_noise": 8
+ },
+ "classes": [
+  {
+   "cls": 584,
+   "name": "hair_slide.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 8,
+   "cos10": 0.559,
+   "near10": [
+    772,
+    451,
+    679,
+    885,
+    464,
+    723,
+    455,
+    623,
+    600,
+    902
+   ],
+   "near10_names": [
+    "safety_pin.n.01",
+    "bolo_tie.n.01",
+    "necklace.n.01",
+    "velvet.n.01",
+    "buckle.n.01",
+    "pinwheel.n.02",
+    "bottlecap.n.01",
+    "letter_opener.n.01",
+    "hook.n.04",
+    "whistle.n.04"
+   ],
+   "rel_decoy": [
+    772,
+    451
+   ],
+   "rand_decoy": [
+    895,
+    143,
+    671,
+    715
+   ]
+  },
+  {
+   "cls": 454,
+   "name": "bookshop.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 8,
+   "cos10": 0.567,
+   "near10": [
+    624,
+    860,
+    453,
+    424,
+    509,
+    917,
+    498,
+    799,
+    762,
+    886
+   ],
+   "near10_names": [
+    "library.n.05",
+    "tobacco_shop.n.01",
+    "bookcase.n.01",
+    "barbershop.n.01",
+    "confectionery.n.02",
+    "comic_book.n.01",
+    "cinema.n.02",
+    "sliding_door.n.01",
+    "restaurant.n.01",
+    "vending_machine.n.01"
+   ],
+   "rel_decoy": [
+    624,
+    860
+   ],
+   "rand_decoy": [
+    274,
+    784,
+    783,
+    609
+   ]
+  },
+  {
+   "cls": 329,
+   "name": "sea_cucumber.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 8,
+   "cos10": 0.589,
+   "near10": [
+    115,
+    110,
+    327,
+    114,
+    390,
+    116,
+    328,
+    26,
+    108,
+    973
+   ],
+   "near10_names": [
+    "sea_slug.n.01",
+    "flatworm.n.01",
+    "starfish.n.01",
+    "slug.n.07",
+    "eel.n.02",
+    "chiton.n.02",
+    "sea_urchin.n.01",
+    "common_newt.n.01",
+    "sea_anemone.n.01",
+    "coral_reef.n.01"
+   ],
+   "rel_decoy": [
+    115,
+    110
+   ],
+   "rand_decoy": [
+    901,
+    441,
+    381,
+    604
+   ]
+  },
+  {
+   "cls": 236,
+   "name": "doberman.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 0,
+   "nW": 9,
+   "cos10": 0.38,
+   "near10": [
+    165,
+    234,
+    237,
+    214,
+    241,
+    238,
+    158,
+    164,
+    240,
+    168
+   ],
+   "near10_names": [
+    "black-and-tan_coonhound.n.01",
+    "rottweiler.n.01",
+    "miniature_pinscher.n.01",
+    "gordon_setter.n.01",
+    "entlebucher.n.01",
+    "greater_swiss_mountain_dog.n.01",
+    "toy_terrier.n.01",
+    "bluetick.n.01",
+    "appenzeller.n.01",
+    "redbone.n.01"
+   ],
+   "rel_decoy": [
+    165,
+    234
+   ],
+   "rand_decoy": [
+    959,
+    598,
+    464,
+    335
+   ]
+  },
+  {
+   "cls": 707,
+   "name": "pay-phone.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 9,
+   "cos10": 0.457,
+   "near10": [
+    571,
+    637,
+    480,
+    704,
+    886,
+    412,
+    844,
+    800,
+    771,
+    528
+   ],
+   "near10_names": [
+    "gas_pump.n.01",
+    "mailbox.n.01",
+    "cash_machine.n.01",
+    "parking_meter.n.01",
+    "vending_machine.n.01",
+    "ashcan.n.01",
+    "switch.n.01",
+    "slot.n.07",
+    "safe.n.01",
+    "dial_telephone.n.01"
+   ],
+   "rel_decoy": [
+    571,
+    637
+   ],
+   "rand_decoy": [
+    63,
+    880,
+    188,
+    955
+   ]
+  },
+  {
+   "cls": 416,
+   "name": "balance_beam.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 9,
+   "cos10": 0.516,
+   "near10": [
+    702,
+    602,
+    639,
+    638,
+    445,
+    430,
+    433,
+    842,
+    722,
+    459
+   ],
+   "near10_names": [
+    "parallel_bars.n.01",
+    "horizontal_bar.n.01",
+    "maillot.n.01",
+    "maillot.n.02",
+    "bikini.n.02",
+    "basketball.n.02",
+    "bathing_cap.n.01",
+    "swimming_trunks.n.01",
+    "ping-pong_ball.n.01",
+    "brassiere.n.01"
+   ],
+   "rel_decoy": [
+    702,
+    602
+   ],
+   "rand_decoy": [
+    518,
+    449,
+    590,
+    683
+   ]
+  },
+  {
+   "cls": 502,
+   "name": "clog.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 9,
+   "cos10": 0.527,
+   "near10": [
+    774,
+    630,
+    788,
+    770,
+    514,
+    806,
+    885,
+    464,
+    615,
+    496
+   ],
+   "near10_names": [
+    "sandal.n.01",
+    "loafer.n.02",
+    "shoe_shop.n.01",
+    "running_shoe.n.01",
+    "cowboy_boot.n.01",
+    "sock.n.01",
+    "velvet.n.01",
+    "buckle.n.01",
+    "knee_pad.n.01",
+    "christmas_stocking.n.01"
+   ],
+   "rel_decoy": [
+    774,
+    630
+   ],
+   "rand_decoy": [
+    167,
+    96,
+    874,
+    480
+   ]
+  },
+  {
+   "cls": 127,
+   "name": "white_stork.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 9,
+   "cos10": 0.536,
+   "near10": [
+    128,
+    129,
+    134,
+    144,
+    132,
+    143,
+    130,
+    135,
+    138,
+    23
+   ],
+   "near10_names": [
+    "black_stork.n.01",
+    "spoonbill.n.01",
+    "crane.n.05",
+    "pelican.n.01",
+    "american_egret.n.01",
+    "oystercatcher.n.01",
+    "flamingo.n.01",
+    "limpkin.n.01",
+    "bustard.n.01",
+    "vulture.n.01"
+   ],
+   "rel_decoy": [
+    128,
+    129
+   ],
+   "rand_decoy": [
+    230,
+    897,
+    631,
+    789
+   ]
+  },
+  {
+   "cls": 44,
+   "name": "alligator_lizard.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 10,
+   "cos10": 0.486,
+   "near10": [
+    41,
+    42,
+    46,
+    40,
+    26,
+    38,
+    27,
+    52,
+    49,
+    47
+   ],
+   "near10_names": [
+    "whiptail.n.01",
+    "agama.n.01",
+    "green_lizard.n.01",
+    "american_chameleon.n.01",
+    "common_newt.n.01",
+    "banded_gecko.n.01",
+    "eft.n.01",
+    "thunder_snake.n.01",
+    "african_crocodile.n.01",
+    "african_chameleon.n.01"
+   ],
+   "rel_decoy": [
+    41,
+    42
+   ],
+   "rand_decoy": [
+    594,
+    710,
+    185,
+    733
+   ]
+  },
+  {
+   "cls": 56,
+   "name": "king_snake.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 10,
+   "cos10": 0.515,
+   "near10": [
+    54,
+    60,
+    65,
+    61,
+    58,
+    62,
+    53,
+    63,
+    67,
+    45
+   ],
+   "near10_names": [
+    "hognose_snake.n.01",
+    "night_snake.n.01",
+    "sea_snake.n.01",
+    "boa_constrictor.n.01",
+    "water_snake.n.01",
+    "rock_python.n.01",
+    "ringneck_snake.n.01",
+    "indian_cobra.n.01",
+    "diamondback.n.01",
+    "gila_monster.n.01"
+   ],
+   "rel_decoy": [
+    54,
+    60
+   ],
+   "rand_decoy": [
+    740,
+    621,
+    773,
+    540
+   ]
+  },
+  {
+   "cls": 78,
+   "name": "tick.n.02",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 10,
+   "cos10": 0.556,
+   "near10": [
+    77,
+    75,
+    76,
+    71,
+    74,
+    119,
+    310,
+    314,
+    70,
+    304
+   ],
+   "near10_names": [
+    "wolf_spider.n.01",
+    "black_widow.n.01",
+    "tarantula.n.02",
+    "scorpion.n.03",
+    "garden_spider.n.01",
+    "rock_crab.n.01",
+    "ant.n.01",
+    "cockroach.n.01",
+    "harvestman.n.01",
+    "leaf_beetle.n.01"
+   ],
+   "rel_decoy": [
+    77,
+    75
+   ],
+   "rand_decoy": [
+    390,
+    515,
+    485,
+    231
+   ]
+  },
+  {
+   "cls": 852,
+   "name": "tennis_ball.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 10,
+   "cos10": 0.584,
+   "near10": [
+    429,
+    574,
+    522,
+    768,
+    752,
+    805,
+    430,
+    722,
+    181,
+    736
+   ],
+   "near10_names": [
+    "baseball.n.02",
+    "golf_ball.n.01",
+    "croquet_ball.n.01",
+    "rugby_ball.n.01",
+    "racket.n.04",
+    "soccer_ball.n.01",
+    "basketball.n.02",
+    "ping-pong_ball.n.01",
+    "bedlington_terrier.n.01",
+    "pool_table.n.01"
+   ],
+   "rel_decoy": [
+    429,
+    574
+   ],
+   "rand_decoy": [
+    527,
+    62,
+    934,
+    50
+   ]
+  },
+  {
+   "cls": 558,
+   "name": "flute.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 11,
+   "cos10": 0.396,
+   "near10": [
+    683,
+    432,
+    776,
+    513,
+    875,
+    642,
+    699,
+    593,
+    542,
+    566
+   ],
+   "near10_names": [
+    "oboe.n.01",
+    "bassoon.n.01",
+    "sax.n.02",
+    "cornet.n.01",
+    "trombone.n.01",
+    "marimba.n.01",
+    "panpipe.n.01",
+    "harmonica.n.01",
+    "drumstick.n.02",
+    "french_horn.n.01"
+   ],
+   "rel_decoy": [
+    683,
+    432
+   ],
+   "rand_decoy": [
+    888,
+    251,
+    309,
+    711
+   ]
+  },
+  {
+   "cls": 856,
+   "name": "thresher.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 0,
+   "nW": 12,
+   "cos10": 0.499,
+   "near10": [
+    595,
+    866,
+    730,
+    803,
+    471,
+    428,
+    561,
+    820,
+    586,
+    621
+   ],
+   "near10_names": [
+    "harvester.n.02",
+    "tractor.n.01",
+    "plow.n.01",
+    "snowplow.n.01",
+    "cannon.n.02",
+    "barrow.n.03",
+    "forklift.n.01",
+    "steam_locomotive.n.01",
+    "half_track.n.01",
+    "lawn_mower.n.01"
+   ],
+   "rel_decoy": [
+    595,
+    866
+   ],
+   "rand_decoy": [
+    319,
+    268,
+    28,
+    656
+   ]
+  },
+  {
+   "cls": 376,
+   "name": "proboscis_monkey.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 12,
+   "cos10": 0.502,
+   "near10": [
+    371,
+    373,
+    374,
+    381,
+    372,
+    378,
+    368,
+    380,
+    367,
+    375
+   ],
+   "near10_names": [
+    "patas.n.01",
+    "macaque.n.01",
+    "langur.n.01",
+    "spider_monkey.n.01",
+    "baboon.n.01",
+    "capuchin.n.02",
+    "gibbon.n.02",
+    "titi.n.03",
+    "chimpanzee.n.01",
+    "colobus.n.01"
+   ],
+   "rel_decoy": [
+    371,
+    373
+   ],
+   "rand_decoy": [
+    960,
+    827,
+    186,
+    71
+   ]
+  },
+  {
+   "cls": 745,
+   "name": "projector.n.02",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 13,
+   "cos10": 0.466,
+   "near10": [
+    732,
+    662,
+    485,
+    848,
+    482,
+    754,
+    632,
+    859,
+    759,
+    811
+   ],
+   "near10_names": [
+    "polaroid_camera.n.01",
+    "modem.n.01",
+    "cd_player.n.01",
+    "tape_player.n.01",
+    "cassette_player.n.01",
+    "radio.n.03",
+    "loudspeaker.n.01",
+    "toaster.n.02",
+    "reflex_camera.n.01",
+    "space_heater.n.01"
+   ],
+   "rel_decoy": [
+    732,
+    662
+   ],
+   "rand_decoy": [
+    913,
+    344,
+    264,
+    739
+   ]
+  },
+  {
+   "cls": 206,
+   "name": "curly-coated_retriever.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 14,
+   "cos10": 0.453,
+   "near10": [
+    221,
+    205,
+    267,
+    209,
+    256,
+    266,
+    183,
+    233,
+    181,
+    224
+   ],
+   "near10_names": [
+    "irish_water_spaniel.n.01",
+    "flat-coated_retriever.n.01",
+    "standard_poodle.n.01",
+    "chesapeake_bay_retriever.n.01",
+    "newfoundland.n.01",
+    "miniature_poodle.n.01",
+    "kerry_blue_terrier.n.01",
+    "bouvier_des_flandres.n.01",
+    "bedlington_terrier.n.01",
+    "groenendael.n.01"
+   ],
+   "rel_decoy": [
+    221,
+    205
+   ],
+   "rand_decoy": [
+    652,
+    447,
+    643,
+    719
+   ]
+  },
+  {
+   "cls": 431,
+   "name": "bassinet.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 14,
+   "cos10": 0.481,
+   "near10": [
+    516,
+    520,
+    529,
+    434,
+    443,
+    797,
+    669,
+    790,
+    435,
+    697
+   ],
+   "near10_names": [
+    "cradle.n.01",
+    "crib.n.01",
+    "diaper.n.01",
+    "bath_towel.n.01",
+    "bib.n.01",
+    "sleeping_bag.n.01",
+    "mosquito_net.n.01",
+    "shopping_basket.n.01",
+    "bathtub.n.01",
+    "pajama.n.02"
+   ],
+   "rel_decoy": [
+    516,
+    520
+   ],
+   "rand_decoy": [
+    792,
+    53,
+    947,
+    234
+   ]
+  },
+  {
+   "cls": 360,
+   "name": "otter.n.02",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 15,
+   "cos10": 0.541,
+   "near10": [
+    337,
+    150,
+    357,
+    356,
+    103,
+    358,
+    336,
+    359,
+    294,
+    334
+   ],
+   "near10_names": [
+    "beaver.n.07",
+    "sea_lion.n.01",
+    "mink.n.03",
+    "weasel.n.02",
+    "platypus.n.01",
+    "polecat.n.02",
+    "marmot.n.01",
+    "black-footed_ferret.n.01",
+    "brown_bear.n.01",
+    "porcupine.n.01"
+   ],
+   "rel_decoy": [
+    337,
+    150
+   ],
+   "rand_decoy": [
+    221,
+    141,
+    365,
+    655
+   ]
+  },
+  {
+   "cls": 705,
+   "name": "passenger_car.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 17,
+   "cos10": 0.524,
+   "near10": [
+    547,
+    829,
+    466,
+    779,
+    565,
+    555,
+    874,
+    757,
+    820,
+    717
+   ],
+   "near10_names": [
+    "electric_locomotive.n.01",
+    "streetcar.n.01",
+    "bullet_train.n.01",
+    "school_bus.n.01",
+    "freight_car.n.01",
+    "fire_engine.n.01",
+    "trolleybus.n.01",
+    "recreational_vehicle.n.01",
+    "steam_locomotive.n.01",
+    "pickup.n.01"
+   ],
+   "rel_decoy": [
+    547,
+    829
+   ],
+   "rand_decoy": [
+    758,
+    596,
+    722,
+    557
+   ]
+  },
+  {
+   "cls": 279,
+   "name": "arctic_fox.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 18,
+   "cos10": 0.462,
+   "near10": [
+    270,
+    258,
+    269,
+    278,
+    222,
+    277,
+    257,
+    296,
+    272,
+    280
+   ],
+   "near10_names": [
+    "white_wolf.n.01",
+    "samoyed.n.03",
+    "timber_wolf.n.01",
+    "kit_fox.n.01",
+    "kuvasz.n.01",
+    "red_fox.n.03",
+    "great_pyrenees.n.01",
+    "ice_bear.n.01",
+    "coyote.n.01",
+    "grey_fox.n.01"
+   ],
+   "rel_decoy": [
+    270,
+    258
+   ],
+   "rand_decoy": [
+    440,
+    774,
+    676,
+    864
+   ]
+  },
+  {
+   "cls": 474,
+   "name": "cardigan.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 18,
+   "cos10": 0.53,
+   "near10": [
+    735,
+    824,
+    841,
+    533,
+    658,
+    568,
+    452,
+    697,
+    869,
+    834
+   ],
+   "near10_names": [
+    "poncho.n.01",
+    "stole.n.01",
+    "sweatshirt.n.01",
+    "dishrag.n.01",
+    "mitten.n.01",
+    "fur_coat.n.01",
+    "bonnet.n.01",
+    "pajama.n.02",
+    "trench_coat.n.01",
+    "suit.n.01"
+   ],
+   "rel_decoy": [
+    735,
+    824
+   ],
+   "rand_decoy": [
+    54,
+    766,
+    754,
+    430
+   ]
+  },
+  {
+   "cls": 171,
+   "name": "italian_greyhound.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 19,
+   "cos10": 0.388,
+   "near10": [
+    172,
+    268,
+    173,
+    253,
+    180,
+    158,
+    176,
+    246,
+    178,
+    179
+   ],
+   "near10_names": [
+    "whippet.n.01",
+    "mexican_hairless.n.01",
+    "ibizan_hound.n.01",
+    "basenji.n.01",
+    "american_staffordshire_terrier.n.01",
+    "toy_terrier.n.01",
+    "saluki.n.01",
+    "great_dane.n.01",
+    "weimaraner.n.01",
+    "staffordshire_bullterrier.n.01"
+   ],
+   "rel_decoy": [
+    172,
+    268
+   ],
+   "rand_decoy": [
+    939,
+    522,
+    367,
+    682
+   ]
+  },
+  {
+   "cls": 316,
+   "name": "cicada.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 0,
+   "nW": 20,
+   "cos10": 0.569,
+   "near10": [
+    318,
+    317,
+    308,
+    311,
+    312,
+    314,
+    319,
+    315,
+    320,
+    310
+   ],
+   "near10_names": [
+    "lacewing.n.01",
+    "leafhopper.n.01",
+    "fly.n.01",
+    "grasshopper.n.01",
+    "cricket.n.01",
+    "cockroach.n.01",
+    "dragonfly.n.01",
+    "mantis.n.01",
+    "damselfly.n.01",
+    "ant.n.01"
+   ],
+   "rel_decoy": [
+    318,
+    317
+   ],
+   "rand_decoy": [
+    610,
+    941,
+    795,
+    398
+   ]
+  },
+  {
+   "cls": 896,
+   "name": "washbasin.n.02",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 21,
+   "cos10": 0.584,
+   "near10": [
+    876,
+    435,
+    804,
+    648,
+    999,
+    794,
+    731,
+    700,
+    666,
+    534
+   ],
+   "near10_names": [
+    "tub.n.02",
+    "bathtub.n.01",
+    "soap_dispenser.n.01",
+    "medicine_chest.n.01",
+    "toilet_tissue.n.01",
+    "shower_curtain.n.01",
+    "plunger.n.03",
+    "paper_towel.n.01",
+    "mortar.n.03",
+    "dishwasher.n.01"
+   ],
+   "rel_decoy": [
+    876,
+    435
+   ],
+   "rand_decoy": [
+    577,
+    310,
+    768,
+    270
+   ]
+  },
+  {
+   "cls": 787,
+   "name": "shield.n.02",
+   "set": "A",
+   "stratum": "dense",
+   "level": 0,
+   "nW": 21,
+   "cos10": 0.596,
+   "near10": [
+    524,
+    461,
+    577,
+    777,
+    887,
+    868,
+    456,
+    835,
+    451,
+    640
+   ],
+   "near10_names": [
+    "cuirass.n.01",
+    "breastplate.n.01",
+    "gong.n.01",
+    "scabbard.n.01",
+    "vestment.n.01",
+    "tray.n.01",
+    "bow.n.04",
+    "sundial.n.01",
+    "bolo_tie.n.01",
+    "manhole_cover.n.01"
+   ],
+   "rel_decoy": [
+    524,
+    461
+   ],
+   "rand_decoy": [
+    68,
+    287,
+    286,
+    550
+   ]
+  },
+  {
+   "cls": 152,
+   "name": "japanese_spaniel.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 31,
+   "cos10": 0.49,
+   "near10": [
+    157,
+    154,
+    156,
+    155,
+    232,
+    204,
+    195,
+    283,
+    252,
+    262
+   ],
+   "near10_names": [
+    "papillon.n.01",
+    "pekinese.n.01",
+    "blenheim_spaniel.n.01",
+    "shih-tzu.n.01",
+    "border_collie.n.01",
+    "lhasa.n.02",
+    "boston_bull.n.01",
+    "persian_cat.n.01",
+    "affenpinscher.n.01",
+    "brabancon_griffon.n.01"
+   ],
+   "rel_decoy": [
+    157,
+    154
+   ],
+   "rand_decoy": [
+    115,
+    983,
+    42,
+    855
+   ]
+  },
+  {
+   "cls": 508,
+   "name": "computer_keyboard.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 32,
+   "cos10": 0.553,
+   "near10": [
+    810,
+    681,
+    673,
+    620,
+    527,
+    878,
+    761,
+    526,
+    664,
+    590
+   ],
+   "near10_names": [
+    "space_bar.n.01",
+    "notebook.n.02",
+    "mouse.n.04",
+    "laptop.n.01",
+    "desktop_computer.n.01",
+    "typewriter_keyboard.n.01",
+    "remote_control.n.01",
+    "desk.n.01",
+    "monitor.n.05",
+    "hand-held_computer.n.01"
+   ],
+   "rel_decoy": [
+    810,
+    681
+   ],
+   "rand_decoy": [
+    405,
+    415,
+    9,
+    907
+   ]
+  },
+  {
+   "cls": 229,
+   "name": "old_english_sheepdog.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 33,
+   "cos10": 0.487,
+   "near10": [
+    200,
+    228,
+    226,
+    194,
+    175,
+    204,
+    233,
+    170,
+    181,
+    202
+   ],
+   "near10_names": [
+    "tibetan_terrier.n.01",
+    "komondor.n.01",
+    "briard.n.01",
+    "dandie_dinmont.n.01",
+    "otterhound.n.01",
+    "lhasa.n.02",
+    "bouvier_des_flandres.n.01",
+    "irish_wolfhound.n.01",
+    "bedlington_terrier.n.01",
+    "soft-coated_wheaten_terrier.n.01"
+   ],
+   "rel_decoy": [
+    200,
+    228
+   ],
+   "rand_decoy": [
+    664,
+    706,
+    486,
+    912
+   ]
+  },
+  {
+   "cls": 573,
+   "name": "go-kart.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 33,
+   "cos10": 0.555,
+   "near10": [
+    751,
+    621,
+    817,
+    802,
+    472,
+    575,
+    561,
+    870,
+    543,
+    479
+   ],
+   "near10_names": [
+    "racer.n.02",
+    "lawn_mower.n.01",
+    "sports_car.n.01",
+    "snowmobile.n.01",
+    "canoe.n.01",
+    "golfcart.n.01",
+    "forklift.n.01",
+    "tricycle.n.01",
+    "dumbbell.n.01",
+    "car_wheel.n.01"
+   ],
+   "rel_decoy": [
+    751,
+    621
+   ],
+   "rand_decoy": [
+    509,
+    328,
+    504,
+    964
+   ]
+  },
+  {
+   "cls": 692,
+   "name": "packet.n.03",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 39,
+   "cos10": 0.555,
+   "near10": [
+    549,
+    921,
+    917,
+    838,
+    728,
+    478,
+    509,
+    893,
+    922,
+    631
+   ],
+   "near10_names": [
+    "envelope.n.01",
+    "book_jacket.n.01",
+    "comic_book.n.01",
+    "sunscreen.n.01",
+    "plastic_bag.n.01",
+    "carton.n.02",
+    "confectionery.n.02",
+    "wallet.n.01",
+    "menu.n.02",
+    "lotion.n.01"
+   ],
+   "rel_decoy": [
+    549,
+    921
+   ],
+   "rand_decoy": [
+    298,
+    80,
+    269,
+    228
+   ]
+  },
+  {
+   "cls": 203,
+   "name": "west_highland_white_terrier.n.01",
+   "set": "A",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 45,
+   "cos10": 0.469,
+   "near10": [
+    153,
+    192,
+    186,
+    199,
+    194,
+    190,
+    187,
+    185,
+    189,
+    193
+   ],
+   "near10_names": [
+    "maltese_dog.n.01",
+    "cairn.n.02",
+    "norwich_terrier.n.01",
+    "scotch_terrier.n.01",
+    "dandie_dinmont.n.01",
+    "sealyham_terrier.n.01",
+    "yorkshire_terrier.n.01",
+    "norfolk_terrier.n.01",
+    "lakeland_terrier.n.01",
+    "australian_terrier.n.01"
+   ],
+   "rel_decoy": [
+    153,
+    192
+   ],
+   "rand_decoy": [
+    463,
+    806,
+    477,
+    556
+   ]
+  },
+  {
+   "cls": 961,
+   "name": "dough.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 0,
+   "cos10": 0.577,
+   "near10": [
+    964,
+    931,
+    932,
+    935,
+    415,
+    567,
+    960,
+    544,
+    928,
+    499
+   ],
+   "near10_names": [
+    "potpie.n.01",
+    "bagel.n.01",
+    "pretzel.n.01",
+    "mashed_potato.n.01",
+    "bakery.n.01",
+    "frying_pan.n.01",
+    "chocolate_sauce.n.01",
+    "dutch_oven.n.01",
+    "ice_cream.n.01",
+    "cleaver.n.01"
+   ],
+   "rel_decoy": [
+    964,
+    931
+   ],
+   "rand_decoy": [
+    240,
+    781,
+    379,
+    170
+   ]
+  },
+  {
+   "cls": 148,
+   "name": "killer_whale.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 0,
+   "cos10": 0.624,
+   "near10": [
+    147,
+    150,
+    2,
+    4,
+    149,
+    3,
+    433,
+    833,
+    693,
+    472
+   ],
+   "near10_names": [
+    "grey_whale.n.01",
+    "sea_lion.n.01",
+    "great_white_shark.n.01",
+    "hammerhead.n.03",
+    "dugong.n.01",
+    "tiger_shark.n.01",
+    "bathing_cap.n.01",
+    "submarine.n.01",
+    "paddle.n.04",
+    "canoe.n.01"
+   ],
+   "rel_decoy": [
+    147,
+    150
+   ],
+   "rand_decoy": [
+    677,
+    199,
+    225,
+    252
+   ]
+  },
+  {
+   "cls": 605,
+   "name": "ipod.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 0,
+   "cos10": 0.626,
+   "near10": [
+    487,
+    590,
+    761,
+    662,
+    673,
+    613,
+    681,
+    709,
+    632,
+    481
+   ],
+   "near10_names": [
+    "cellular_telephone.n.01",
+    "hand-held_computer.n.01",
+    "remote_control.n.01",
+    "modem.n.01",
+    "mouse.n.04",
+    "joystick.n.02",
+    "notebook.n.02",
+    "pencil_box.n.01",
+    "loudspeaker.n.01",
+    "cassette.n.01"
+   ],
+   "rel_decoy": [
+    487,
+    590
+   ],
+   "rand_decoy": [
+    461,
+    132,
+    980,
+    831
+   ]
+  },
+  {
+   "cls": 966,
+   "name": "red_wine.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 0,
+   "cos10": 0.644,
+   "near10": [
+    572,
+    907,
+    441,
+    969,
+    762,
+    967,
+    438,
+    968,
+    946,
+    711
+   ],
+   "near10_names": [
+    "goblet.n.01",
+    "wine_bottle.n.01",
+    "beer_glass.n.01",
+    "eggnog.n.01",
+    "restaurant.n.01",
+    "espresso.n.01",
+    "beaker.n.01",
+    "cup.n.06",
+    "cardoon.n.02",
+    "perfume.n.02"
+   ],
+   "rel_decoy": [
+    572,
+    907
+   ],
+   "rand_decoy": [
+    832,
+    120,
+    506,
+    409
+   ]
+  },
+  {
+   "cls": 920,
+   "name": "traffic_light.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 0,
+   "cos10": 0.663,
+   "near10": [
+    733,
+    498,
+    557,
+    818,
+    632,
+    867,
+    704,
+    447,
+    468,
+    781
+   ],
+   "near10_names": [
+    "pole.n.01",
+    "cinema.n.02",
+    "flagpole.n.02",
+    "spotlight.n.02",
+    "loudspeaker.n.01",
+    "trailer_truck.n.01",
+    "parking_meter.n.01",
+    "binoculars.n.01",
+    "cab.n.03",
+    "scoreboard.n.01"
+   ],
+   "rel_decoy": [
+    733,
+    498
+   ],
+   "rand_decoy": [
+    247,
+    884,
+    593,
+    928
+   ]
+  },
+  {
+   "cls": 746,
+   "name": "puck.n.02",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 0,
+   "cos10": 0.675,
+   "near10": [
+    795,
+    752,
+    537,
+    802,
+    430,
+    792,
+    560,
+    722,
+    981,
+    768
+   ],
+   "near10_names": [
+    "ski.n.01",
+    "racket.n.04",
+    "dogsled.n.01",
+    "snowmobile.n.01",
+    "basketball.n.02",
+    "shovel.n.01",
+    "football_helmet.n.01",
+    "ping-pong_ball.n.01",
+    "ballplayer.n.01",
+    "rugby_ball.n.01"
+   ],
+   "rel_decoy": [
+    795,
+    752
+   ],
+   "rand_decoy": [
+    198,
+    26,
+    355,
+    878
+   ]
+  },
+  {
+   "cls": 419,
+   "name": "band_aid.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 0,
+   "cos10": 0.678,
+   "near10": [
+    678,
+    838,
+    793,
+    999,
+    806,
+    529,
+    615,
+    845,
+    700,
+    929
+   ],
+   "near10_names": [
+    "neck_brace.n.01",
+    "sunscreen.n.01",
+    "shower_cap.n.01",
+    "toilet_tissue.n.01",
+    "sock.n.01",
+    "diaper.n.01",
+    "knee_pad.n.01",
+    "syringe.n.01",
+    "paper_towel.n.01",
+    "ice_lolly.n.01"
+   ],
+   "rel_decoy": [
+    678,
+    838
+   ],
+   "rand_decoy": [
+    163,
+    119,
+    401,
+    36
+   ]
+  },
+  {
+   "cls": 743,
+   "name": "prison.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 0,
+   "cos10": 0.682,
+   "near10": [
+    489,
+    799,
+    789,
+    904,
+    421,
+    556,
+    580,
+    753,
+    545,
+    583
+   ],
+   "near10_names": [
+    "chainlink_fence.n.01",
+    "sliding_door.n.01",
+    "shoji.n.01",
+    "window_screen.n.01",
+    "bannister.n.02",
+    "fire_screen.n.01",
+    "greenhouse.n.01",
+    "radiator.n.03",
+    "electric_fan.n.01",
+    "guillotine.n.02"
+   ],
+   "rel_decoy": [
+    489,
+    799
+   ],
+   "rand_decoy": [
+    924,
+    987,
+    243,
+    307
+   ]
+  },
+  {
+   "cls": 755,
+   "name": "radio_telescope.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 0,
+   "cos10": 0.706,
+   "near10": [
+    807,
+    900,
+    517,
+    540,
+    727,
+    812,
+    657,
+    403,
+    417,
+    577
+   ],
+   "near10_names": [
+    "solar_dish.n.01",
+    "water_tower.n.01",
+    "crane.n.04",
+    "drilling_platform.n.01",
+    "planetarium.n.01",
+    "space_shuttle.n.01",
+    "missile.n.01",
+    "aircraft_carrier.n.01",
+    "balloon.n.01",
+    "gong.n.01"
+   ],
+   "rel_decoy": [
+    807,
+    900
+   ],
+   "rand_decoy": [
+    445,
+    397,
+    312,
+    224
+   ]
+  },
+  {
+   "cls": 971,
+   "name": "bubble.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 0,
+   "cos10": 0.73,
+   "near10": [
+    712,
+    837,
+    862,
+    562,
+    633,
+    929,
+    723,
+    107,
+    898,
+    818
+   ],
+   "near10_names": [
+    "petri_dish.n.01",
+    "sunglasses.n.01",
+    "torch.n.01",
+    "fountain.n.01",
+    "loupe.n.01",
+    "ice_lolly.n.01",
+    "pinwheel.n.02",
+    "jellyfish.n.02",
+    "water_bottle.n.01",
+    "spotlight.n.02"
+   ],
+   "rel_decoy": [
+    712,
+    837
+   ],
+   "rand_decoy": [
+    217,
+    635,
+    999,
+    125
+   ]
+  },
+  {
+   "cls": 109,
+   "name": "brain_coral.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 1,
+   "cos10": 0.578,
+   "near10": [
+    973,
+    983,
+    390,
+    397,
+    328,
+    110,
+    115,
+    393,
+    392,
+    108
+   ],
+   "near10_names": [
+    "coral_reef.n.01",
+    "scuba_diver.n.01",
+    "eel.n.02",
+    "puffer.n.02",
+    "sea_urchin.n.01",
+    "flatworm.n.01",
+    "sea_slug.n.01",
+    "anemone_fish.n.01",
+    "rock_beauty.n.01",
+    "sea_anemone.n.01"
+   ],
+   "rel_decoy": [
+    973,
+    983
+   ],
+   "rand_decoy": [
+    949,
+    421,
+    771,
+    894
+   ]
+  },
+  {
+   "cls": 729,
+   "name": "plate_rack.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 1,
+   "cos10": 0.593,
+   "near10": [
+    495,
+    534,
+    648,
+    659,
+    760,
+    868,
+    453,
+    968,
+    894,
+    532
+   ],
+   "near10_names": [
+    "china_cabinet.n.01",
+    "dishwasher.n.01",
+    "medicine_chest.n.01",
+    "mixing_bowl.n.01",
+    "refrigerator.n.01",
+    "tray.n.01",
+    "bookcase.n.01",
+    "cup.n.06",
+    "wardrobe.n.01",
+    "dining_table.n.01"
+   ],
+   "rel_decoy": [
+    495,
+    534
+   ],
+   "rand_decoy": [
+    133,
+    173,
+    696,
+    58
+   ]
+  },
+  {
+   "cls": 650,
+   "name": "microphone.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 0,
+   "nW": 1,
+   "cos10": 0.608,
+   "near10": [
+    819,
+    818,
+    546,
+    589,
+    632,
+    593,
+    740,
+    402,
+    872,
+    855
+   ],
+   "near10_names": [
+    "stage.n.03",
+    "spotlight.n.02",
+    "electric_guitar.n.01",
+    "hand_blower.n.01",
+    "loudspeaker.n.01",
+    "harmonica.n.01",
+    "power_drill.n.01",
+    "acoustic_guitar.n.01",
+    "tripod.n.01",
+    "thimble.n.02"
+   ],
+   "rel_decoy": [
+    819,
+    818
+   ],
+   "rand_decoy": [
+    49,
+    383,
+    180,
+    694
+   ]
+  },
+  {
+   "cls": 933,
+   "name": "cheeseburger.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 1,
+   "cos10": 0.641,
+   "near10": [
+    934,
+    931,
+    498,
+    415,
+    962,
+    965,
+    932,
+    924,
+    963,
+    964
+   ],
+   "near10_names": [
+    "hotdog.n.02",
+    "bagel.n.01",
+    "cinema.n.02",
+    "bakery.n.01",
+    "meat_loaf.n.01",
+    "burrito.n.01",
+    "pretzel.n.01",
+    "guacamole.n.01",
+    "pizza.n.01",
+    "potpie.n.01"
+   ],
+   "rel_decoy": [
+    934,
+    931
+   ],
+   "rand_decoy": [
+    87,
+    637,
+    337,
+    805
+   ]
+  },
+  {
+   "cls": 400,
+   "name": "academic_gown.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 0,
+   "nW": 1,
+   "cos10": 0.657,
+   "near10": [
+    667,
+    501,
+    399,
+    887,
+    457,
+    906,
+    945,
+    439,
+    614,
+    617
+   ],
+   "near10_names": [
+    "mortarboard.n.02",
+    "cloak.n.01",
+    "abaya.n.01",
+    "vestment.n.01",
+    "bow_tie.n.01",
+    "windsor_tie.n.01",
+    "bell_pepper.n.02",
+    "bearskin.n.02",
+    "kimono.n.01",
+    "lab_coat.n.01"
+   ],
+   "rel_decoy": [
+    667,
+    501
+   ],
+   "rand_decoy": [
+    730,
+    142,
+    46,
+    174
+   ]
+  },
+  {
+   "cls": 98,
+   "name": "red-breasted_merganser.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 1,
+   "cos10": 0.666,
+   "near10": [
+    99,
+    100,
+    137,
+    143,
+    144,
+    20,
+    146,
+    141,
+    128,
+    103
+   ],
+   "near10_names": [
+    "goose.n.01",
+    "black_swan.n.01",
+    "american_coot.n.01",
+    "oystercatcher.n.01",
+    "pelican.n.01",
+    "water_ouzel.n.01",
+    "albatross.n.02",
+    "redshank.n.01",
+    "black_stork.n.01",
+    "platypus.n.01"
+   ],
+   "rel_decoy": [
+    99,
+    100
+   ],
+   "rand_decoy": [
+    202,
+    749,
+    205,
+    858
+   ]
+  },
+  {
+   "cls": 389,
+   "name": "barracouta.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 1,
+   "cos10": 0.671,
+   "near10": [
+    391,
+    395,
+    394,
+    758,
+    841,
+    1,
+    397,
+    390,
+    4,
+    41
+   ],
+   "near10_names": [
+    "coho.n.02",
+    "gar.n.01",
+    "sturgeon.n.01",
+    "reel.n.03",
+    "sweatshirt.n.01",
+    "goldfish.n.01",
+    "puffer.n.02",
+    "eel.n.02",
+    "hammerhead.n.03",
+    "whiptail.n.01"
+   ],
+   "rel_decoy": [
+    391,
+    395
+   ],
+   "rand_decoy": [
+    646,
+    105,
+    886,
+    348
+   ]
+  },
+  {
+   "cls": 364,
+   "name": "three-toed_sloth.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 1,
+   "cos10": 0.682,
+   "near10": [
+    384,
+    368,
+    381,
+    379,
+    334,
+    369,
+    377,
+    365,
+    294,
+    380
+   ],
+   "near10_names": [
+    "indri.n.01",
+    "gibbon.n.02",
+    "spider_monkey.n.01",
+    "howler_monkey.n.01",
+    "porcupine.n.01",
+    "siamang.n.01",
+    "marmoset.n.01",
+    "orangutan.n.01",
+    "brown_bear.n.01",
+    "titi.n.03"
+   ],
+   "rel_decoy": [
+    384,
+    368
+   ],
+   "rand_decoy": [
+    302,
+    823,
+    570,
+    724
+   ]
+  },
+  {
+   "cls": 139,
+   "name": "ruddy_turnstone.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 1,
+   "cos10": 0.692,
+   "near10": [
+    140,
+    141,
+    143,
+    142,
+    86,
+    81,
+    20,
+    13,
+    10,
+    128
+   ],
+   "near10_names": [
+    "red-backed_sandpiper.n.01",
+    "redshank.n.01",
+    "oystercatcher.n.01",
+    "dowitcher.n.01",
+    "partridge.n.03",
+    "ptarmigan.n.01",
+    "water_ouzel.n.01",
+    "junco.n.01",
+    "brambling.n.01",
+    "black_stork.n.01"
+   ],
+   "rel_decoy": [
+    140,
+    141
+   ],
+   "rand_decoy": [
+    471,
+    552,
+    779,
+    373
+   ]
+  },
+  {
+   "cls": 340,
+   "name": "zebra.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 1,
+   "cos10": 0.728,
+   "near10": [
+    292,
+    290,
+    396,
+    83,
+    288,
+    343,
+    293,
+    351,
+    353,
+    117
+   ],
+   "near10_names": [
+    "tiger.n.02",
+    "jaguar.n.01",
+    "lionfish.n.01",
+    "prairie_chicken.n.01",
+    "leopard.n.02",
+    "warthog.n.01",
+    "cheetah.n.01",
+    "hartebeest.n.01",
+    "gazelle.n.01",
+    "chambered_nautilus.n.01"
+   ],
+   "rel_decoy": [
+    292,
+    290
+   ],
+   "rand_decoy": [
+    561,
+    846,
+    129,
+    611
+   ]
+  },
+  {
+   "cls": 331,
+   "name": "hare.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 2,
+   "cos10": 0.589,
+   "near10": [
+    335,
+    104,
+    332,
+    333,
+    336,
+    338,
+    352,
+    353,
+    272,
+    287
+   ],
+   "near10_names": [
+    "fox_squirrel.n.01",
+    "wallaby.n.01",
+    "angora.n.03",
+    "hamster.n.01",
+    "marmot.n.01",
+    "guinea_pig.n.02",
+    "impala.n.01",
+    "gazelle.n.01",
+    "coyote.n.01",
+    "lynx.n.02"
+   ],
+   "rel_decoy": [
+    335,
+    104
+   ],
+   "rand_decoy": [
+    31,
+    641,
+    212,
+    866
+   ]
+  },
+  {
+   "cls": 607,
+   "name": "jack-o'-lantern.n.02",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 2,
+   "cos10": 0.701,
+   "near10": [
+    941,
+    427,
+    940,
+    942,
+    939,
+    470,
+    945,
+    719,
+    619,
+    417
+   ],
+   "near10_names": [
+    "acorn_squash.n.02",
+    "barrel.n.02",
+    "spaghetti_squash.n.02",
+    "butternut_squash.n.02",
+    "zucchini.n.02",
+    "candle.n.01",
+    "bell_pepper.n.02",
+    "piggy_bank.n.01",
+    "lampshade.n.01",
+    "balloon.n.01"
+   ],
+   "rel_decoy": [
+    941,
+    427
+   ],
+   "rand_decoy": [
+    984,
+    546,
+    583,
+    158
+   ]
+  },
+  {
+   "cls": 84,
+   "name": "peacock.n.02",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 2,
+   "cos10": 0.71,
+   "near10": [
+    136,
+    749,
+    80,
+    9,
+    138,
+    14,
+    7,
+    88,
+    90,
+    320
+   ],
+   "near10_names": [
+    "european_gallinule.n.01",
+    "quill.n.01",
+    "black_grouse.n.01",
+    "ostrich.n.02",
+    "bustard.n.01",
+    "indigo_bunting.n.01",
+    "cock.n.05",
+    "macaw.n.01",
+    "lorikeet.n.01",
+    "damselfly.n.01"
+   ],
+   "rel_decoy": [
+    136,
+    749
+   ],
+   "rand_decoy": [
+    3,
+    820,
+    658,
+    599
+   ]
+  },
+  {
+   "cls": 970,
+   "name": "alp.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 3,
+   "cos10": 0.675,
+   "near10": [
+    980,
+    979,
+    795,
+    672,
+    972,
+    975,
+    802,
+    350,
+    671,
+    825
+   ],
+   "near10_names": [
+    "volcano.n.02",
+    "valley.n.01",
+    "ski.n.01",
+    "mountain_tent.n.01",
+    "cliff.n.01",
+    "lakeside.n.01",
+    "snowmobile.n.01",
+    "ibex.n.01",
+    "mountain_bike.n.01",
+    "stone_wall.n.01"
+   ],
+   "rel_decoy": [
+    980,
+    979
+   ],
+   "rand_decoy": [
+    899,
+    725,
+    155,
+    455
+   ]
+  },
+  {
+   "cls": 539,
+   "name": "doormat.n.02",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 3,
+   "cos10": 0.704,
+   "near10": [
+    741,
+    885,
+    591,
+    640,
+    806,
+    496,
+    533,
+    658,
+    434,
+    478
+   ],
+   "near10_names": [
+    "prayer_rug.n.01",
+    "velvet.n.01",
+    "handkerchief.n.01",
+    "manhole_cover.n.01",
+    "sock.n.01",
+    "christmas_stocking.n.01",
+    "dishrag.n.01",
+    "mitten.n.01",
+    "bath_towel.n.01",
+    "carton.n.02"
+   ],
+   "rel_decoy": [
+    741,
+    885
+   ],
+   "rand_decoy": [
+    21,
+    326,
+    642,
+    975
+   ]
+  },
+  {
+   "cls": 483,
+   "name": "castle.n.02",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 3,
+   "cos10": 0.804,
+   "near10": [
+    698,
+    525,
+    913,
+    437,
+    500,
+    888,
+    668,
+    540,
+    497,
+    442
+   ],
+   "near10_names": [
+    "palace.n.04",
+    "dam.n.01",
+    "wreck.n.04",
+    "beacon.n.03",
+    "cliff_dwelling.n.01",
+    "viaduct.n.01",
+    "mosque.n.01",
+    "drilling_platform.n.01",
+    "church.n.02",
+    "bell_cote.n.01"
+   ],
+   "rel_decoy": [
+    698,
+    525
+   ],
+   "rand_decoy": [
+    775,
+    356,
+    563,
+    804
+   ]
+  },
+  {
+   "cls": 523,
+   "name": "crutch.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 4,
+   "cos10": 0.601,
+   "near10": [
+    792,
+    840,
+    559,
+    731,
+    428,
+    621,
+    843,
+    795,
+    784,
+    542
+   ],
+   "near10_names": [
+    "shovel.n.01",
+    "swab.n.02",
+    "folding_chair.n.01",
+    "plunger.n.03",
+    "barrow.n.03",
+    "lawn_mower.n.01",
+    "swing.n.02",
+    "ski.n.01",
+    "screwdriver.n.01",
+    "drumstick.n.02"
+   ],
+   "rel_decoy": [
+    792,
+    840
+   ],
+   "rand_decoy": [
+    972,
+    613,
+    280,
+    819
+   ]
+  },
+  {
+   "cls": 34,
+   "name": "leatherback_turtle.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 0,
+   "nW": 4,
+   "cos10": 0.614,
+   "near10": [
+    33,
+    35,
+    36,
+    37,
+    977,
+    978,
+    327,
+    147,
+    50,
+    125
+   ],
+   "near10_names": [
+    "loggerhead.n.02",
+    "mud_turtle.n.01",
+    "terrapin.n.01",
+    "box_turtle.n.01",
+    "sandbar.n.01",
+    "seashore.n.01",
+    "starfish.n.01",
+    "grey_whale.n.01",
+    "american_alligator.n.01",
+    "hermit_crab.n.01"
+   ],
+   "rel_decoy": [
+    33,
+    35
+   ],
+   "rand_decoy": [
+    153,
+    322,
+    887,
+    19
+   ]
+  },
+  {
+   "cls": 815,
+   "name": "spider_web.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 4,
+   "cos10": 0.633,
+   "near10": [
+    74,
+    72,
+    75,
+    77,
+    904,
+    599,
+    958,
+    326,
+    70,
+    76
+   ],
+   "near10_names": [
+    "garden_spider.n.01",
+    "black_and_gold_garden_spider.n.01",
+    "black_widow.n.01",
+    "wolf_spider.n.01",
+    "window_screen.n.01",
+    "honeycomb.n.02",
+    "hay.n.01",
+    "lycaenid.n.01",
+    "harvestman.n.01",
+    "tarantula.n.02"
+   ],
+   "rel_decoy": [
+    74,
+    72
+   ],
+   "rand_decoy": [
+    246,
+    659,
+    134,
+    149
+   ]
+  },
+  {
+   "cls": 685,
+   "name": "odometer.n.01",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 4,
+   "cos10": 0.656,
+   "near10": [
+    409,
+    426,
+    635,
+    892,
+    530,
+    778,
+    754,
+    507,
+    688,
+    485
+   ],
+   "near10_names": [
+    "analog_clock.n.01",
+    "barometer.n.01",
+    "magnetic_compass.n.01",
+    "wall_clock.n.01",
+    "digital_clock.n.01",
+    "scale.n.07",
+    "radio.n.03",
+    "combination_lock.n.01",
+    "oscilloscope.n.01",
+    "cd_player.n.01"
+   ],
+   "rel_decoy": [
+    409,
+    426
+   ],
+   "rand_decoy": [
+    343,
+    623,
+    417,
+    616
+   ]
+  },
+  {
+   "cls": 628,
+   "name": "liner.n.04",
+   "set": "A",
+   "stratum": "iso",
+   "level": 0,
+   "nW": 4,
+   "cos10": 0.662,
+   "near10": [
+    403,
+    536,
+    554,
+    833,
+    724,
+    540,
+    625,
+    718,
+    694,
+    913
+   ],
+   "near10_names": [
+    "aircraft_carrier.n.01",
+    "dock.n.05",
+    "fireboat.n.01",
+    "submarine.n.01",
+    "pirate.n.03",
+    "drilling_platform.n.01",
+    "lifeboat.n.01",
+    "pier.n.03",
+    "paddlewheel.n.01",
+    "wreck.n.04"
+   ],
+   "rel_decoy": [
+    403,
+    536
+   ],
+   "rand_decoy": [
+    103,
+    797,
+    863,
+    166
+   ]
+  },
+  {
+   "cls": 708,
+   "name": "pedestal.n.03",
+   "set": "A",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 4,
+   "cos10": 0.682,
+   "near10": [
+    682,
+    557,
+    835,
+    873,
+    562,
+    832,
+    442,
+    458,
+    437,
+    698
+   ],
+   "near10_names": [
+    "obelisk.n.01",
+    "flagpole.n.02",
+    "sundial.n.01",
+    "triumphal_arch.n.01",
+    "fountain.n.01",
+    "stupa.n.01",
+    "bell_cote.n.01",
+    "brass.n.07",
+    "beacon.n.03",
+    "palace.n.04"
+   ],
+   "rel_decoy": [
+    682,
+    557
+   ],
+   "rand_decoy": [
+    244,
+    732,
+    761,
+    169
+   ]
+  },
+  {
+   "cls": 450,
+   "name": "bobsled.n.02",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 8,
+   "cos10": 0.571,
+   "near10": [
+    802,
+    795,
+    751,
+    814,
+    817,
+    472,
+    518,
+    693,
+    830,
+    537
+   ],
+   "near10_names": [
+    "snowmobile.n.01",
+    "ski.n.01",
+    "racer.n.02",
+    "speedboat.n.01",
+    "sports_car.n.01",
+    "canoe.n.01",
+    "crash_helmet.n.01",
+    "paddle.n.04",
+    "stretcher.n.03",
+    "dogsled.n.01"
+   ],
+   "rel_decoy": [
+    802,
+    795
+   ],
+   "rand_decoy": [
+    716,
+    786,
+    965,
+    209
+   ]
+  },
+  {
+   "cls": 865,
+   "name": "toyshop.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 8,
+   "cos10": 0.589,
+   "near10": [
+    509,
+    917,
+    860,
+    850,
+    788,
+    719,
+    582,
+    476,
+    415,
+    624
+   ],
+   "near10_names": [
+    "confectionery.n.02",
+    "comic_book.n.01",
+    "tobacco_shop.n.01",
+    "teddy.n.01",
+    "shoe_shop.n.01",
+    "piggy_bank.n.01",
+    "grocery_store.n.01",
+    "carousel.n.02",
+    "bakery.n.01",
+    "library.n.05"
+   ],
+   "rel_decoy": [
+    509,
+    917
+   ],
+   "rand_decoy": [
+    844,
+    669,
+    83,
+    700
+   ]
+  },
+  {
+   "cls": 826,
+   "name": "stopwatch.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 9,
+   "cos10": 0.493,
+   "near10": [
+    635,
+    531,
+    409,
+    426,
+    892,
+    778,
+    530,
+    507,
+    455,
+    451
+   ],
+   "near10_names": [
+    "magnetic_compass.n.01",
+    "digital_watch.n.01",
+    "analog_clock.n.01",
+    "barometer.n.01",
+    "wall_clock.n.01",
+    "scale.n.07",
+    "digital_clock.n.01",
+    "combination_lock.n.01",
+    "bottlecap.n.01",
+    "bolo_tie.n.01"
+   ],
+   "rel_decoy": [
+    635,
+    531
+   ],
+   "rand_decoy": [
+    111,
+    210,
+    33,
+    94
+   ]
+  },
+  {
+   "cls": 587,
+   "name": "hammer.n.02",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 9,
+   "cos10": 0.506,
+   "near10": [
+    596,
+    784,
+    499,
+    623,
+    740,
+    792,
+    677,
+    813,
+    477,
+    710
+   ],
+   "near10_names": [
+    "hatchet.n.02",
+    "screwdriver.n.01",
+    "cleaver.n.01",
+    "letter_opener.n.01",
+    "power_drill.n.01",
+    "shovel.n.01",
+    "nail.n.02",
+    "spatula.n.01",
+    "carpenter's_kit.n.01",
+    "pencil_sharpener.n.01"
+   ],
+   "rel_decoy": [
+    596,
+    784
+   ],
+   "rand_decoy": [
+    545,
+    530,
+    266,
+    197
+   ]
+  },
+  {
+   "cls": 976,
+   "name": "promontory.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 9,
+   "cos10": 0.569,
+   "near10": [
+    972,
+    978,
+    460,
+    975,
+    977,
+    437,
+    979,
+    913,
+    525,
+    540
+   ],
+   "near10_names": [
+    "cliff.n.01",
+    "seashore.n.01",
+    "breakwater.n.01",
+    "lakeside.n.01",
+    "sandbar.n.01",
+    "beacon.n.03",
+    "valley.n.01",
+    "wreck.n.04",
+    "dam.n.01",
+    "drilling_platform.n.01"
+   ],
+   "rel_decoy": [
+    972,
+    978
+   ],
+   "rand_decoy": [
+    341,
+    317,
+    736,
+    956
+   ]
+  },
+  {
+   "cls": 73,
+   "name": "barn_spider.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 10,
+   "cos10": 0.418,
+   "near10": [
+    74,
+    77,
+    72,
+    75,
+    76,
+    70,
+    71,
+    119,
+    125,
+    314
+   ],
+   "near10_names": [
+    "garden_spider.n.01",
+    "wolf_spider.n.01",
+    "black_and_gold_garden_spider.n.01",
+    "black_widow.n.01",
+    "tarantula.n.02",
+    "harvestman.n.01",
+    "scorpion.n.03",
+    "rock_crab.n.01",
+    "hermit_crab.n.01",
+    "cockroach.n.01"
+   ],
+   "rel_decoy": [
+    74,
+    77
+   ],
+   "rand_decoy": [
+    385,
+    867,
+    369,
+    254
+   ]
+  },
+  {
+   "cls": 43,
+   "name": "frilled_lizard.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 10,
+   "cos10": 0.422,
+   "near10": [
+    42,
+    39,
+    48,
+    47,
+    46,
+    40,
+    41,
+    50,
+    49,
+    45
+   ],
+   "near10_names": [
+    "agama.n.01",
+    "common_iguana.n.01",
+    "komodo_dragon.n.01",
+    "african_chameleon.n.01",
+    "green_lizard.n.01",
+    "american_chameleon.n.01",
+    "whiptail.n.01",
+    "american_alligator.n.01",
+    "african_crocodile.n.01",
+    "gila_monster.n.01"
+   ],
+   "rel_decoy": [
+    42,
+    39
+   ],
+   "rand_decoy": [
+    814,
+    962,
+    891,
+    695
+   ]
+  },
+  {
+   "cls": 890,
+   "name": "volleyball.n.02",
+   "set": "B",
+   "stratum": "dense",
+   "level": 0,
+   "nW": 10,
+   "cos10": 0.524,
+   "near10": [
+    430,
+    722,
+    768,
+    752,
+    702,
+    602,
+    842,
+    639,
+    433,
+    805
+   ],
+   "near10_names": [
+    "basketball.n.02",
+    "ping-pong_ball.n.01",
+    "rugby_ball.n.01",
+    "racket.n.04",
+    "parallel_bars.n.01",
+    "horizontal_bar.n.01",
+    "swimming_trunks.n.01",
+    "maillot.n.01",
+    "bathing_cap.n.01",
+    "soccer_ball.n.01"
+   ],
+   "rel_decoy": [
+    430,
+    722
+   ],
+   "rand_decoy": [
+    562,
+    108,
+    321,
+    735
+   ]
+  },
+  {
+   "cls": 131,
+   "name": "little_blue_heron.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 0,
+   "nW": 10,
+   "cos10": 0.593,
+   "near10": [
+    134,
+    132,
+    133,
+    128,
+    138,
+    135,
+    136,
+    144,
+    137,
+    129
+   ],
+   "near10_names": [
+    "crane.n.05",
+    "american_egret.n.01",
+    "bittern.n.01",
+    "black_stork.n.01",
+    "bustard.n.01",
+    "limpkin.n.01",
+    "european_gallinule.n.01",
+    "pelican.n.01",
+    "american_coot.n.01",
+    "spoonbill.n.01"
+   ],
+   "rel_decoy": [
+    134,
+    132
+   ],
+   "rand_decoy": [
+    811,
+    13,
+    810,
+    184
+   ]
+  },
+  {
+   "cls": 767,
+   "name": "rubber_eraser.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 11,
+   "cos10": 0.48,
+   "near10": [
+    418,
+    629,
+    710,
+    542,
+    696,
+    644,
+    563,
+    626,
+    709,
+    845
+   ],
+   "near10_names": [
+    "ballpoint.n.01",
+    "lipstick.n.01",
+    "pencil_sharpener.n.01",
+    "drumstick.n.02",
+    "paintbrush.n.01",
+    "matchstick.n.01",
+    "fountain_pen.n.01",
+    "lighter.n.02",
+    "pencil_box.n.01",
+    "syringe.n.01"
+   ],
+   "rel_decoy": [
+    418,
+    629
+   ],
+   "rand_decoy": [
+    953,
+    275,
+    232,
+    372
+   ]
+  },
+  {
+   "cls": 370,
+   "name": "guenon.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 12,
+   "cos10": 0.394,
+   "near10": [
+    371,
+    374,
+    373,
+    380,
+    382,
+    381,
+    377,
+    372,
+    375,
+    378
+   ],
+   "near10_names": [
+    "patas.n.01",
+    "langur.n.01",
+    "macaque.n.01",
+    "titi.n.03",
+    "squirrel_monkey.n.01",
+    "spider_monkey.n.01",
+    "marmoset.n.01",
+    "baboon.n.01",
+    "colobus.n.01",
+    "capuchin.n.02"
+   ],
+   "rel_decoy": [
+    371,
+    374
+   ],
+   "rand_decoy": [
+    833,
+    451,
+    512,
+    721
+   ]
+  },
+  {
+   "cls": 66,
+   "name": "horned_viper.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 12,
+   "cos10": 0.486,
+   "near10": [
+    68,
+    67,
+    54,
+    60,
+    62,
+    58,
+    61,
+    49,
+    57,
+    65
+   ],
+   "near10_names": [
+    "sidewinder.n.01",
+    "diamondback.n.01",
+    "hognose_snake.n.01",
+    "night_snake.n.01",
+    "rock_python.n.01",
+    "water_snake.n.01",
+    "boa_constrictor.n.01",
+    "african_crocodile.n.01",
+    "garter_snake.n.01",
+    "sea_snake.n.01"
+   ],
+   "rel_decoy": [
+    68,
+    67
+   ],
+   "rand_decoy": [
+    620,
+    701,
+    619,
+    788
+   ]
+  },
+  {
+   "cls": 882,
+   "name": "vacuum.n.04",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 12,
+   "cos10": 0.596,
+   "near10": [
+    621,
+    740,
+    589,
+    811,
+    613,
+    491,
+    840,
+    823,
+    747,
+    606
+   ],
+   "near10_names": [
+    "lawn_mower.n.01",
+    "power_drill.n.01",
+    "hand_blower.n.01",
+    "space_heater.n.01",
+    "joystick.n.02",
+    "chain_saw.n.01",
+    "swab.n.02",
+    "stethoscope.n.01",
+    "punching_bag.n.02",
+    "iron.n.04"
+   ],
+   "rel_decoy": [
+    621,
+    740
+   ],
+   "rand_decoy": [
+    772,
+    137,
+    438,
+    64
+   ]
+  },
+  {
+   "cls": 911,
+   "name": "wool.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 13,
+   "cos10": 0.494,
+   "near10": [
+    824,
+    533,
+    658,
+    452,
+    735,
+    816,
+    616,
+    806,
+    885,
+    434
+   ],
+   "near10_names": [
+    "stole.n.01",
+    "dishrag.n.01",
+    "mitten.n.01",
+    "bonnet.n.01",
+    "poncho.n.01",
+    "spindle.n.04",
+    "knot.n.02",
+    "sock.n.01",
+    "velvet.n.01",
+    "bath_towel.n.01"
+   ],
+   "rel_decoy": [
+    824,
+    533
+   ],
+   "rand_decoy": [
+    362,
+    537,
+    20,
+    263
+   ]
+  },
+  {
+   "cls": 282,
+   "name": "tiger_cat.n.02",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 13,
+   "cos10": 0.502,
+   "near10": [
+    281,
+    285,
+    287,
+    292,
+    289,
+    286,
+    290,
+    288,
+    283,
+    293
+   ],
+   "near10_names": [
+    "tabby.n.01",
+    "egyptian_cat.n.01",
+    "lynx.n.02",
+    "tiger.n.02",
+    "snow_leopard.n.01",
+    "cougar.n.01",
+    "jaguar.n.01",
+    "leopard.n.02",
+    "persian_cat.n.01",
+    "cheetah.n.01"
+   ],
+   "rel_decoy": [
+    281,
+    285
+   ],
+   "rand_decoy": [
+    576,
+    944,
+    99,
+    75
+   ]
+  },
+  {
+   "cls": 211,
+   "name": "vizsla.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 14,
+   "cos10": 0.385,
+   "near10": [
+    168,
+    159,
+    178,
+    209,
+    163,
+    213,
+    173,
+    246,
+    210,
+    180
+   ],
+   "near10_names": [
+    "redbone.n.01",
+    "rhodesian_ridgeback.n.01",
+    "weimaraner.n.01",
+    "chesapeake_bay_retriever.n.01",
+    "bloodhound.n.01",
+    "irish_setter.n.01",
+    "ibizan_hound.n.01",
+    "great_dane.n.01",
+    "german_short-haired_pointer.n.01",
+    "american_staffordshire_terrier.n.01"
+   ],
+   "rel_decoy": [
+    168,
+    159
+   ],
+   "rand_decoy": [
+    945,
+    466,
+    859,
+    777
+   ]
+  },
+  {
+   "cls": 744,
+   "name": "projectile.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 0,
+   "nW": 14,
+   "cos10": 0.531,
+   "near10": [
+    657,
+    812,
+    895,
+    471,
+    405,
+    847,
+    908,
+    403,
+    833,
+    586
+   ],
+   "near10_names": [
+    "missile.n.01",
+    "space_shuttle.n.01",
+    "warplane.n.01",
+    "cannon.n.02",
+    "airship.n.01",
+    "tank.n.01",
+    "wing.n.02",
+    "aircraft_carrier.n.01",
+    "submarine.n.01",
+    "half_track.n.01"
+   ],
+   "rel_decoy": [
+    657,
+    812
+   ],
+   "rand_decoy": [
+    690,
+    41,
+    304,
+    581
+   ]
+  },
+  {
+   "cls": 387,
+   "name": "lesser_panda.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 15,
+   "cos10": 0.548,
+   "near10": [
+    388,
+    362,
+    358,
+    356,
+    294,
+    359,
+    277,
+    278,
+    297,
+    295
+   ],
+   "near10_names": [
+    "giant_panda.n.01",
+    "badger.n.02",
+    "polecat.n.02",
+    "weasel.n.02",
+    "brown_bear.n.01",
+    "black-footed_ferret.n.01",
+    "red_fox.n.03",
+    "kit_fox.n.01",
+    "sloth_bear.n.01",
+    "american_black_bear.n.01"
+   ],
+   "rel_decoy": [
+    388,
+    362
+   ],
+   "rand_decoy": [
+    514,
+    751,
+    916,
+    673
+   ]
+  },
+  {
+   "cls": 271,
+   "name": "red_wolf.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 18,
+   "cos10": 0.322,
+   "near10": [
+    272,
+    277,
+    274,
+    269,
+    278,
+    280,
+    273,
+    270,
+    287,
+    286
+   ],
+   "near10_names": [
+    "coyote.n.01",
+    "red_fox.n.03",
+    "dhole.n.01",
+    "timber_wolf.n.01",
+    "kit_fox.n.01",
+    "grey_fox.n.01",
+    "dingo.n.01",
+    "white_wolf.n.01",
+    "lynx.n.02",
+    "cougar.n.01"
+   ],
+   "rel_decoy": [
+    272,
+    277
+   ],
+   "rand_decoy": [
+    612,
+    521,
+    626,
+    433
+   ]
+  },
+  {
+   "cls": 622,
+   "name": "lens_cap.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 0,
+   "nW": 18,
+   "cos10": 0.587,
+   "near10": [
+    759,
+    732,
+    633,
+    447,
+    872,
+    613,
+    455,
+    891,
+    551,
+    570
+   ],
+   "near10_names": [
+    "reflex_camera.n.01",
+    "polaroid_camera.n.01",
+    "loupe.n.01",
+    "binoculars.n.01",
+    "tripod.n.01",
+    "joystick.n.02",
+    "bottlecap.n.01",
+    "waffle_iron.n.01",
+    "face_powder.n.01",
+    "gasmask.n.01"
+   ],
+   "rel_decoy": [
+    759,
+    732
+   ],
+   "rand_decoy": [
+    950,
+    876,
+    443,
+    216
+   ]
+  },
+  {
+   "cls": 420,
+   "name": "banjo.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 19,
+   "cos10": 0.551,
+   "near10": [
+    402,
+    546,
+    541,
+    889,
+    822,
+    819,
+    401,
+    486,
+    432,
+    776
+   ],
+   "near10_names": [
+    "acoustic_guitar.n.01",
+    "electric_guitar.n.01",
+    "drum.n.01",
+    "violin.n.01",
+    "steel_drum.n.01",
+    "stage.n.03",
+    "accordion.n.01",
+    "cello.n.01",
+    "bassoon.n.01",
+    "sax.n.02"
+   ],
+   "rel_decoy": [
+    402,
+    546
+   ],
+   "rand_decoy": [
+    615,
+    503,
+    357,
+    37
+   ]
+  },
+  {
+   "cls": 861,
+   "name": "toilet_seat.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 20,
+   "cos10": 0.596,
+   "near10": [
+    804,
+    897,
+    731,
+    999,
+    435,
+    876,
+    648,
+    756,
+    794,
+    423
+   ],
+   "near10_names": [
+    "soap_dispenser.n.01",
+    "washer.n.03",
+    "plunger.n.03",
+    "toilet_tissue.n.01",
+    "bathtub.n.01",
+    "tub.n.02",
+    "medicine_chest.n.01",
+    "rain_barrel.n.01",
+    "shower_curtain.n.01",
+    "barber_chair.n.01"
+   ],
+   "rel_decoy": [
+    804,
+    897
+   ],
+   "rand_decoy": [
+    644,
+    406,
+    948,
+    817
+   ]
+  },
+  {
+   "cls": 465,
+   "name": "bulletproof_vest.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 21,
+   "cos10": 0.585,
+   "near10": [
+    615,
+    413,
+    414,
+    652,
+    597,
+    570,
+    691,
+    461,
+    715,
+    524
+   ],
+   "near10_names": [
+    "knee_pad.n.01",
+    "assault_rifle.n.01",
+    "backpack.n.01",
+    "military_uniform.n.01",
+    "holster.n.01",
+    "gasmask.n.01",
+    "oxygen_mask.n.01",
+    "breastplate.n.01",
+    "pickelhaube.n.01",
+    "cuirass.n.01"
+   ],
+   "rel_decoy": [
+    615,
+    413
+   ],
+   "rand_decoy": [
+    363,
+    565,
+    154,
+    963
+   ]
+  },
+  {
+   "cls": 627,
+   "name": "limousine.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 22,
+   "cos10": 0.46,
+   "near10": [
+    656,
+    436,
+    468,
+    734,
+    864,
+    511,
+    609,
+    717,
+    479,
+    675
+   ],
+   "near10_names": [
+    "minivan.n.01",
+    "beach_wagon.n.01",
+    "cab.n.03",
+    "police_van.n.01",
+    "tow_truck.n.01",
+    "convertible.n.01",
+    "jeep.n.01",
+    "pickup.n.01",
+    "car_wheel.n.01",
+    "moving_van.n.01"
+   ],
+   "rel_decoy": [
+    656,
+    436
+   ],
+   "rand_decoy": [
+    653,
+    560,
+    313,
+    291
+   ]
+  },
+  {
+   "cls": 742,
+   "name": "printer.n.02",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 22,
+   "cos10": 0.582,
+   "near10": [
+    713,
+    859,
+    485,
+    848,
+    662,
+    480,
+    482,
+    534,
+    897,
+    553
+   ],
+   "near10_names": [
+    "photocopier.n.01",
+    "toaster.n.02",
+    "cd_player.n.01",
+    "tape_player.n.01",
+    "modem.n.01",
+    "cash_machine.n.01",
+    "cassette_player.n.01",
+    "dishwasher.n.01",
+    "washer.n.03",
+    "file.n.03"
+   ],
+   "rel_decoy": [
+    713,
+    859
+   ],
+   "rand_decoy": [
+    207,
+    277,
+    932,
+    698
+   ]
+  },
+  {
+   "cls": 801,
+   "name": "snorkel.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 24,
+   "cos10": 0.519,
+   "near10": [
+    983,
+    433,
+    445,
+    842,
+    973,
+    638,
+    639,
+    691,
+    836,
+    149
+   ],
+   "near10_names": [
+    "scuba_diver.n.01",
+    "bathing_cap.n.01",
+    "bikini.n.02",
+    "swimming_trunks.n.01",
+    "coral_reef.n.01",
+    "maillot.n.02",
+    "maillot.n.01",
+    "oxygen_mask.n.01",
+    "sunglass.n.01",
+    "dugong.n.01"
+   ],
+   "rel_decoy": [
+    983,
+    433
+   ],
+   "rand_decoy": [
+    358,
+    89,
+    824,
+    377
+   ]
+  },
+  {
+   "cls": 469,
+   "name": "caldron.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 25,
+   "cos10": 0.444,
+   "near10": [
+    544,
+    909,
+    567,
+    827,
+    926,
+    618,
+    653,
+    521,
+    463,
+    428
+   ],
+   "near10_names": [
+    "dutch_oven.n.01",
+    "wok.n.01",
+    "frying_pan.n.01",
+    "stove.n.02",
+    "hot_pot.n.01",
+    "ladle.n.01",
+    "milk_can.n.01",
+    "crock_pot.n.01",
+    "bucket.n.01",
+    "barrow.n.03"
+   ],
+   "rel_decoy": [
+    544,
+    909
+   ],
+   "rand_decoy": [
+    382,
+    175,
+    578,
+    951
+   ]
+  },
+  {
+   "cls": 259,
+   "name": "pomeranian.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 29,
+   "cos10": 0.445,
+   "near10": [
+    260,
+    154,
+    261,
+    258,
+    157,
+    283,
+    230,
+    151,
+    231,
+    332
+   ],
+   "near10_names": [
+    "chow.n.03",
+    "pekinese.n.01",
+    "keeshond.n.01",
+    "samoyed.n.03",
+    "papillon.n.01",
+    "persian_cat.n.01",
+    "shetland_sheepdog.n.01",
+    "chihuahua.n.03",
+    "collie.n.01",
+    "angora.n.03"
+   ],
+   "rel_decoy": [
+    260,
+    154
+   ],
+   "rand_decoy": [
+    848,
+    935,
+    666,
+    737
+   ]
+  },
+  {
+   "cls": 227,
+   "name": "kelpie.n.02",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 33,
+   "cos10": 0.462,
+   "near10": [
+    223,
+    237,
+    158,
+    234,
+    235,
+    209,
+    273,
+    224,
+    225,
+    241
+   ],
+   "near10_names": [
+    "schipperke.n.01",
+    "miniature_pinscher.n.01",
+    "toy_terrier.n.01",
+    "rottweiler.n.01",
+    "german_shepherd.n.01",
+    "chesapeake_bay_retriever.n.01",
+    "dingo.n.01",
+    "groenendael.n.01",
+    "malinois.n.01",
+    "entlebucher.n.01"
+   ],
+   "rel_decoy": [
+    223,
+    237
+   ],
+   "rand_decoy": [
+    931,
+    793,
+    436,
+    714
+   ]
+  },
+  {
+   "cls": 660,
+   "name": "mobile_home.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 38,
+   "cos10": 0.591,
+   "near10": [
+    449,
+    675,
+    757,
+    867,
+    555,
+    425,
+    569,
+    565,
+    864,
+    779
+   ],
+   "near10_names": [
+    "boathouse.n.01",
+    "moving_van.n.01",
+    "recreational_vehicle.n.01",
+    "trailer_truck.n.01",
+    "fire_engine.n.01",
+    "barn.n.01",
+    "garbage_truck.n.01",
+    "freight_car.n.01",
+    "tow_truck.n.01",
+    "school_bus.n.01"
+   ],
+   "rel_decoy": [
+    449,
+    675
+   ],
+   "rand_decoy": [
+    798,
+    678,
+    289,
+    208
+   ]
+  },
+  {
+   "cls": 748,
+   "name": "purse.n.03",
+   "set": "B",
+   "stratum": "dense",
+   "level": 10,
+   "nW": 39,
+   "cos10": 0.472,
+   "near10": [
+    636,
+    893,
+    709,
+    414,
+    885,
+    721,
+    464,
+    446,
+    492,
+    591
+   ],
+   "near10_names": [
+    "mailbag.n.02",
+    "wallet.n.01",
+    "pencil_box.n.01",
+    "backpack.n.01",
+    "velvet.n.01",
+    "pillow.n.01",
+    "buckle.n.01",
+    "binder.n.03",
+    "chest.n.02",
+    "handkerchief.n.01"
+   ],
+   "rel_decoy": [
+    636,
+    893
+   ],
+   "rand_decoy": [
+    151,
+    100,
+    918,
+    380
+   ]
+  },
+  {
+   "cls": 201,
+   "name": "silky_terrier.n.01",
+   "set": "B",
+   "stratum": "dense",
+   "level": 100,
+   "nW": 45,
+   "cos10": 0.377,
+   "near10": [
+    187,
+    193,
+    185,
+    194,
+    192,
+    200,
+    186,
+    175,
+    204,
+    226
+   ],
+   "near10_names": [
+    "yorkshire_terrier.n.01",
+    "australian_terrier.n.01",
+    "norfolk_terrier.n.01",
+    "dandie_dinmont.n.01",
+    "cairn.n.02",
+    "tibetan_terrier.n.01",
+    "norwich_terrier.n.01",
+    "otterhound.n.01",
+    "lhasa.n.02",
+    "briard.n.01"
+   ],
+   "rel_decoy": [
+    187,
+    193
+   ],
+   "rand_decoy": [
+    146,
+    943,
+    595,
+    567
+   ]
+  },
+  {
+   "cls": 923,
+   "name": "plate.n.08",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 0,
+   "cos10": 0.579,
+   "near10": [
+    962,
+    925,
+    960,
+    965,
+    924,
+    762,
+    935,
+    809,
+    926,
+    963
+   ],
+   "near10_names": [
+    "meat_loaf.n.01",
+    "consomme.n.01",
+    "chocolate_sauce.n.01",
+    "burrito.n.01",
+    "guacamole.n.01",
+    "restaurant.n.01",
+    "mashed_potato.n.01",
+    "soup_bowl.n.01",
+    "hot_pot.n.01",
+    "pizza.n.01"
+   ],
+   "rel_decoy": [
+    962,
+    925
+   ],
+   "rand_decoy": [
+    904,
+    492,
+    693,
+    536
+   ]
+  },
+  {
+   "cls": 982,
+   "name": "groom.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 0,
+   "cos10": 0.61,
+   "near10": [
+    578,
+    601,
+    457,
+    689,
+    906,
+    834,
+    669,
+    775,
+    614,
+    552
+   ],
+   "near10_names": [
+    "gown.n.01",
+    "hoopskirt.n.01",
+    "bow_tie.n.01",
+    "overskirt.n.01",
+    "windsor_tie.n.01",
+    "suit.n.01",
+    "mosquito_net.n.01",
+    "sarong.n.01",
+    "kimono.n.01",
+    "feather_boa.n.01"
+   ],
+   "rel_decoy": [
+    578,
+    601
+   ],
+   "rand_decoy": [
+    324,
+    74,
+    687,
+    709
+   ]
+  },
+  {
+   "cls": 634,
+   "name": "lumbermill.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 0,
+   "cos10": 0.622,
+   "near10": [
+    519,
+    583,
+    739,
+    561,
+    730,
+    912,
+    491,
+    410,
+    642,
+    913
+   ],
+   "near10_names": [
+    "crate.n.01",
+    "guillotine.n.02",
+    "potter's_wheel.n.01",
+    "forklift.n.01",
+    "plow.n.01",
+    "worm_fence.n.01",
+    "chain_saw.n.01",
+    "apiary.n.01",
+    "marimba.n.01",
+    "wreck.n.04"
+   ],
+   "rel_decoy": [
+    519,
+    583
+   ],
+   "rand_decoy": [
+    278,
+    989,
+    780,
+    194
+   ]
+  },
+  {
+   "cls": 919,
+   "name": "street_sign.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 0,
+   "cos10": 0.67,
+   "near10": [
+    733,
+    498,
+    637,
+    860,
+    557,
+    489,
+    458,
+    424,
+    571,
+    704
+   ],
+   "near10_names": [
+    "pole.n.01",
+    "cinema.n.02",
+    "mailbox.n.01",
+    "tobacco_shop.n.01",
+    "flagpole.n.02",
+    "chainlink_fence.n.01",
+    "brass.n.07",
+    "barbershop.n.01",
+    "gas_pump.n.01",
+    "parking_meter.n.01"
+   ],
+   "rel_decoy": [
+    733,
+    498
+   ],
+   "rand_decoy": [
+    284,
+    470,
+    342,
+    490
+   ]
+  },
+  {
+   "cls": 145,
+   "name": "king_penguin.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 0,
+   "cos10": 0.744,
+   "near10": [
+    96,
+    146,
+    150,
+    393,
+    93,
+    99,
+    80,
+    144,
+    392,
+    149
+   ],
+   "near10_names": [
+    "toucan.n.01",
+    "albatross.n.02",
+    "sea_lion.n.01",
+    "anemone_fish.n.01",
+    "hornbill.n.01",
+    "goose.n.01",
+    "black_grouse.n.01",
+    "pelican.n.01",
+    "rock_beauty.n.01",
+    "dugong.n.01"
+   ],
+   "rel_decoy": [
+    96,
+    146
+   ],
+   "rand_decoy": [
+    566,
+    288,
+    215,
+    528
+   ]
+  },
+  {
+   "cls": 349,
+   "name": "bighorn.n.02",
+   "set": "B",
+   "stratum": "iso",
+   "level": 0,
+   "nW": 1,
+   "cos10": 0.589,
+   "near10": [
+    348,
+    350,
+    351,
+    353,
+    347,
+    346,
+    352,
+    355,
+    354,
+    269
+   ],
+   "near10_names": [
+    "ram.n.05",
+    "ibex.n.01",
+    "hartebeest.n.01",
+    "gazelle.n.01",
+    "bison.n.01",
+    "water_buffalo.n.01",
+    "impala.n.01",
+    "llama.n.01",
+    "arabian_camel.n.01",
+    "timber_wolf.n.01"
+   ],
+   "rel_decoy": [
+    348,
+    350
+   ],
+   "rand_decoy": [
+    2,
+    697,
+    954,
+    998
+   ]
+  },
+  {
+   "cls": 903,
+   "name": "wig.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 1,
+   "cos10": 0.607,
+   "near10": [
+    459,
+    501,
+    445,
+    638,
+    578,
+    639,
+    655,
+    643,
+    452,
+    568
+   ],
+   "near10_names": [
+    "brassiere.n.01",
+    "cloak.n.01",
+    "bikini.n.02",
+    "maillot.n.02",
+    "gown.n.01",
+    "maillot.n.01",
+    "miniskirt.n.01",
+    "mask.n.01",
+    "bonnet.n.01",
+    "fur_coat.n.01"
+   ],
+   "rel_decoy": [
+    459,
+    501
+   ],
+   "rand_decoy": [
+    723,
+    311,
+    922,
+    665
+   ]
+  },
+  {
+   "cls": 386,
+   "name": "african_elephant.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 0,
+   "nW": 1,
+   "cos10": 0.621,
+   "near10": [
+    101,
+    385,
+    363,
+    346,
+    51,
+    343,
+    344,
+    367,
+    178,
+    149
+   ],
+   "near10_names": [
+    "tusker.n.01",
+    "indian_elephant.n.01",
+    "armadillo.n.01",
+    "water_buffalo.n.01",
+    "triceratops.n.01",
+    "warthog.n.01",
+    "hippopotamus.n.01",
+    "chimpanzee.n.01",
+    "weimaraner.n.01",
+    "dugong.n.01"
+   ],
+   "rel_decoy": [
+    101,
+    385
+   ],
+   "rand_decoy": [
+    257,
+    434,
+    124,
+    885
+   ]
+  },
+  {
+   "cls": 663,
+   "name": "monastery.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 1,
+   "cos10": 0.709,
+   "near10": [
+    442,
+    873,
+    497,
+    698,
+    406,
+    884,
+    538,
+    835,
+    668,
+    471
+   ],
+   "near10_names": [
+    "bell_cote.n.01",
+    "triumphal_arch.n.01",
+    "church.n.02",
+    "palace.n.04",
+    "altar.n.02",
+    "vault.n.03",
+    "dome.n.04",
+    "sundial.n.01",
+    "mosque.n.01",
+    "cannon.n.02"
+   ],
+   "rel_decoy": [
+    442,
+    873
+   ],
+   "rand_decoy": [
+    606,
+    917,
+    741,
+    233
+   ]
+  },
+  {
+   "cls": 339,
+   "name": "sorrel.n.05",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 1,
+   "cos10": 0.776,
+   "near10": [
+    603,
+    355,
+    354,
+    476,
+    345,
+    173,
+    912,
+    365,
+    159,
+    253
+   ],
+   "near10_names": [
+    "horse_cart.n.01",
+    "llama.n.01",
+    "arabian_camel.n.01",
+    "carousel.n.02",
+    "ox.n.01",
+    "ibizan_hound.n.01",
+    "worm_fence.n.01",
+    "orangutan.n.01",
+    "rhodesian_ridgeback.n.01",
+    "basenji.n.01"
+   ],
+   "rel_decoy": [
+    603,
+    355
+   ],
+   "rand_decoy": [
+    237,
+    196,
+    220,
+    875
+   ]
+  },
+  {
+   "cls": 985,
+   "name": "daisy.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 1,
+   "cos10": 0.861,
+   "near10": [
+    309,
+    53,
+    324,
+    698,
+    52,
+    944,
+    240,
+    569,
+    325,
+    134
+   ],
+   "near10_names": [
+    "bee.n.01",
+    "ringneck_snake.n.01",
+    "cabbage_butterfly.n.01",
+    "palace.n.04",
+    "thunder_snake.n.01",
+    "artichoke.n.02",
+    "appenzeller.n.01",
+    "garbage_truck.n.01",
+    "sulphur_butterfly.n.01",
+    "crane.n.05"
+   ],
+   "rel_decoy": [
+    309,
+    53
+   ],
+   "rand_decoy": [
+    472,
+    334,
+    458,
+    603
+   ]
+  },
+  {
+   "cls": 330,
+   "name": "wood_rabbit.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 2,
+   "cos10": 0.583,
+   "near10": [
+    335,
+    333,
+    104,
+    338,
+    332,
+    336,
+    674,
+    106,
+    352,
+    337
+   ],
+   "near10_names": [
+    "fox_squirrel.n.01",
+    "hamster.n.01",
+    "wallaby.n.01",
+    "guinea_pig.n.02",
+    "angora.n.03",
+    "marmot.n.01",
+    "mousetrap.n.01",
+    "wombat.n.01",
+    "impala.n.01",
+    "beaver.n.07"
+   ],
+   "rel_decoy": [
+    335,
+    333
+   ],
+   "rand_decoy": [
+    48,
+    549,
+    572,
+    902
+   ]
+  },
+  {
+   "cls": 871,
+   "name": "trimaran.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 2,
+   "cos10": 0.595,
+   "near10": [
+    484,
+    914,
+    780,
+    536,
+    724,
+    693,
+    814,
+    833,
+    472,
+    625
+   ],
+   "near10_names": [
+    "catamaran.n.01",
+    "yawl.n.01",
+    "schooner.n.02",
+    "dock.n.05",
+    "pirate.n.03",
+    "paddle.n.04",
+    "speedboat.n.01",
+    "submarine.n.01",
+    "canoe.n.01",
+    "lifeboat.n.01"
+   ],
+   "rel_decoy": [
+    484,
+    914
+   ],
+   "rand_decoy": [
+    869,
+    488,
+    629,
+    347
+   ]
+  },
+  {
+   "cls": 796,
+   "name": "ski_mask.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 2,
+   "cos10": 0.604,
+   "near10": [
+    643,
+    678,
+    570,
+    658,
+    691,
+    518,
+    837,
+    836,
+    452,
+    795
+   ],
+   "near10_names": [
+    "mask.n.01",
+    "neck_brace.n.01",
+    "gasmask.n.01",
+    "mitten.n.01",
+    "oxygen_mask.n.01",
+    "crash_helmet.n.01",
+    "sunglasses.n.01",
+    "sunglass.n.01",
+    "bonnet.n.01",
+    "ski.n.01"
+   ],
+   "rel_decoy": [
+    643,
+    678
+   ],
+   "rand_decoy": [
+    214,
+    738,
+    402,
+    323
+   ]
+  },
+  {
+   "cls": 750,
+   "name": "quilt.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 2,
+   "cos10": 0.631,
+   "near10": [
+    564,
+    721,
+    797,
+    831,
+    528,
+    520,
+    669,
+    885,
+    516,
+    591
+   ],
+   "near10_names": [
+    "four-poster.n.01",
+    "pillow.n.01",
+    "sleeping_bag.n.01",
+    "studio_couch.n.01",
+    "dial_telephone.n.01",
+    "crib.n.01",
+    "mosquito_net.n.01",
+    "velvet.n.01",
+    "cradle.n.01",
+    "handkerchief.n.01"
+   ],
+   "rel_decoy": [
+    564,
+    721
+   ],
+   "rand_decoy": [
+    981,
+    633,
+    346,
+    791
+   ]
+  },
+  {
+   "cls": 5,
+   "name": "electric_ray.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 2,
+   "cos10": 0.638,
+   "near10": [
+    6,
+    397,
+    4,
+    3,
+    390,
+    973,
+    110,
+    33,
+    107,
+    115
+   ],
+   "near10_names": [
+    "stingray.n.01",
+    "puffer.n.02",
+    "hammerhead.n.03",
+    "tiger_shark.n.01",
+    "eel.n.02",
+    "coral_reef.n.01",
+    "flatworm.n.01",
+    "loggerhead.n.02",
+    "jellyfish.n.02",
+    "sea_slug.n.01"
+   ],
+   "rel_decoy": [
+    6,
+    397
+   ],
+   "rand_decoy": [
+    776,
+    993,
+    937,
+    136
+   ]
+  },
+  {
+   "cls": 30,
+   "name": "bullfrog.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 0,
+   "nW": 2,
+   "cos10": 0.647,
+   "near10": [
+    32,
+    31,
+    50,
+    26,
+    49,
+    27,
+    119,
+    58,
+    35,
+    133
+   ],
+   "near10_names": [
+    "tailed_frog.n.01",
+    "tree_frog.n.02",
+    "american_alligator.n.01",
+    "common_newt.n.01",
+    "african_crocodile.n.01",
+    "eft.n.01",
+    "rock_crab.n.01",
+    "water_snake.n.01",
+    "mud_turtle.n.01",
+    "bittern.n.01"
+   ],
+   "rel_decoy": [
+    32,
+    31
+   ],
+   "rand_decoy": [
+    778,
+    851,
+    14,
+    446
+   ]
+  },
+  {
+   "cls": 927,
+   "name": "trifle.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 0,
+   "nW": 2,
+   "cos10": 0.653,
+   "near10": [
+    928,
+    960,
+    969,
+    415,
+    949,
+    470,
+    967,
+    968,
+    441,
+    572
+   ],
+   "near10_names": [
+    "ice_cream.n.01",
+    "chocolate_sauce.n.01",
+    "eggnog.n.01",
+    "bakery.n.01",
+    "strawberry.n.01",
+    "candle.n.01",
+    "espresso.n.01",
+    "cup.n.06",
+    "beer_glass.n.01",
+    "goblet.n.01"
+   ],
+   "rel_decoy": [
+    928,
+    960
+   ],
+   "rand_decoy": [
+    22,
+    281,
+    648,
+    782
+   ]
+  },
+  {
+   "cls": 97,
+   "name": "drake.n.02",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 2,
+   "cos10": 0.663,
+   "near10": [
+    99,
+    137,
+    100,
+    144,
+    86,
+    143,
+    83,
+    146,
+    136,
+    128
+   ],
+   "near10_names": [
+    "goose.n.01",
+    "american_coot.n.01",
+    "black_swan.n.01",
+    "pelican.n.01",
+    "partridge.n.03",
+    "oystercatcher.n.01",
+    "prairie_chicken.n.01",
+    "albatross.n.02",
+    "european_gallinule.n.01",
+    "black_stork.n.01"
+   ],
+   "rel_decoy": [
+    99,
+    137
+   ],
+   "rand_decoy": [
+    359,
+    487,
+    764,
+    371
+   ]
+  },
+  {
+   "cls": 102,
+   "name": "echidna.n.02",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 2,
+   "cos10": 0.681,
+   "near10": [
+    334,
+    328,
+    955,
+    363,
+    361,
+    362,
+    337,
+    946,
+    85,
+    135
+   ],
+   "near10_names": [
+    "porcupine.n.01",
+    "sea_urchin.n.01",
+    "jackfruit.n.02",
+    "armadillo.n.01",
+    "skunk.n.04",
+    "badger.n.02",
+    "beaver.n.07",
+    "cardoon.n.02",
+    "quail.n.02",
+    "limpkin.n.01"
+   ],
+   "rel_decoy": [
+    334,
+    328
+   ],
+   "rand_decoy": [
+    179,
+    92,
+    182,
+    65
+   ]
+  },
+  {
+   "cls": 91,
+   "name": "coucal.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 2,
+   "cos10": 0.684,
+   "near10": [
+    16,
+    18,
+    80,
+    95,
+    23,
+    92,
+    379,
+    136,
+    93,
+    90
+   ],
+   "near10_names": [
+    "bulbul.n.01",
+    "magpie.n.01",
+    "black_grouse.n.01",
+    "jacamar.n.01",
+    "vulture.n.01",
+    "bee_eater.n.01",
+    "howler_monkey.n.01",
+    "european_gallinule.n.01",
+    "hornbill.n.01",
+    "lorikeet.n.01"
+   ],
+   "rel_decoy": [
+    16,
+    18
+   ],
+   "rand_decoy": [
+    296,
+    667,
+    569,
+    500
+   ]
+  },
+  {
+   "cls": 0,
+   "name": "tench.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 2,
+   "cos10": 0.693,
+   "near10": [
+    391,
+    395,
+    1,
+    394,
+    103,
+    392,
+    758,
+    397,
+    841,
+    114
+   ],
+   "near10_names": [
+    "coho.n.02",
+    "gar.n.01",
+    "goldfish.n.01",
+    "sturgeon.n.01",
+    "platypus.n.01",
+    "rock_beauty.n.01",
+    "reel.n.03",
+    "puffer.n.02",
+    "sweatshirt.n.01",
+    "slug.n.07"
+   ],
+   "rel_decoy": [
+    391,
+    395
+   ],
+   "rand_decoy": [
+    388,
+    353,
+    630,
+    845
+   ]
+  },
+  {
+   "cls": 763,
+   "name": "revolver.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 2,
+   "cos10": 0.726,
+   "near10": [
+    597,
+    764,
+    413,
+    626,
+    473,
+    777,
+    902,
+    477,
+    740,
+    307
+   ],
+   "near10_names": [
+    "holster.n.01",
+    "rifle.n.01",
+    "assault_rifle.n.01",
+    "lighter.n.02",
+    "can_opener.n.01",
+    "scabbard.n.01",
+    "whistle.n.04",
+    "carpenter's_kit.n.01",
+    "power_drill.n.01",
+    "weevil.n.01"
+   ],
+   "rel_decoy": [
+    597,
+    764
+   ],
+   "rand_decoy": [
+    6,
+    157,
+    106,
+    812
+   ]
+  },
+  {
+   "cls": 930,
+   "name": "french_loaf.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 3,
+   "cos10": 0.593,
+   "near10": [
+    931,
+    932,
+    964,
+    415,
+    934,
+    962,
+    766,
+    942,
+    965,
+    467
+   ],
+   "near10_names": [
+    "bagel.n.01",
+    "pretzel.n.01",
+    "potpie.n.01",
+    "bakery.n.01",
+    "hotdog.n.02",
+    "meat_loaf.n.01",
+    "rotisserie.n.01",
+    "butternut_squash.n.02",
+    "burrito.n.01",
+    "butcher_shop.n.01"
+   ],
+   "rel_decoy": [
+    931,
+    932
+   ],
+   "rand_decoy": [
+    968,
+    395,
+    720,
+    345
+   ]
+  },
+  {
+   "cls": 905,
+   "name": "window_shade.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 3,
+   "cos10": 0.655,
+   "near10": [
+    799,
+    904,
+    789,
+    794,
+    831,
+    556,
+    706,
+    619,
+    753,
+    894
+   ],
+   "near10_names": [
+    "sliding_door.n.01",
+    "window_screen.n.01",
+    "shoji.n.01",
+    "shower_curtain.n.01",
+    "studio_couch.n.01",
+    "fire_screen.n.01",
+    "patio.n.01",
+    "lampshade.n.01",
+    "radiator.n.03",
+    "wardrobe.n.01"
+   ],
+   "rel_decoy": [
+    799,
+    904
+   ],
+   "rand_decoy": [
+    393,
+    460,
+    938,
+    408
+   ]
+  },
+  {
+   "cls": 879,
+   "name": "umbrella.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 3,
+   "cos10": 0.688,
+   "near10": [
+    808,
+    837,
+    728,
+    723,
+    515,
+    775,
+    672,
+    869,
+    836,
+    862
+   ],
+   "near10_names": [
+    "sombrero.n.02",
+    "sunglasses.n.01",
+    "plastic_bag.n.01",
+    "pinwheel.n.02",
+    "cowboy_hat.n.01",
+    "sarong.n.01",
+    "mountain_tent.n.01",
+    "trench_coat.n.01",
+    "sunglass.n.01",
+    "torch.n.01"
+   ],
+   "rel_decoy": [
+    808,
+    837
+   ],
+   "rand_decoy": [
+    297,
+    495,
+    59,
+    162
+   ]
+  },
+  {
+   "cls": 592,
+   "name": "hard_disc.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 3,
+   "cos10": 0.727,
+   "near10": [
+    848,
+    481,
+    662,
+    686,
+    485,
+    545,
+    446,
+    590,
+    681,
+    482
+   ],
+   "near10_names": [
+    "tape_player.n.01",
+    "cassette.n.01",
+    "modem.n.01",
+    "oil_filter.n.01",
+    "cd_player.n.01",
+    "electric_fan.n.01",
+    "binder.n.03",
+    "hand-held_computer.n.01",
+    "notebook.n.02",
+    "cassette_player.n.01"
+   ],
+   "rel_decoy": [
+    848,
+    481
+   ],
+   "rand_decoy": [
+    532,
+    265,
+    255,
+    191
+   ]
+  },
+  {
+   "cls": 126,
+   "name": "isopod.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 4,
+   "cos10": 0.608,
+   "near10": [
+    79,
+    69,
+    116,
+    71,
+    124,
+    314,
+    363,
+    125,
+    29,
+    123
+   ],
+   "near10_names": [
+    "centipede.n.01",
+    "trilobite.n.01",
+    "chiton.n.02",
+    "scorpion.n.03",
+    "crayfish.n.03",
+    "cockroach.n.01",
+    "armadillo.n.01",
+    "hermit_crab.n.01",
+    "axolotl.n.01",
+    "spiny_lobster.n.02"
+   ],
+   "rel_decoy": [
+    79,
+    69
+   ],
+   "rand_decoy": [
+    760,
+    681,
+    672,
+    538
+   ]
+  },
+  {
+   "cls": 877,
+   "name": "turnstile.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 4,
+   "cos10": 0.626,
+   "near10": [
+    571,
+    480,
+    412,
+    637,
+    704,
+    886,
+    799,
+    421,
+    489,
+    556
+   ],
+   "near10_names": [
+    "gas_pump.n.01",
+    "cash_machine.n.01",
+    "ashcan.n.01",
+    "mailbox.n.01",
+    "parking_meter.n.01",
+    "vending_machine.n.01",
+    "sliding_door.n.01",
+    "bannister.n.02",
+    "chainlink_fence.n.01",
+    "fire_screen.n.01"
+   ],
+   "rel_decoy": [
+    571,
+    480
+   ],
+   "rand_decoy": [
+    533,
+    491,
+    853,
+    70
+   ]
+  },
+  {
+   "cls": 769,
+   "name": "rule.n.12",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 4,
+   "cos10": 0.628,
+   "near10": [
+    798,
+    845,
+    647,
+    438,
+    635,
+    623,
+    426,
+    918,
+    710,
+    542
+   ],
+   "near10_names": [
+    "slide_rule.n.01",
+    "syringe.n.01",
+    "measuring_cup.n.01",
+    "beaker.n.01",
+    "magnetic_compass.n.01",
+    "letter_opener.n.01",
+    "barometer.n.01",
+    "crossword_puzzle.n.01",
+    "pencil_sharpener.n.01",
+    "drumstick.n.02"
+   ],
+   "rel_decoy": [
+    798,
+    845
+   ],
+   "rand_decoy": [
+    525,
+    245,
+    272,
+    391
+   ]
+  },
+  {
+   "cls": 510,
+   "name": "container_ship.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 100,
+   "nW": 4,
+   "cos10": 0.647,
+   "near10": [
+    536,
+    540,
+    833,
+    554,
+    403,
+    958,
+    718,
+    625,
+    517,
+    724
+   ],
+   "near10_names": [
+    "dock.n.05",
+    "drilling_platform.n.01",
+    "submarine.n.01",
+    "fireboat.n.01",
+    "aircraft_carrier.n.01",
+    "hay.n.01",
+    "pier.n.03",
+    "lifeboat.n.01",
+    "crane.n.04",
+    "pirate.n.03"
+   ],
+   "rel_decoy": [
+    536,
+    540
+   ],
+   "rand_decoy": [
+    979,
+    728,
+    574,
+    222
+   ]
+  },
+  {
+   "cls": 475,
+   "name": "car_mirror.n.01",
+   "set": "B",
+   "stratum": "iso",
+   "level": 10,
+   "nW": 4,
+   "cos10": 0.773,
+   "near10": [
+    633,
+    836,
+    837,
+    785,
+    851,
+    447,
+    468,
+    487,
+    479,
+    759
+   ],
+   "near10_names": [
+    "loupe.n.01",
+    "sunglass.n.01",
+    "sunglasses.n.01",
+    "seat_belt.n.01",
+    "television.n.02",
+    "binoculars.n.01",
+    "cab.n.03",
+    "cellular_telephone.n.01",
+    "car_wheel.n.01",
+    "reflex_camera.n.01"
+   ],
+   "rel_decoy": [
+    633,
+    836
+   ],
+   "rand_decoy": [
+    703,
+    427,
+    478,
+    547
+   ]
+  }
+ ],
+ "relabel": [
+  {
+   "cls": 854,
+   "name": "theater_curtain.n.01",
+   "set": "A",
+   "source": 38,
+   "source_name": "banded_gecko.n.01",
+   "n": 10,
+   "near10": [
+    819,
+    794,
+    598,
+    857,
+    687,
+    578,
+    669,
+    399,
+    406,
+    601
+   ],
+   "source_near10": [
+    26,
+    27,
+    28,
+    29,
+    42,
+    41,
+    46,
+    45,
+    32,
+    25
+   ]
+  },
+  {
+   "cls": 992,
+   "name": "agaric.n.02",
+   "set": "A",
+   "source": 412,
+   "source_name": "ashcan.n.01",
+   "n": 10,
+   "near10": [
+    947,
+    997,
+    994,
+    619,
+    846,
+    996,
+    991,
+    989,
+    957,
+    37
+   ],
+   "source_near10": [
+    637,
+    756,
+    571,
+    704,
+    463,
+    653,
+    428,
+    427,
+    898,
+    886
+   ]
+  },
+  {
+   "cls": 113,
+   "name": "snail.n.01",
+   "set": "A",
+   "source": 392,
+   "source_name": "rock_beauty.n.01",
+   "n": 10,
+   "near10": [
+    114,
+    112,
+    988,
+    125,
+    990,
+    115,
+    117,
+    995,
+    110,
+    116
+   ],
+   "source_near10": [
+    393,
+    397,
+    973,
+    1,
+    390,
+    110,
+    115,
+    396,
+    983,
+    11
+   ]
+  },
+  {
+   "cls": 680,
+   "name": "nipple.n.02",
+   "set": "A",
+   "source": 7,
+   "source_name": "cock.n.05",
+   "n": 10,
+   "near10": [
+    898,
+    720,
+    845,
+    804,
+    631,
+    773,
+    585,
+    838,
+    438,
+    899
+   ],
+   "source_near10": [
+    8,
+    80,
+    93,
+    23,
+    396,
+    22,
+    9,
+    334,
+    96,
+    392
+   ]
+  },
+  {
+   "cls": 25,
+   "name": "european_fire_salamander.n.01",
+   "set": "B",
+   "source": 40,
+   "source_name": "american_chameleon.n.01",
+   "n": 10,
+   "near10": [
+    28,
+    26,
+    27,
+    45,
+    38,
+    32,
+    29,
+    237,
+    72,
+    158
+   ],
+   "source_near10": [
+    46,
+    42,
+    47,
+    31,
+    59,
+    39,
+    55,
+    41,
+    27,
+    38
+   ]
+  },
+  {
+   "cls": 997,
+   "name": "bolete.n.01",
+   "set": "B",
+   "source": 765,
+   "source_name": "rocking_chair.n.01",
+   "n": 10,
+   "near10": [
+    947,
+    992,
+    994,
+    996,
+    995,
+    991,
+    596,
+    993,
+    990,
+    677
+   ],
+   "source_near10": [
+    559,
+    857,
+    423,
+    703,
+    706,
+    612,
+    428,
+    532,
+    791,
+    583
+   ]
+  },
+  {
+   "cls": 82,
+   "name": "ruffed_grouse.n.01",
+   "set": "B",
+   "source": 689,
+   "source_name": "overskirt.n.01",
+   "n": 10,
+   "near10": [
+    86,
+    81,
+    83,
+    85,
+    67,
+    133,
+    80,
+    8,
+    138,
+    24
+   ],
+   "source_near10": [
+    601,
+    578,
+    411,
+    887,
+    501,
+    885,
+    452,
+    775,
+    655,
+    399
+   ]
+  },
+  {
+   "cls": 11,
+   "name": "goldfinch.n.02",
+   "set": "B",
+   "source": 301,
+   "source_name": "ladybug.n.01",
+   "n": 10,
+   "near10": [
+    10,
+    12,
+    392,
+    13,
+    14,
+    948,
+    19,
+    940,
+    984,
+    96
+   ],
+   "source_near10": [
+    304,
+    305,
+    309,
+    321,
+    989,
+    310,
+    307,
+    302,
+    308,
+    113
+   ]
+  }
+ ],
+ "noise": [
+  {
+   "cls": 122,
+   "name": "american_lobster.n.02",
+   "set": "A",
+   "source": 352,
+   "source_name": "impala.n.01",
+   "n": 10,
+   "near10": [
+    124,
+    118,
+    121,
+    123,
+    120,
+    119,
+    71,
+    125,
+    314,
+    315
+   ]
+  },
+  {
+   "cls": 821,
+   "name": "steel_arch_bridge.n.01",
+   "set": "A",
+   "source": 178,
+   "source_name": "weimaraner.n.01",
+   "n": 10,
+   "near10": [
+    718,
+    839,
+    888,
+    517,
+    525,
+    694,
+    540,
+    554,
+    727,
+    979
+   ]
+  },
+  {
+   "cls": 915,
+   "name": "yurt.n.01",
+   "set": "A",
+   "source": 511,
+   "source_name": "convertible.n.01",
+   "n": 10,
+   "near10": [
+    672,
+    645,
+    669,
+    660,
+    853,
+    980,
+    580,
+    797,
+    425,
+    727
+   ]
+  },
+  {
+   "cls": 952,
+   "name": "fig.n.04",
+   "set": "A",
+   "source": 47,
+   "source_name": "african_chameleon.n.01",
+   "n": 10,
+   "near10": [
+    957,
+    941,
+    948,
+    940,
+    942,
+    956,
+    990,
+    943,
+    939,
+    951
+   ]
+  },
+  {
+   "cls": 936,
+   "name": "head_cabbage.n.02",
+   "set": "B",
+   "source": 410,
+   "source_name": "apiary.n.01",
+   "n": 10,
+   "near10": [
+    938,
+    937,
+    939,
+    944,
+    582,
+    738,
+    943,
+    952,
+    956,
+    728
+   ]
+  },
+  {
+   "cls": 118,
+   "name": "dungeness_crab.n.02",
+   "set": "B",
+   "source": 332,
+   "source_name": "angora.n.03",
+   "n": 10,
+   "near10": [
+    120,
+    121,
+    119,
+    122,
+    124,
+    125,
+    123,
+    71,
+    78,
+    36
+   ]
+  },
+  {
+   "cls": 366,
+   "name": "gorilla.n.01",
+   "set": "B",
+   "source": 1,
+   "source_name": "goldfish.n.01",
+   "n": 10,
+   "near10": [
+    367,
+    365,
+    369,
+    379,
+    368,
+    372,
+    381,
+    374,
+    373,
+    371
+   ]
+  },
+  {
+   "cls": 617,
+   "name": "lab_coat.n.01",
+   "set": "B",
+   "source": 414,
+   "source_name": "backpack.n.01",
+   "n": 10,
+   "near10": [
+    823,
+    906,
+    869,
+    793,
+    845,
+    678,
+    697,
+    457,
+    834,
+    424
+   ]
+  }
+ ]
+}
