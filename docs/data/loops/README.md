@@ -25,7 +25,7 @@
 | `interim_2110/` | Interim tables for the basis tests and width sweep |
 | `predictions_abc.md`, `predictions_abc_amendment_1.md` … `_4.md` | Tests A (level), B (gate and deep supervision), C (why the cosine gains), the 2 × 2 scale design, the readout-scale grid and the level test L; each written before its runs |
 | `review_abc.json` | Design, code and config review of tests A-C (two skeptics per high-severity issue), and two literature reports (looped training speed; deep supervision and gates) |
-| `verify_75e.json` | Verification of REPRODUCTION.md §7.5e (numbers, rules, skeptic; every issue applied) |
+| `verify_75e.json`, `verify_75e_final.json` | Verifications of REPRODUCTION.md §7.5e (numbers, rules, skeptic; every issue applied) |
 | `code_versions.txt` | Commits and the sha256 of `rcdl/facts.py` used by each group of runs |
 | `results/facts_loops_why/` | Test C: kernel-width sweep, output-scale and learning-rate controls, probe runs, K = 4 at a = 0.25 |
 | `results/facts_loops_grid/` | Amendment 2: every family at K = 1 and 4 over initial output scales 1-16 (extended to 32 / 0.5 at the edges) |
