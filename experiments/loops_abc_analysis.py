@@ -360,9 +360,16 @@ def section_c(why, width_old):
   cls = []
   for s in SEEDS:
     vals = [per_seed_mean[s][sig] for _, sig in SIGMAS]
-    cls.append(None if None in vals else classify(vals))
+    missing = [sig for (tag, sig), v in zip(SIGMAS, vals) if v is None]
+    if not missing:
+      cls.append(classify(vals))
+    elif all(get(why, f'cos_w1536_s{tag}', K, s) for tag, sig in SIGMAS if sig in missing for K in (1, 4)):
+      cls.append('nt')                             # the runs exist but share fewer than 2 thresholds
+    else:
+      cls.append(None)
   S['C1_classes'] = cls
-  V['C1 (peak predicted)'] = 'pending' if None in cls else f'{verdict([c == "peak" for c in cls])} (s1 {cls[0]}, s2 {cls[1]})'
+  V['C1 (peak predicted)'] = ('pending' if None in cls else 'not testable (a sigma shares fewer than 2 thresholds)'
+                              if 'nt' in cls else f'{verdict([c == "peak" for c in cls])} (s1 {cls[0]}, s2 {cls[1]})')
   ovs = [overlap[s] for _, s in SIGMAS]
   vals = [avg([per_seed_mean[s][sig] for s in SEEDS]) for _, sig in SIGMAS]
   if None not in ovs and None not in vals:
